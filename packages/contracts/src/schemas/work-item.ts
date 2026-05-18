@@ -9,6 +9,7 @@ import {
   unknownRecordSchema,
   validateContractSchema,
 } from "../internal.js";
+import { evidenceBundleSchema } from "./evidence-bundle.js";
 
 export const workItemSchemaVersion = RUNX_LOGICAL_SCHEMAS.workItem;
 
@@ -192,6 +193,7 @@ export const workItemSchema = Type.Object(
     plan: Type.Optional(unknownRecordSchema()),
     owner_suggestion: Type.Optional(workItemOwnerSuggestionSchema),
     target_repo_suggestion: Type.Optional(workItemTargetRepoSuggestionSchema),
+    evidence_bundle: Type.Optional(evidenceBundleSchema),
     issue: Type.Optional(workItemProviderRefSchema),
     pull_request: Type.Optional(workItemProviderRefSchema),
     merge_gate: Type.Optional(workItemMergeGateSchema),

@@ -1,5 +1,5 @@
 skill: issue-intake
-version: "0.1.1"
+version: "0.1.2"
 
 catalog:
   kind: skill
@@ -20,6 +20,27 @@ harness:
           locator: https://github.com/example/repo/issues/101
           status: published
           thread_locator: github://example/repo/issues/101
+        evidence_bundle:
+          schema: runx.evidence_bundle.v1
+          evidence_bundle_id: eb_docs_work_101
+          subject_locator: github://example/repo/issues/101
+          hydration:
+            status: complete
+            summary: GitHub issue body was the complete evidence for this docs fix.
+          sources:
+            - provider: github
+              kind: source_thread
+              locator: github://example/repo/issues/101
+              thread_locator: github://example/repo/issues/101
+              title: README should point users to issue-to-pr
+              body_preview: The public docs should present issue-to-pr as the canonical command.
+              hydration_status: complete
+          redaction:
+            status: not_required
+            summary: No provider secrets or direct identifiers were present.
+          summary: Bounded docs evidence is ready for triage.
+          created_at: "2026-05-15T00:00:00Z"
+          updated_at: "2026-05-15T00:00:00Z"
         product_context: OSS runx documentation
         operator_context: Prefer the canonical issue-to-pr name in user-facing replies.
       caller:
@@ -99,6 +120,27 @@ harness:
                 rationale: The report is a bounded one-repo documentation fix with low risk.
               change_set:
                 change_set_id: change_set_docs_work_101
+              evidence_bundle:
+                schema: runx.evidence_bundle.v1
+                evidence_bundle_id: eb_docs_work_101
+                subject_locator: github://example/repo/issues/101
+                hydration:
+                  status: complete
+                  summary: GitHub issue body was the complete evidence for this docs fix.
+                sources:
+                  - provider: github
+                    kind: source_thread
+                    locator: github://example/repo/issues/101
+                    thread_locator: github://example/repo/issues/101
+                    title: README should point users to issue-to-pr
+                    body_preview: The public docs should present issue-to-pr as the canonical command.
+                    hydration_status: complete
+                redaction:
+                  status: not_required
+                  summary: No provider secrets or direct identifiers were present.
+                summary: Bounded docs evidence is ready for triage.
+                created_at: "2026-05-15T00:00:00Z"
+                updated_at: "2026-05-15T00:00:00Z"
               status_summary: Bounded docs fix is ready for issue-to-pr.
               created_at: "2026-05-15T00:00:00Z"
               updated_at: "2026-05-15T00:00:00Z"

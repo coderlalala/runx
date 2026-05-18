@@ -58,6 +58,7 @@ must be a hard cut with call sites, docs, and tests updated in one change.
 Public story markdown should summarize durable gates:
 
 - source thread and request
+- hydrated evidence status when adapter context was needed
 - triage decision
 - governed scafld task
 - build result

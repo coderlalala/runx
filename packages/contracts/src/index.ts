@@ -257,6 +257,31 @@ export {
 } from "./schemas/work-item.js";
 
 export {
+  evidenceBundleSchemaVersion,
+  evidenceBundleSourceProviders,
+  evidenceBundleHydrationStatuses,
+  evidenceBundleSourceKinds,
+  evidenceBundleRedactionStatuses,
+  evidenceBundleSourceProviderSchema,
+  evidenceBundleHydrationStatusSchema,
+  evidenceBundleSourceKindSchema,
+  evidenceBundleRedactionStatusSchema,
+  evidenceBundleSourceSchema,
+  evidenceBundleHydrationSchema,
+  evidenceBundleRedactionSchema,
+  evidenceBundleSchema,
+  validateEvidenceBundleContract,
+  type EvidenceBundleSourceProviderContract,
+  type EvidenceBundleHydrationStatusContract,
+  type EvidenceBundleSourceKindContract,
+  type EvidenceBundleRedactionStatusContract,
+  type EvidenceBundleSourceContract,
+  type EvidenceBundleHydrationContract,
+  type EvidenceBundleRedactionContract,
+  type EvidenceBundleContract,
+} from "./schemas/evidence-bundle.js";
+
+export {
   handoffSignalV1Schema,
   handoffStateV1Schema,
   suppressionRecordV1Schema,
@@ -283,6 +308,7 @@ import { toolManifestV1Schema } from "./schemas/tool-manifest.js";
 import { packetIndexV1Schema } from "./schemas/packet-index.js";
 import { capabilityExecutionV1Schema } from "./schemas/capability-execution.js";
 import { workItemSchema } from "./schemas/work-item.js";
+import { evidenceBundleSchema } from "./schemas/evidence-bundle.js";
 import { ledgerRecordSchema } from "./schemas/ledger.js";
 import { handoffSignalV1Schema, handoffStateV1Schema, suppressionRecordV1Schema } from "./schemas/handoff.js";
 
@@ -307,6 +333,7 @@ export const runxContractSchemas = {
   packetIndex: packetIndexV1Schema,
   capabilityExecution: capabilityExecutionV1Schema,
   workItem: workItemSchema,
+  evidenceBundle: evidenceBundleSchema,
   ledgerEntry: ledgerRecordSchema,
   handoffSignal: handoffSignalV1Schema,
   handoffState: handoffStateV1Schema,
@@ -339,6 +366,7 @@ export const runxGeneratedSchemaArtifacts = {
   "packet-index.schema.json": packetIndexV1Schema,
   "capability-execution.schema.json": capabilityExecutionV1Schema,
   "work-item.schema.json": workItemSchema,
+  "evidence-bundle.schema.json": evidenceBundleSchema,
   "ledger-entry.schema.json": ledgerRecordSchema,
   "handoff-signal.schema.json": handoffSignalV1Schema,
   "handoff-state.schema.json": handoffStateV1Schema,

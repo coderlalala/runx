@@ -239,6 +239,10 @@ runners:
         type: json
         required: false
         description: "Optional runx.work_item.v1 packet tying intake, dedupe, triage, issue, PR, merge gate, and outcome together."
+      evidence_bundle:
+        type: json
+        required: false
+        description: "Optional runx.evidence_bundle.v1 packet with hydrated provider evidence gathered before mutation."
       target_repo:
         type: string
         required: false

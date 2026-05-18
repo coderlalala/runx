@@ -93,6 +93,21 @@ decision, current lifecycle state, and status summary. This packet is the
 portable control-plane state that `work-plan`, `issue-to-pr`, hosted queues,
 and source-thread projections preserve.
 
+When an adapter has provider evidence beyond the visible thread text, emit
+`evidence_bundle` and attach it to `work_item.evidence_bundle`. The bundle must
+follow `runx.evidence_bundle.v1` and summarize hydrated provider context such
+as Slack thread text, Sentry event detail, GitHub issue comments, logs, or
+deployment observations. Source adapters own provider-specific fetching and
+redaction before calling this skill; this skill only reasons over the supplied,
+reviewer-safe bundle.
+
+Hydration is a gate, not a best-effort decoration. If the supplied
+`evidence_bundle.hydration.status` is `needed`, do not select
+`action_decision=proceed_to_build`. Use `manual-review` or `request_review` and
+explain the missing adapter evidence in `operator_notes`. If hydration is
+`unavailable`, use the remaining evidence only when it is still concrete enough
+for a bounded reply, plan, or PR; otherwise stop for human review.
+
 The `change_set` is the parent artifact for any later planning or worker
 fanout. It is what keeps multiple repo-scoped lanes aligned to one shared
 objective.
@@ -167,6 +182,8 @@ Prefer conservative routing:
   thread
 - `outbox_entry` (optional): current outbox entry for replies, draft changes,
   or refreshes
+- `evidence_bundle` (optional): provider-neutral `runx.evidence_bundle.v1`
+  evidence gathered by the source adapter before triage
 - `product_context` (optional): product-specific constraints or routing hints
 - `operator_context` (optional): maintainer or support posture guidance
 - `source_event` (optional): admitted Slack, Sentry, GitHub, file, API, or

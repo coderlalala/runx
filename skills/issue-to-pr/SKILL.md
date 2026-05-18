@@ -162,6 +162,11 @@ empty file bundle is a terminal policy denial before `write-fix`.
 - `work_item`: optional `runx.work_item.v1` packet. Preserve source event,
   dedupe, triage, linked issue/PR, merge gate, and outcome fields as stateful
   context instead of reparsing source-thread prose.
+- `evidence_bundle`: optional `runx.evidence_bundle.v1` packet. Treat
+  `hydration.status=complete` evidence as source context for spec and fix
+  authoring. Treat `hydration.status=needed` as a blocker for mutation unless
+  the caller supplies a separate reviewed decision that explains why the
+  remaining evidence is sufficient.
 - `target_repo`: intended repository slug for PR packaging.
 - `repo_snapshot`: compact structured snapshot of the target repo.
 - `repo_snapshot_path`: optional path to a fuller repo snapshot artifact.

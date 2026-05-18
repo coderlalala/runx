@@ -9,6 +9,7 @@ queues may project the packet, but they do not replace it.
 OSS owns:
 
 - `runx.work_item.v1`
+- `runx.evidence_bundle.v1`
 - local skill inputs and outputs
 - source-thread and outbox packets
 - receipts and scafld-backed issue-to-PR execution
@@ -77,6 +78,27 @@ Dedupe never depends on a global keyword such as `BUG`. A work item carries:
 Adapters may suppress duplicate mutation after they find an exact already-open
 work item, but candidate duplicates remain visible to developers.
 
+## Evidence And Hydration
+
+The source event is not always enough evidence for a build lane. Slack alert
+cards, Sentry notifications, and truncated support summaries often point at
+richer provider context. Adapters should normalize that context into
+`runx.evidence_bundle.v1` before triage.
+
+The bundle records:
+
+- `hydration.status`: `complete`, `unavailable`, or `needed`
+- provider-neutral sources such as Slack thread, Sentry event, GitHub issue,
+  log, stacktrace, deployment, or user report
+- redaction status and summary
+- a bounded reviewer-safe summary
+
+Runx core does not know product channel names, Sentry projects, owner maps, or
+credential material. Those stay in adapters and hosted policy. When hydration
+is `needed`, issue intake should not proceed to a mutation lane until the
+adapter supplies the missing evidence or a human explicitly accepts the risk in
+the source thread.
+
 ## Source Thread Story
 
 Source-thread comments should tell the work story at gate moments:
@@ -91,6 +113,27 @@ Source-thread comments should tell the work story at gate moments:
 
 Receipts retain low-level evidence. Source threads should not become raw run
 logs, command dumps, local absolute paths, or repeated retry noise.
+
+## PR Review And Fix-Up
+
+Reviewing or repairing an open PR is work on the same work item, not a fresh
+source thread. Reusable lanes should preserve the original source locator,
+evidence bundle, outbox PR entry, and merge gate.
+
+Recommended split:
+
+- `pr-review`: consumes the PR diff, checks, review comments, source evidence,
+  and scafld review state; emits a reviewer-safe packet and one idempotent PR or
+  source-thread comment.
+- `pr-fix-up`: consumes an actionable review packet and the existing PR outbox
+  entry; applies bounded follow-up changes without creating a duplicate PR.
+- `merge-assist`: consumes provider observations after human review; summarizes
+  checks, deployment, verification, and remaining risk, then waits for a human
+  merge or records an observed terminal outcome.
+
+None of these lanes changes the merge authority rule: `merge_gate` is a human
+checkpoint. A runner may prepare context, apply review-requested fixes, and
+observe outcomes, but it must not merge the generated PR.
 
 ## Developer Status
 

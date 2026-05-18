@@ -25,6 +25,7 @@ import {
   validateCapabilityExecutionContract,
   validateDevReportContract,
   validateDoctorReportContract,
+  validateEvidenceBundleContract,
   validateHandoffSignalContract,
   validateHandoffStateContract,
   validateRegistryBindingContract,
@@ -221,10 +222,89 @@ describe("@runxhq/contracts", () => {
     expect(runxGeneratedSchemaArtifacts["doctor.schema.json"]).toBe(runxContractSchemas.doctor);
     expect(runxGeneratedSchemaArtifacts["capability-execution.schema.json"]).toBe(runxContractSchemas.capabilityExecution);
     expect(runxGeneratedSchemaArtifacts["work-item.schema.json"]).toBe(runxContractSchemas.workItem);
+    expect(runxGeneratedSchemaArtifacts["evidence-bundle.schema.json"]).toBe(runxContractSchemas.evidenceBundle);
     expect(runxGeneratedSchemaArtifacts["handoff-signal.schema.json"]).toBe(runxContractSchemas.handoffSignal);
     expect(runxGeneratedSchemaArtifacts["handoff-state.schema.json"]).toBe(runxContractSchemas.handoffState);
     expect(runxGeneratedSchemaArtifacts["suppression-record.schema.json"]).toBe(runxContractSchemas.suppressionRecord);
     expect(runxGeneratedSchemaArtifacts["review-receipt-output.schema.json"]).toBe(reviewReceiptOutputSchema);
+  });
+
+  it("owns hydrated issue evidence bundles", () => {
+    expect(RUNX_LOGICAL_SCHEMAS.evidenceBundle).toBe("runx.evidence_bundle.v1");
+    expect(RUNX_CONTRACT_IDS.evidenceBundle).toBe("https://schemas.runx.dev/runx/evidence-bundle/v1.json");
+    expect(validateEvidenceBundleContract({
+      schema: "runx.evidence_bundle.v1",
+      evidence_bundle_id: "eb_checkout_retry",
+      subject_locator: "github://runxhq/example/issues/101",
+      hydration: {
+        status: "complete",
+        summary: "Slack thread and Sentry issue event were hydrated before triage.",
+        requested_at: "2026-05-15T00:00:00Z",
+        completed_at: "2026-05-15T00:00:05Z",
+      },
+      sources: [
+        {
+          provider: "slack",
+          kind: "source_thread",
+          locator: "slack://T1/C1/171000.0001",
+          thread_locator: "slack://T1/C1/171000.0001",
+          title: "Checkout fails on discount retry",
+          body_preview: "Customer report plus support reproduction notes.",
+          hydration_status: "complete",
+          observed_at: "2026-05-15T00:00:00Z",
+        },
+        {
+          provider: "sentry",
+          kind: "stacktrace",
+          locator: "sentry://issues/987/events/latest",
+          url: "https://example.sentry.io/issues/987",
+          title: "DiscountRetryError",
+          body_preview: "Stacktrace and release metadata redacted before publication.",
+          hydration_status: "complete",
+          observed_at: "2026-05-15T00:00:03Z",
+          data: {
+            release: "api@abc123",
+            environment: "production",
+          },
+        },
+      ],
+      redaction: {
+        status: "applied",
+        summary: "Secrets and direct identifiers were redacted by the source adapter.",
+        secret_material: "omitted",
+        pii: "redacted",
+      },
+      summary: "Checkout retry failure has enough hydrated evidence for triage.",
+      created_at: "2026-05-15T00:00:00Z",
+      updated_at: "2026-05-15T00:00:05Z",
+    })).toMatchObject({
+      schema: "runx.evidence_bundle.v1",
+      hydration: {
+        status: "complete",
+      },
+      sources: [
+        {
+          provider: "slack",
+        },
+        {
+          provider: "sentry",
+        },
+      ],
+    });
+
+    expect(() => validateEvidenceBundleContract({
+      schema: "runx.evidence_bundle.v1",
+      evidence_bundle_id: "eb_thin_alert",
+      subject_locator: "sentry://issues/987",
+      hydration: {
+        status: "needed",
+        summary: "The Slack alert card is not sufficient for build triage.",
+      },
+      sources: [],
+      summary: "No usable source evidence yet.",
+      created_at: "2026-05-15T00:00:00Z",
+      updated_at: "2026-05-15T00:00:00Z",
+    })).toThrow(/evidence-bundle\/v1\.json/);
   });
 
   it("owns the portable work-item lifecycle contract", () => {
@@ -282,6 +362,38 @@ describe("@runxhq/contracts", () => {
         confidence: 0.86,
         rationale: "The source event points at the example checkout repo.",
       },
+      evidence_bundle: {
+        schema: "runx.evidence_bundle.v1",
+        evidence_bundle_id: "eb_checkout_retry",
+        subject_locator: "github://runxhq/example/issues/101",
+        hydration: {
+          status: "complete",
+          summary: "Slack and Sentry evidence were hydrated before build triage.",
+        },
+        sources: [
+          {
+            provider: "slack",
+            kind: "source_thread",
+            locator: "slack://T1/C1/171000.0001",
+            thread_locator: "slack://T1/C1/171000.0001",
+            title: "Checkout fails on discount retry",
+            body_preview: "Sentry and support both show checkout retry failures.",
+          },
+          {
+            provider: "sentry",
+            kind: "stacktrace",
+            locator: "sentry://issues/987/events/latest",
+            hydration_status: "complete",
+          },
+        ],
+        redaction: {
+          status: "applied",
+          summary: "Adapter removed secret-like values before publication.",
+        },
+        summary: "Hydrated evidence is ready for issue-to-pr.",
+        created_at: "2026-05-15T00:00:00Z",
+        updated_at: "2026-05-15T00:00:05Z",
+      },
       issue: {
         provider: "github",
         locator: "github://runxhq/example/issues/101",
@@ -309,6 +421,11 @@ describe("@runxhq/contracts", () => {
       },
       target_repo_suggestion: {
         repo: "runxhq/example",
+      },
+      evidence_bundle: {
+        hydration: {
+          status: "complete",
+        },
       },
       triage: {
         action: "issue-to-pr",

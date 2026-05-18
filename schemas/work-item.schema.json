@@ -362,6 +362,260 @@
         }
       }
     },
+    "evidence_bundle": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://schemas.runx.dev/runx/evidence-bundle/v1.json",
+      "x-runx-schema": "runx.evidence_bundle.v1",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "schema",
+        "evidence_bundle_id",
+        "subject_locator",
+        "hydration",
+        "sources",
+        "summary",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "schema": {
+          "const": "runx.evidence_bundle.v1",
+          "type": "string"
+        },
+        "evidence_bundle_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "subject_locator": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "hydration": {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "status",
+            "summary"
+          ],
+          "properties": {
+            "status": {
+              "anyOf": [
+                {
+                  "const": "complete",
+                  "type": "string"
+                },
+                {
+                  "const": "unavailable",
+                  "type": "string"
+                },
+                {
+                  "const": "needed",
+                  "type": "string"
+                }
+              ]
+            },
+            "summary": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "requested_at": {
+              "minLength": 1,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$",
+              "type": "string"
+            },
+            "completed_at": {
+              "minLength": 1,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$",
+              "type": "string"
+            },
+            "unavailable_reason": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        },
+        "sources": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "provider",
+              "kind",
+              "locator"
+            ],
+            "properties": {
+              "provider": {
+                "anyOf": [
+                  {
+                    "const": "slack",
+                    "type": "string"
+                  },
+                  {
+                    "const": "sentry",
+                    "type": "string"
+                  },
+                  {
+                    "const": "github",
+                    "type": "string"
+                  },
+                  {
+                    "const": "file",
+                    "type": "string"
+                  },
+                  {
+                    "const": "api",
+                    "type": "string"
+                  },
+                  {
+                    "const": "other",
+                    "type": "string"
+                  }
+                ]
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "const": "source_thread",
+                    "type": "string"
+                  },
+                  {
+                    "const": "alert",
+                    "type": "string"
+                  },
+                  {
+                    "const": "event",
+                    "type": "string"
+                  },
+                  {
+                    "const": "stacktrace",
+                    "type": "string"
+                  },
+                  {
+                    "const": "log",
+                    "type": "string"
+                  },
+                  {
+                    "const": "deployment",
+                    "type": "string"
+                  },
+                  {
+                    "const": "user_report",
+                    "type": "string"
+                  },
+                  {
+                    "const": "other",
+                    "type": "string"
+                  }
+                ]
+              },
+              "locator": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "thread_locator": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "provider_event_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "url": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "body_preview": {
+                "minLength": 1,
+                "maxLength": 2000,
+                "type": "string"
+              },
+              "hydration_status": {
+                "anyOf": [
+                  {
+                    "const": "complete",
+                    "type": "string"
+                  },
+                  {
+                    "const": "unavailable",
+                    "type": "string"
+                  },
+                  {
+                    "const": "needed",
+                    "type": "string"
+                  }
+                ]
+              },
+              "observed_at": {
+                "minLength": 1,
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$",
+                "type": "string"
+              },
+              "data": {
+                "type": "object",
+                "patternProperties": {
+                  "^(.*)$": {}
+                }
+              }
+            }
+          }
+        },
+        "redaction": {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "status",
+            "summary"
+          ],
+          "properties": {
+            "status": {
+              "anyOf": [
+                {
+                  "const": "applied",
+                  "type": "string"
+                },
+                {
+                  "const": "not_required",
+                  "type": "string"
+                }
+              ]
+            },
+            "summary": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "secret_material": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "pii": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        },
+        "summary": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "created_at": {
+          "minLength": 1,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$",
+          "type": "string"
+        },
+        "updated_at": {
+          "minLength": 1,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$",
+          "type": "string"
+        }
+      }
+    },
     "issue": {
       "additionalProperties": false,
       "type": "object",

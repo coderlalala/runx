@@ -21,6 +21,7 @@ The lane exists to make the engineering story reviewable:
 runx owns reusable machinery:
 
 - normalized source threads
+- provider-neutral evidence bundles
 - lifecycle story helpers
 - outbox entries and publication metadata
 - receipt evidence
@@ -39,8 +40,9 @@ Consuming repos own product policy:
 - deployment and live bot credentials
 
 That split keeps `issue-to-pr` reusable. A service repo can normalize Slack or
-Sentry into a `runx.thread.v1` source, but runx core should not know that
-Nitrosend uses a particular channel, label, or owner map.
+Sentry into a `runx.thread.v1` source and a redacted
+`runx.evidence_bundle.v1`, but runx core should not know that Nitrosend uses a
+particular channel, label, Sentry project, or owner map.
 
 ## Reviewer Context
 
@@ -53,6 +55,7 @@ reconstruct state from receipts.
 Good public story sections include:
 
 - source summary and relevant evidence
+- hydration status when adapter context was needed
 - triage decision and why build is justified
 - scoped files or surfaces
 - validation commands and results
@@ -85,6 +88,33 @@ update, not automatic merge.
 Retries must reuse the same outbox entry, issue comment, branch, and PR when
 possible. Duplicates are a correctness bug because the source thread is the
 control surface.
+
+## PR Review And Fix-Up Lanes
+
+`issue-to-pr` creates or refreshes the draft PR and publishes the merge-gate
+story. Adjacent PR work should stay as separate lanes over the same work item
+instead of being hidden inside merge authority:
+
+- `pr-review` reads the source thread, evidence bundle, scafld state, PR diff,
+  checks, and human review comments, then publishes one concise review packet.
+- `pr-fix-up` may apply bounded changes only when the review packet names
+  actionable findings and the source work item remains inside the approved
+  scope.
+- `merge-assist` observes merge readiness, checks, deployment, and verification
+  contracts, then posts a final recommendation or outcome. It does not click
+  merge.
+
+Those lanes share the same thread/outbox/work-item contracts:
+
+- input: `runx.thread.v1`, optional `runx.evidence_bundle.v1`, the draft PR
+  outbox entry, and current provider observations
+- output: updated story milestone, review or fix-up receipt, and an idempotent
+  source-thread or PR comment
+- gate: human merge stays outside runx mutation authority
+
+If a hosted operator wants auto-merge someday, that is a new policy surface with
+separate repo allowlists, branch protections, checks, audit events, and
+rollback contracts. It is not part of this lane.
 
 ## Live Operations Preflight
 
@@ -181,6 +211,8 @@ Mapping:
 - Aster `fix-pr` and `docs-pr` prepare repo-local policy: target repo, branch,
   authoring model, labels, and publication gate.
 - The normalized source issue becomes the `thread` input for `issue-to-pr`.
+- Hydrated provider context becomes the `evidence_bundle` input and should
+  already be redacted by the adapter.
 - `issue-to-pr` owns scafld lifecycle, draft PR packaging, receipts, and generic
   GitHub thread updates.
 - Aster keeps the rolling work-issue status comment and generated-PR policy.
