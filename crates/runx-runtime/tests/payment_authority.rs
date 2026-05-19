@@ -1,7 +1,8 @@
 use runx_contracts::{
-    AuthorityBounds, AuthorityCapability, AuthorityResourceFamily, AuthorityTerm, AuthorityVerb,
-    Decision, DecisionChoice, DecisionInputs, DecisionJustification, Intent,
-    PaymentAuthorityBounds, PaymentCredentialForm, Reference, ReferenceType,
+    AuthorityApproval, AuthorityBounds, AuthorityCapability, AuthorityCondition,
+    AuthorityConditionPredicate, AuthorityResourceFamily, AuthorityTerm, AuthorityVerb, Decision,
+    DecisionChoice, DecisionInputs, DecisionJustification, Intent, PaymentAuthorityBounds,
+    PaymentCredentialForm, Reference, ReferenceType,
 };
 use runx_runtime::{
     PaymentAuthorityError, PaymentRailAuthorization, PaymentRailAuthorizationDecision,
@@ -46,6 +47,44 @@ fn denies_amount_widening_before_rail() {
         scenario.authorize(),
         Err(PaymentAuthorityError::AuthorityNotSubset)
     );
+}
+
+#[test]
+fn denies_spend_derived_from_reserve_only_parent() {
+    let mut scenario = PaymentScenario::standard();
+    scenario.parent.verbs = vec![AuthorityVerb::Reserve, AuthorityVerb::Verify];
+
+    assert_eq!(
+        scenario.authorize(),
+        Err(PaymentAuthorityError::AuthorityNotSubset)
+    );
+}
+
+#[test]
+fn denies_removing_parent_conditions_or_approvals() {
+    let mut scenario = PaymentScenario::standard();
+    scenario.parent.conditions = vec![payment_condition()];
+    scenario.parent.approvals = vec![payment_approval()];
+    scenario.child.conditions = Vec::new();
+    scenario.child.approvals = Vec::new();
+
+    assert_eq!(
+        scenario.authorize(),
+        Err(PaymentAuthorityError::AuthorityNotSubset)
+    );
+}
+
+#[test]
+fn admits_child_that_preserves_parent_conditions_and_approvals() {
+    let mut scenario = PaymentScenario::standard();
+    let condition = payment_condition();
+    let approval = payment_approval();
+    scenario.parent.conditions = vec![condition.clone()];
+    scenario.parent.approvals = vec![approval.clone()];
+    scenario.child.conditions = vec![condition];
+    scenario.child.approvals = vec![approval];
+
+    assert_eq!(scenario.authorize(), Ok(()));
 }
 
 #[test]
@@ -393,5 +432,26 @@ fn reference(reference_type: ReferenceType, uri: &str) -> Reference {
         locator: None,
         label: None,
         observed_at: None,
+    }
+}
+
+fn payment_condition() -> AuthorityCondition {
+    AuthorityCondition {
+        condition_id: "condition_payment_receipt".to_owned(),
+        predicate: AuthorityConditionPredicate::PaymentReceiptPresent,
+        refs: Vec::new(),
+        parameters: None,
+    }
+}
+
+fn payment_approval() -> AuthorityApproval {
+    AuthorityApproval {
+        approval_ref: reference(ReferenceType::Decision, "runx:decision:payment-approval"),
+        approved_by_ref: Some(reference(
+            ReferenceType::Principal,
+            "runx:principal:operator",
+        )),
+        approved_at: Some("2026-05-20T00:00:00Z".to_owned()),
+        criterion_ids: vec!["payment_receipt".to_owned()],
     }
 }
