@@ -25,6 +25,10 @@ pub enum RuntimeError {
     StepMissing { step_id: String },
     #[error("graph step '{step_id}' has no skill target")]
     StepMissingSkill { step_id: String },
+    #[error("graph step '{step_id}' has invalid run configuration: {reason}")]
+    InvalidRunStep { step_id: String, reason: String },
+    #[error("graph step '{step_id}' uses unsupported run type '{run_type}'")]
+    UnsupportedRunStep { step_id: String, run_type: String },
     #[error("graph step '{step_id}' is blocked: {reason}")]
     GraphBlocked { step_id: String, reason: String },
     #[error("graph step '{step_id}' failed planning: {reason}")]

@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use runx_contracts::{
-    ExecutionEvent, FanoutReceiptDecision, FanoutReceiptStrategy, FanoutReceiptSyncPoint,
-    JsonObject,
+    ApprovalGate, ExecutionEvent, FanoutReceiptDecision, FanoutReceiptStrategy,
+    FanoutReceiptSyncPoint, JsonObject, JsonValue, ResolutionResponseActor,
 };
 use runx_core::state_machine::{
     FanoutBranchResult, FanoutGroupPolicy, FanoutSyncDecision, FanoutSyncOutcome,
@@ -18,6 +18,7 @@ use runx_parser::{ExecutionGraph, GraphStep};
 
 use crate::RuntimeError;
 use crate::adapter::{InvocationStatus, SkillAdapter, SkillInvocation, SkillOutput};
+use crate::approval::{ApprovalResolution, request_approval};
 use crate::caller::{Caller, NoopCaller};
 use crate::fanout::fanout_policies;
 use crate::graph::{find_step, load_graph, load_skill, output_object, resolve_inputs, skill_dir};
@@ -514,6 +515,7 @@ impl GraphExecution {
         A: SkillAdapter,
     {
         let step = find_step(graph, plan.step_id)?;
+        enforce_transition_gates(graph, step, &self.runs)?;
         self.record(caller, started_event(plan.step_id))?;
         self.start_step(runtime, plan.step_id);
         let run = match run_step(
@@ -523,6 +525,7 @@ impl GraphExecution {
             step,
             plan.attempt,
             &self.runs,
+            caller,
         ) {
             Ok(run) => run,
             Err(error) if plan.failure_mode == StepFailureMode::RecordAndContinue => {
@@ -686,6 +689,73 @@ fn reached_step_limit(initial: usize, current: usize, max_new_steps: Option<usiz
     max_new_steps.is_some_and(|max| current.saturating_sub(initial) >= max)
 }
 
+fn enforce_transition_gates(
+    graph: &ExecutionGraph,
+    step: &GraphStep,
+    runs: &[StepRun],
+) -> Result<(), RuntimeError> {
+    let Some(policy) = &graph.policy else {
+        return Ok(());
+    };
+    for gate in policy.transitions.iter().filter(|gate| gate.to == step.id) {
+        let Some(value) = transition_field_value(&gate.field, runs) else {
+            return Err(RuntimeError::GraphBlocked {
+                step_id: step.id.clone(),
+                reason: format!("transition gate '{}' is unresolved", gate.field),
+            });
+        };
+        if let Some(expected) = &gate.equals
+            && value != expected
+        {
+            return Err(RuntimeError::GraphBlocked {
+                step_id: step.id.clone(),
+                reason: format!(
+                    "transition gate '{}' expected {}",
+                    gate.field,
+                    display_json(expected)
+                ),
+            });
+        }
+        if let Some(disallowed) = &gate.not_equals
+            && value == disallowed
+        {
+            return Err(RuntimeError::GraphBlocked {
+                step_id: step.id.clone(),
+                reason: format!(
+                    "transition gate '{}' must not equal {}",
+                    gate.field,
+                    display_json(disallowed)
+                ),
+            });
+        }
+        if gate.equals.is_none() && gate.not_equals.is_none() {
+            return Err(RuntimeError::GraphBlocked {
+                step_id: step.id.clone(),
+                reason: format!("transition gate '{}' has no comparison", gate.field),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn transition_field_value<'a>(field: &str, runs: &'a [StepRun]) -> Option<&'a JsonValue> {
+    let mut segments = field.split('.');
+    let step_id = segments.next()?;
+    let run = runs.iter().rev().find(|run| run.step_id == step_id)?;
+    let mut value = segments.next().and_then(|first| run.outputs.get(first))?;
+    for segment in segments {
+        let JsonValue::Object(object) = value else {
+            return None;
+        };
+        value = object.get(segment)?;
+    }
+    Some(value)
+}
+
+fn display_json(value: &JsonValue) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "<unprintable>".to_owned())
+}
+
 fn output_error(run: &StepRun) -> String {
     if run.output.stderr.is_empty() {
         "cli-tool failed without stderr".to_owned()
@@ -701,13 +771,18 @@ fn run_step<A>(
     step: &GraphStep,
     attempt: u32,
     prior_runs: &[StepRun],
+    caller: &mut dyn Caller,
 ) -> Result<StepRun, RuntimeError>
 where
     A: SkillAdapter,
 {
+    let inputs = resolve_inputs(step, prior_runs)?;
+    if step.run.is_some() {
+        return run_native_step(runtime, graph_name, step, attempt, inputs, caller);
+    }
+
     let skill_dir = skill_dir(graph_dir, step)?;
     let skill = load_skill(&skill_dir)?;
-    let inputs = resolve_inputs(step, prior_runs)?;
     let skill_name = skill.name.clone();
     let output = runtime.adapter.invoke(SkillInvocation {
         skill_name: skill.name,
@@ -735,6 +810,234 @@ where
         outputs,
         receipt,
     })
+}
+
+fn run_native_step<A>(
+    runtime: &Runtime<A>,
+    graph_name: &str,
+    step: &GraphStep,
+    attempt: u32,
+    inputs: JsonObject,
+    caller: &mut dyn Caller,
+) -> Result<StepRun, RuntimeError>
+where
+    A: SkillAdapter,
+{
+    let run_type = run_type(step)?;
+    match run_type.as_str() {
+        "approval" => run_approval_step(runtime, graph_name, step, attempt, inputs, caller),
+        other => Err(RuntimeError::UnsupportedRunStep {
+            step_id: step.id.clone(),
+            run_type: other.to_owned(),
+        }),
+    }
+}
+
+fn run_approval_step<A>(
+    runtime: &Runtime<A>,
+    graph_name: &str,
+    step: &GraphStep,
+    attempt: u32,
+    inputs: JsonObject,
+    caller: &mut dyn Caller,
+) -> Result<StepRun, RuntimeError>
+where
+    A: SkillAdapter,
+{
+    let gate = approval_gate(step, &inputs)?;
+    let request_id = format!("{}_approval", step.id);
+    let resolution = request_approval(caller, request_id, gate.clone()).map_err(|source| {
+        RuntimeError::InvalidRunStep {
+            step_id: step.id.clone(),
+            reason: source.to_string(),
+        }
+    })?;
+    let outputs = approval_outputs(step, &gate, &resolution)?;
+    let stdout = serde_json::to_string(&outputs)
+        .map_err(|source| RuntimeError::json("serializing approval run output", source))?;
+    let output = SkillOutput {
+        status: InvocationStatus::Success,
+        stdout,
+        stderr: String::new(),
+        exit_code: Some(0),
+        duration_ms: 0,
+        metadata: JsonObject::new(),
+    };
+    let receipt = step_receipt(
+        graph_name,
+        &step.id,
+        attempt,
+        &output,
+        &runtime.options.created_at,
+    )?;
+    Ok(StepRun {
+        step_id: step.id.clone(),
+        attempt,
+        skill: "run:approval".to_owned(),
+        runner: step.runner.clone(),
+        fanout_group: step.fanout_group.clone(),
+        output,
+        outputs,
+        receipt,
+    })
+}
+
+fn run_type(step: &GraphStep) -> Result<String, RuntimeError> {
+    let Some(run) = &step.run else {
+        return Err(RuntimeError::InvalidRunStep {
+            step_id: step.id.clone(),
+            reason: "missing run configuration".to_owned(),
+        });
+    };
+    let Some(value) = run.get("type") else {
+        return Err(RuntimeError::InvalidRunStep {
+            step_id: step.id.clone(),
+            reason: "run.type is required".to_owned(),
+        });
+    };
+    string_value(step, "run.type", value)
+}
+
+fn approval_gate(step: &GraphStep, inputs: &JsonObject) -> Result<ApprovalGate, RuntimeError> {
+    let gate_id = required_input_string(step, inputs, "gate_id")?;
+    let reason = required_input_string(step, inputs, "reason")?;
+    let gate_type = optional_input_string(step, inputs, "gate_type")?;
+    let summary = approval_summary(inputs);
+    Ok(ApprovalGate {
+        id: gate_id,
+        reason,
+        gate_type,
+        summary,
+    })
+}
+
+fn approval_summary(inputs: &JsonObject) -> Option<JsonObject> {
+    let mut summary = JsonObject::new();
+    for (key, value) in inputs {
+        if matches!(key.as_str(), "gate_id" | "reason" | "gate_type") {
+            continue;
+        }
+        summary.insert(key.clone(), value.clone());
+    }
+    (!summary.is_empty()).then_some(summary)
+}
+
+fn approval_outputs(
+    step: &GraphStep,
+    gate: &ApprovalGate,
+    resolution: &ApprovalResolution,
+) -> Result<JsonObject, RuntimeError> {
+    let mut data = JsonObject::new();
+    data.insert("approved".to_owned(), approved_value(resolution));
+    data.insert("gate_id".to_owned(), JsonValue::String(gate.id.clone()));
+    data.insert(
+        "idempotency_key".to_owned(),
+        JsonValue::String(resolution.idempotency_key().to_owned()),
+    );
+    data.insert(
+        "status".to_owned(),
+        JsonValue::String(approval_status(resolution).to_owned()),
+    );
+    if let Some(actor) = resolution.actor() {
+        data.insert("actor".to_owned(), JsonValue::String(actor_name(actor)));
+    }
+
+    let mut packet = JsonObject::new();
+    if let Some(packet_id) = artifact_packet(step)? {
+        packet.insert("packet".to_owned(), JsonValue::String(packet_id));
+    }
+    packet.insert("data".to_owned(), JsonValue::Object(data));
+
+    let mut outputs = JsonObject::new();
+    outputs.insert(
+        artifact_wrap_as(step)?.to_owned(),
+        JsonValue::Object(packet),
+    );
+    Ok(outputs)
+}
+
+fn approved_value(resolution: &ApprovalResolution) -> JsonValue {
+    resolution
+        .approved()
+        .map_or(JsonValue::Null, JsonValue::Bool)
+}
+
+fn approval_status(resolution: &ApprovalResolution) -> &'static str {
+    match resolution {
+        ApprovalResolution::Approved { .. } => "approved",
+        ApprovalResolution::Denied { .. } => "denied",
+        ApprovalResolution::Pending { .. } => "pending",
+    }
+}
+
+fn actor_name(actor: &ResolutionResponseActor) -> String {
+    match actor {
+        ResolutionResponseActor::Human => "human".to_owned(),
+        ResolutionResponseActor::Agent => "agent".to_owned(),
+    }
+}
+
+fn artifact_wrap_as(step: &GraphStep) -> Result<&str, RuntimeError> {
+    let Some(artifacts) = &step.artifacts else {
+        return Ok("approval");
+    };
+    let Some(value) = artifacts.get("wrap_as") else {
+        return Ok("approval");
+    };
+    string_value_ref(step, "artifacts.wrap_as", value)
+}
+
+fn artifact_packet(step: &GraphStep) -> Result<Option<String>, RuntimeError> {
+    let Some(artifacts) = &step.artifacts else {
+        return Ok(None);
+    };
+    let Some(value) = artifacts.get("packet") else {
+        return Ok(None);
+    };
+    Ok(Some(string_value(step, "artifacts.packet", value)?))
+}
+
+fn required_input_string(
+    step: &GraphStep,
+    inputs: &JsonObject,
+    field: &str,
+) -> Result<String, RuntimeError> {
+    let Some(value) = inputs.get(field) else {
+        return Err(RuntimeError::InvalidRunStep {
+            step_id: step.id.clone(),
+            reason: format!("{field} input is required"),
+        });
+    };
+    string_value(step, field, value)
+}
+
+fn optional_input_string(
+    step: &GraphStep,
+    inputs: &JsonObject,
+    field: &str,
+) -> Result<Option<String>, RuntimeError> {
+    let Some(value) = inputs.get(field) else {
+        return Ok(None);
+    };
+    Ok(Some(string_value(step, field, value)?))
+}
+
+fn string_value(step: &GraphStep, field: &str, value: &JsonValue) -> Result<String, RuntimeError> {
+    Ok(string_value_ref(step, field, value)?.to_owned())
+}
+
+fn string_value_ref<'a>(
+    step: &GraphStep,
+    field: &str,
+    value: &'a JsonValue,
+) -> Result<&'a str, RuntimeError> {
+    let JsonValue::String(value) = value else {
+        return Err(RuntimeError::InvalidRunStep {
+            step_id: step.id.clone(),
+            reason: format!("{field} must be a string"),
+        });
+    };
+    Ok(value)
 }
 
 fn runtime_error_step_run<A>(

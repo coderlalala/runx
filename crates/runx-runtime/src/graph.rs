@@ -119,5 +119,18 @@ fn context_output(
             reason: "context source step has not run".to_owned(),
         });
     };
-    Ok(run.outputs.get(output).cloned().unwrap_or(JsonValue::Null))
+    Ok(resolve_output_path(&run.outputs, output).unwrap_or(JsonValue::Null))
+}
+
+fn resolve_output_path(outputs: &JsonObject, output: &str) -> Option<JsonValue> {
+    let mut segments = output.split('.');
+    let first = segments.next()?;
+    let mut value = outputs.get(first)?;
+    for segment in segments {
+        let JsonValue::Object(object) = value else {
+            return None;
+        };
+        value = object.get(segment)?;
+    }
+    Some(value.clone())
 }
