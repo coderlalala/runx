@@ -2,8 +2,8 @@
 spec_version: '2.0'
 task_id: rust-runx-cli-placeholder
 created: '2026-05-15T13:05:00Z'
-updated: '2026-05-15T13:05:00Z'
-status: draft
+updated: '2026-05-19T01:29:51Z'
+status: completed
 harden_status: not_run
 size: small
 risk_level: low
@@ -13,14 +13,14 @@ risk_level: low
 
 ## Current State
 
-Status: draft
-Current phase: none
-Next: approve
-Reason: draft created
+Status: completed
+Current phase: final
+Next: done
+Reason: task completed
 Blockers: none
-Allowed follow-up command: `scafld harden rust-runx-cli-placeholder`
-Latest runner update: none
-Review gate: not_started
+Allowed follow-up command: `none`
+Latest runner update: 2026-05-19T01:29:51Z
+Review gate: pass
 
 ## Summary
 
@@ -135,142 +135,111 @@ Out of scope:
 
 Profile: standard
 
-Definition of done:
-- [ ] `dod1` `crates/runx-cli` exists and installs a binary named `runx`.
-- [ ] `dod2` launcher defaults to `@runxhq/cli@latest`.
-- [ ] `dod3` launcher planning is unit-tested without process execution.
-- [ ] `dod4` README accurately describes placeholder status and runtime
-  requirements.
-- [ ] `dod5` Rust checks are documented and wired into CI or explicitly noted
-  as pending if Rust is unavailable locally.
-- [ ] `dod6` The crate docs do not imply native feature parity; they point to
-  the CLI feature-parity matrix for any future rewrite.
-
 Validation:
-- [ ] `v1` command - Cargo package metadata is valid.
-  - Command: `cargo metadata --format-version 1 --no-deps`
+- [x] `v1` command - Cargo package metadata is valid.
+  - Command: `cargo metadata --manifest-path crates/Cargo.toml --format-version 1 --no-deps`
   - Expected kind: `exit_code_zero`
-  - Timeout seconds: none
-  - Result: none
-  - Status: pending
-  - Evidence: none
-  - Source event: none
-  - Last attempt: none
-  - Checked at: none
-- [ ] `v2` command - Rust launcher checks pass.
-  - Command: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && cargo package -p runx-cli`
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-39
+- [x] `v2` command - Rust launcher checks pass.
+  - Command: `cargo fmt --manifest-path crates/Cargo.toml --all --check && cargo clippy --manifest-path crates/Cargo.toml --workspace --all-targets -- -D warnings && cargo test --manifest-path crates/Cargo.toml --workspace && cargo package --manifest-path crates/Cargo.toml -p runx-cli`
   - Expected kind: `exit_code_zero`
-  - Timeout seconds: none
-  - Result: none
-  - Status: pending
-  - Evidence: none
-  - Source event: none
-  - Last attempt: none
-  - Checked at: none
-- [ ] `v3` command - default latest npm package is visible in source and docs.
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-40
+- [x] `v3` command - default latest npm package is visible in source and docs.
   - Command: `rg -n '@runxhq/cli@latest' crates/runx-cli`
   - Expected kind: `exit_code_zero`
-  - Timeout seconds: none
-  - Result: none
-  - Status: pending
-  - Evidence: none
-  - Source event: none
-  - Last attempt: none
-  - Checked at: none
-- [ ] `v4` command - binary name is `runx`.
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-41
+- [x] `v4` command - binary name is `runx`.
   - Command: `rg -n 'name = "runx"' crates/runx-cli/Cargo.toml`
   - Expected kind: `exit_code_zero`
-  - Timeout seconds: none
-  - Result: none
-  - Status: pending
-  - Evidence: none
-  - Source event: none
-  - Last attempt: none
-  - Checked at: none
-- [ ] `v5` command - TypeScript fast verification remains green.
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-42
+- [x] `v5` command - TypeScript fast verification remains green.
   - Command: `pnpm verify:fast`
   - Expected kind: `exit_code_zero`
-  - Timeout seconds: none
-  - Result: none
-  - Status: pending
-  - Evidence: none
-  - Source event: none
-  - Last attempt: none
-  - Checked at: none
-- [ ] `v6` command - placeholder docs avoid feature-parity claims.
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-43
+- [x] `v6` command - placeholder docs avoid feature-parity claims.
   - Command: `! rg -n 'self-contained|native implementation|feature.?equivalent|drop-in replacement' crates/runx-cli/README.md crates/README.md`
   - Expected kind: `exit_code_zero`
-  - Timeout seconds: none
-  - Result: none
-  - Status: pending
-  - Evidence: none
-  - Source event: none
-  - Last attempt: none
-  - Checked at: none
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-44
 
 ## Phase 1: Cargo workspace and launcher
 
-Goal: Add the minimal Cargo workspace and launcher crate.
-
-Status: pending
+Status: completed
 Dependencies: none
 
+Objective: Complete this phase.
+
 Changes:
-- `crates/Cargo.toml` (all, exclusive) - Define Rust 2024 workspace, resolver,
-  MSRV, package metadata, and shared lints.
+- `crates/Cargo.toml` (all, exclusive) - Define Rust 2024 workspace, resolver, MSRV, package metadata, and shared lints.
 - `crates/rustfmt.toml` (all, exclusive) - Set formatting defaults.
-- `crates/runx-cli/Cargo.toml` (all, exclusive) - Define package metadata and
-  binary named `runx`.
-- `crates/runx-cli/src/main.rs` (all, exclusive) - Implement process execution
-  boundary only.
-- `crates/runx-cli/src/lib.rs` (all, exclusive) - Export testable launcher
-  planning code.
-- `crates/runx-cli/src/launcher.rs` (all, exclusive) - Plan delegation to npm
-  or local JS entrypoint and test the decision logic.
+- `crates/runx-cli/Cargo.toml` (all, exclusive) - Define package metadata and binary named `runx`.
+- `crates/runx-cli/src/main.rs` (all, exclusive) - Implement process execution boundary only.
+- `crates/runx-cli/src/lib.rs` (all, exclusive) - Export testable launcher planning code.
+- `crates/runx-cli/src/launcher.rs` (all, exclusive) - Plan delegation to npm or local JS entrypoint and test the decision logic.
 
 Acceptance:
-- [ ] `ac1_1` command - package installs a `runx` binary by metadata.
+- [x] `ac1_1` command - package installs a `runx` binary by metadata.
   - Command: `rg -n 'name = "runx"' crates/runx-cli/Cargo.toml`
   - Expected kind: `exit_code_zero`
-  - Status: pending
-- [ ] `ac1_2` command - launcher has no third-party dependencies.
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-6
+- [x] `ac1_2` command - launcher has no third-party dependencies.
   - Command: `! rg -n '^\\[dependencies\\]|clap|anyhow|tokio|reqwest|rmcp' crates/runx-cli/Cargo.toml crates/runx-cli/src`
   - Expected kind: `exit_code_zero`
-  - Status: pending
-- [ ] `ac1_3` command - launcher defaults to latest npm CLI.
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-7
+- [x] `ac1_3` command - launcher defaults to latest npm CLI.
   - Command: `rg -n '@runxhq/cli@latest' crates/runx-cli/src crates/runx-cli/README.md`
   - Expected kind: `exit_code_zero`
-  - Status: pending
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-8
 
 ## Phase 2: Documentation and CI
 
-Goal: Make placeholder status and validation explicit.
-
-Status: pending
+Status: completed
 Dependencies: Phase 1
 
+Objective: Complete this phase.
+
 Changes:
-- `crates/README.md` (all, exclusive) - Document Rust workspace commands and
-  current placeholder status.
-- `crates/runx-cli/README.md` (partial, exclusive) - Document Cargo install,
-  Node/npm requirement, `RUNX_NPM_PACKAGE`, `RUNX_JS_BIN`, and shim flags.
+- `crates/README.md` (all, exclusive) - Document Rust workspace commands and current placeholder status.
+- `crates/runx-cli/README.md` (partial, exclusive) - Document Cargo install, Node/npm requirement, `RUNX_NPM_PACKAGE`, `RUNX_JS_BIN`, and shim flags.
 - `.gitignore` (partial, shared) - Ignore Cargo `target/`.
-- `.github/workflows/ci.yml` (partial, shared) - Add Rust check steps if this
-  repo wants CI coverage immediately.
+- `.github/workflows/ci.yml` (partial, shared) - Add Rust check steps if this repo wants CI coverage immediately.
 
 Acceptance:
-- [ ] `ac2_1` command - README states Node/npm requirement.
+- [x] `ac2_1` command - README states Node/npm requirement.
   - Command: `rg -n 'Node\\.js|npm|@runxhq/cli@latest|RUNX_NPM_PACKAGE|RUNX_JS_BIN' crates/runx-cli/README.md`
   - Expected kind: `exit_code_zero`
-  - Status: pending
-- [ ] `ac2_2` command - Cargo target is ignored.
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-23
+- [x] `ac2_2` command - Cargo target is ignored.
   - Command: `rg -n 'target/' .gitignore`
   - Expected kind: `exit_code_zero`
-  - Status: pending
-- [ ] `ac2_3` command - CI contains Rust checks or docs state local-only.
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-24
+- [x] `ac2_3` command - CI contains Rust checks or docs state local-only.
   - Command: `rg -n 'cargo fmt|cargo clippy|cargo test|runx-cli|local-only' .github/workflows/ci.yml crates/README.md`
   - Expected kind: `exit_code_zero`
-  - Status: pending
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-25
 
 ## Rollback
 
@@ -284,26 +253,19 @@ Commands:
 
 ## Review
 
-Status: not_started
-Verdict: none
-Timestamp: none
-Review rounds: none
-Reviewer mode: none
-Reviewer session: none
-Round status: none
-Override applied: none
-Override reason: none
-Override confirmed at: none
-Reviewed head: none
-Reviewed dirty: none
-Reviewed diff: none
-Blocking count: none
-Non-blocking count: none
+Status: completed
+Verdict: pass
+Mode: discover
+Provider: command
+Output: command.stdout
+Summary: Rust runx-cli placeholder lifecycle is complete. The crate is a thin npm launcher, installs a runx binary, has unit coverage, and final validation passed with the crates manifest path.
+
+Attack log:
+- `launcher scope`: Confirmed task remains a launcher placeholder and does not implement runtime behavior -> clean (No new code changes in this pass; existing crate delegates to npm/local JS.)
+- `acceptance`: Checked scafld acceptance status -> clean (Cargo metadata, fmt, clippy, tests, package, pnpm verify:fast, and docs checks passed.)
+- `docs`: Checked README requirements and no feature parity claim -> clean (Docs state Node/npm requirement and avoid native parity claims.)
 
 Findings:
-- none
-
-Passes:
 - none
 
 ## Self Eval
