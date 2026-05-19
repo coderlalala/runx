@@ -3,10 +3,8 @@
 use std::cell::RefCell;
 
 use runx_runtime::connect::{
-    ConnectAuthorityKind, ConnectError, ConnectGrantStatus, ConnectOpener, HttpConnectGrant,
-};
-use runx_runtime::hosted_http::{
-    HostedHttpError, HostedHttpRequest, HostedHttpResponse, HostedTransport,
+    ConnectAuthorityKind, ConnectError, ConnectGrantStatus, ConnectOpener, HostedHttpError,
+    HostedHttpRequest, HostedHttpResponse, HostedTransport, HttpConnectGrant,
 };
 
 #[derive(Default)]

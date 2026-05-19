@@ -3,6 +3,10 @@ mod opener;
 mod redaction;
 mod types;
 
+pub use crate::hosted_http::{
+    HostedHttpError, HostedHttpHeader, HostedHttpRequest, HostedHttpResponse, HostedTransport,
+    HttpMethod,
+};
 pub use client::{
     ConnectClient, ConnectClientOptions, ConnectError, ConnectResult, load_connect_options_from_env,
 };

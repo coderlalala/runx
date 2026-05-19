@@ -105,7 +105,7 @@ fn opener_failure_redacts_authorize_url_and_timeout_hides_flow_id()
 
 #[test]
 fn hosted_response_debug_does_not_leak_body() {
-    let response = runx_runtime::hosted_http::HostedHttpResponse {
+    let response = runx_runtime::connect::HostedHttpResponse {
         status: 500,
         body: "SECRET_CREDENTIAL_BODY_DO_NOT_LEAK".to_owned(),
     };

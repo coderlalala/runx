@@ -220,12 +220,6 @@ pub struct HostedHttpClient<T = CommandHttpTransport> {
     transport: T,
 }
 
-impl HostedHttpClient<CommandHttpTransport> {
-    pub fn new(base_url: impl AsRef<str>) -> Result<Self, HostedHttpError> {
-        Self::with_transport(base_url, CommandHttpTransport::new())
-    }
-}
-
 impl<T: HostedTransport> HostedHttpClient<T> {
     pub fn with_transport(
         base_url: impl AsRef<str>,
@@ -237,10 +231,6 @@ impl<T: HostedTransport> HostedHttpClient<T> {
             base_url,
             transport,
         })
-    }
-
-    pub fn base_url(&self) -> &str {
-        &self.base_url
     }
 
     pub fn route_url(&self, route: &str) -> Result<String, HostedHttpError> {
@@ -396,7 +386,6 @@ mod tests {
     fn client_normalizes_base_url_and_routes_requests() -> Result<(), HostedHttpTestError> {
         let transport = MockTransport::default();
         let client = HostedHttpClient::with_transport("https://api.example/", &transport)?;
-        assert_eq!(client.base_url(), "https://api.example");
 
         let mut request = client.request(HttpMethod::Delete, "/v1/grants/grant_1")?;
         request
@@ -454,7 +443,10 @@ mod tests {
             Ok(String::from_utf8_lossy(&buffer[..bytes_read]).into_owned())
         });
 
-        let client = HostedHttpClient::new(format!("http://{address}"))?;
+        let client = HostedHttpClient::with_transport(
+            format!("http://{address}"),
+            CommandHttpTransport::new(),
+        )?;
         let response = client.send(client.request(HttpMethod::Get, "/start")?)?;
         let request = server
             .join()

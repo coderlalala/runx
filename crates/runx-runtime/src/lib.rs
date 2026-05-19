@@ -14,7 +14,7 @@ pub mod error;
 mod fanout;
 mod graph;
 pub mod harness;
-pub mod hosted_http;
+mod hosted_http;
 pub mod journal;
 pub mod list;
 pub mod payment_authority;

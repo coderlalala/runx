@@ -1,6 +1,6 @@
 mod connect_support;
 
-use runx_runtime::hosted_http::HttpMethod;
+use runx_runtime::connect::HttpMethod;
 use runx_runtime::{ConnectClient, ConnectError, HttpConnectPreprovisionRequest};
 use serde_json::json;
 
