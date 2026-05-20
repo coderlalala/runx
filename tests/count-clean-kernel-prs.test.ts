@@ -15,13 +15,34 @@ describe("clean kernel PR counter", () => {
     const report = JSON.parse(result.stdout) as ReturnType<typeof analyzeCleanKernelPrs>;
 
     expect(result).toMatchObject({ exitCode: 0, stderr: "" });
-    expect(report.count).toBe(3);
-    expect(report.counting.map((entry) => entry.number)).toEqual([101, 102, 103]);
+    expect(report.count).toBe(4);
+    expect(report.counting.map((entry) => entry.number)).toEqual([101, 102, 103, 108]);
     expect(report.counting.map((entry) => entry.reason)).toEqual([
       "ts_kernel",
       "ts_kernel",
       "kernel_fixture_refresh",
+      "kernel_fixture_refresh",
     ]);
+  });
+
+  it("requires explicit classification for mixed TS kernel and kernel fixture refresh PRs", async () => {
+    const result = await runCountCleanKernelPrsCli(["--fixture", fixturePath, "--min", "3"]);
+    const report = JSON.parse(result.stdout) as ReturnType<typeof analyzeCleanKernelPrs>;
+
+    expect(report.counting).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        number: 108,
+        reason: "kernel_fixture_refresh",
+        passing_evidence: true,
+      }),
+    ]));
+    expect(report.non_counting).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        number: 109,
+        reason: "outside_kernel_promotion_scope",
+        passing_evidence: true,
+      }),
+    ]));
   });
 
   it("reports Rust-only and parser-only PRs as non-counting", async () => {
@@ -49,6 +70,61 @@ describe("clean kernel PR counter", () => {
         reason: "outside_kernel_promotion_scope",
         passing_evidence: true,
       }),
+      expect.objectContaining({
+        number: 110,
+        reason: "missing_passing_evidence",
+        passing_evidence: false,
+      }),
+    ]));
+  });
+
+  it("does not let evidence-object pass tokens override skipped or ambiguous required checks", () => {
+    const report = analyzeCleanKernelPrs({
+      advisory_start: "local advisory baseline",
+      prs: [
+        {
+          number: 201,
+          title: "policy: ambiguous check state",
+          files: ["packages/core/src/policy/public-work.ts"],
+          evidence: {
+            status: "passed",
+            checks: [
+              { name: "test:fast", conclusion: "success" },
+              { name: "rust:kernel-parity", conclusion: "skipped" },
+            ],
+          },
+        },
+        {
+          number: 202,
+          title: "policy: explicit passing checks",
+          files: ["packages/core/src/policy/public-work.ts"],
+          evidence: {
+            status: "passed",
+            checks: [
+              { name: "test:fast", conclusion: "success" },
+              { name: "rust:kernel-parity", conclusion: "success" },
+            ],
+          },
+        },
+        {
+          number: 203,
+          title: "policy: audited fixture operator evidence",
+          files: ["packages/core/src/policy/public-work.ts"],
+          passing_evidence: true,
+          evidence: {
+            status: "renamed",
+          },
+        },
+      ],
+    });
+
+    expect(report.counting.map((entry) => entry.number)).toEqual([202, 203]);
+    expect(report.non_counting).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        number: 201,
+        reason: "missing_passing_evidence",
+        passing_evidence: false,
+      }),
     ]));
   });
 
@@ -75,14 +151,14 @@ describe("clean kernel PR counter", () => {
   });
 
   it("fails closed when the requested minimum is not met", async () => {
-    const result = await runCountCleanKernelPrsCli(["--fixture", fixturePath, "--min", "4"]);
+    const result = await runCountCleanKernelPrsCli(["--fixture", fixturePath, "--min", "5"]);
     const report = JSON.parse(result.stdout) as ReturnType<typeof analyzeCleanKernelPrs>;
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toBe("clean kernel PR count 3 is below required minimum 4\n");
+    expect(result.stderr).toBe("clean kernel PR count 4 is below required minimum 5\n");
     expect(report).toMatchObject({
-      count: 3,
-      minimum: 4,
+      count: 4,
+      minimum: 5,
       meets_minimum: false,
     });
   });

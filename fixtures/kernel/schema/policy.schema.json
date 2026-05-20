@@ -271,6 +271,26 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "child": {
+              "type": "object"
+            },
+            "kind": {
+              "const": "policy.isPaymentAuthoritySubset"
+            },
+            "parent": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "child",
+            "kind",
+            "parent"
+          ],
+          "type": "object"
         }
       ]
     },

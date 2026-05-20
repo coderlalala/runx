@@ -2,7 +2,7 @@
 spec_version: '2.0'
 task_id: rust-kernel-blocking-promotion
 created: '2026-05-17T00:30:00Z'
-updated: '2026-05-20T00:21:00Z'
+updated: '2026-05-20T00:43:00Z'
 status: draft
 harden_status: not_run
 size: medium
@@ -18,16 +18,15 @@ Current phase: evidence script landed; soak evidence pending
 Next: record advisory-start evidence, then run the clean-kernel counter against
 live GitHub metadata or an audited operator fixture
 Reason: CI still marks Rust kernel parity advisory. The obsolete umbrella
-orchestration spec has been superseded by narrow slices, and the clean-PR
-counting script plus fixture tests exist. Advisory-start evidence, five
-qualifying post-advisory PRs, and clean-counter semantics review are still
+orchestration spec has been superseded by narrow slices, and clean-PR counter
+semantics are now locked by `rust-kernel-clean-pr-counter-semantics`.
+Advisory-start evidence and five qualifying post-advisory PRs are still
 missing.
-Blockers: `rust-kernel-clean-pr-counter-semantics` complete; advisory start
-timestamp recorded; 5 clean kernel-touching PRs landed while Rust kernel parity
-checks are advisory
+Blockers: advisory start timestamp recorded; 5 clean kernel-touching PRs landed
+while Rust kernel parity checks are advisory
 Allowed follow-up command: run the evidence script against audited evidence; do
 not run `scafld harden rust-kernel-blocking-promotion`.
-Latest runner update: 2026-05-20 clean-kernel counter fixture slice landed
+Latest runner update: 2026-05-20 clean-kernel counter semantics slice landed
 Review gate: not_started
 
 ## Summary
@@ -46,10 +45,10 @@ fixture refresh that makes both TypeScript and Rust pass.
 
 Refresh note, 2026-05-20: current CI still contains
 `continue-on-error: true` on the `Advisory Rust kernel parity` step, so Phase A
-is still advisory. `scripts/count-clean-kernel-prs.ts`, fixture data, and tests
-are present and pass against local fixtures, but the Evidence section below is
-still intentionally unfilled for live post-advisory PRs. This draft must not be
-treated as ready for CI promotion.
+is still advisory. `scripts/count-clean-kernel-prs.ts`, fixture data, tests,
+and counter semantics are present and pass against local fixtures, but the
+Evidence section below is still intentionally unfilled for live post-advisory
+PRs. This draft must not be treated as ready for CI promotion.
 
 ## Context
 
@@ -120,7 +119,7 @@ Out of scope:
 
 - `rust-kernel-port-orchestration` marked obsolete as written and superseded
   by fresh executable slices.
-- `rust-kernel-clean-pr-counter-semantics` completed.
+- `rust-kernel-clean-pr-counter-semantics` completed locally.
 - `rust-parity-ci-governance` completed with advisory CI checks present.
 - GitHub CLI or equivalent CI metadata access is available for counting merged
   PRs. If not available, the operator must provide audited PR evidence and the
@@ -171,9 +170,6 @@ Observed current state:
 ## Gate Classification
 
 Blocking before this spec may promote CI:
-- `rust-kernel-clean-pr-counter-semantics` must lock the counter's
-  advisory-start, qualification, passing-check, and fixture-mode audit
-  semantics.
 - The advisory start point must be recorded as explicit evidence.
 - `scripts/count-clean-kernel-prs.ts` must verify at least five qualifying
   post-advisory PRs from live metadata or audited evidence.

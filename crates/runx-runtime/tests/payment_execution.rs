@@ -9,9 +9,10 @@ use runx_contracts::{
     ResolutionResponseActor,
 };
 use runx_core::state_machine::GraphStatus;
+use runx_receipts::ReceiptTreeConfig;
 use runx_runtime::{
     Caller, InvocationStatus, Runtime, RuntimeError, RuntimeOptions, SkillAdapter, SkillInvocation,
-    SkillOutput,
+    SkillOutput, validate_runtime_receipt_tree,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -108,6 +109,36 @@ fn payment_approval_step_is_recorded_with_receipt() -> Result<(), Box<dyn std::e
             .find(|step| step.step_id == "approve-spend")
             .and_then(|step| step.receipt_id.as_deref()),
         Some(approval_step.receipt.id.as_str())
+    );
+    Ok(())
+}
+
+#[test]
+fn payment_graph_seals_with_strict_parent_child_receipt_proof()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = GraphFixture::new()?;
+    let runtime = Runtime::new(RecordingAdapter::default(), RuntimeOptions::default());
+    let mut caller = ApprovalCaller::approved(true);
+
+    let run = runtime.run_graph_file_with_caller(fixture.graph_path(), &mut caller)?;
+    let child_receipts = run
+        .steps
+        .iter()
+        .map(|step| step.receipt.clone())
+        .collect::<Vec<_>>();
+
+    assert!(
+        validate_runtime_receipt_tree(&run.receipt, child_receipts, ReceiptTreeConfig::default())
+            .is_ok(),
+        "payment graph receipt must validate through strict runtime proof acceptance"
+    );
+    let fulfill = step_run(&run.steps, "fulfill")?;
+    assert!(
+        fulfill.receipt.harness.acts[0]
+            .verification_refs
+            .iter()
+            .any(|reference| reference.uri == "receipt-proof:mock:payment-execution-001"),
+        "payment fulfillment act must carry the rail proof reference into the sealed receipt"
     );
     Ok(())
 }

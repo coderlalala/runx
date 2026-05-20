@@ -45,6 +45,28 @@
       }
     },
     {
+      "number": 108,
+      "title": "state-machine: update fanout policy and parity oracle",
+      "files": [
+        "packages/core/src/state-machine/index.ts",
+        "fixtures/kernel/state-machine/fanout-plan-conflict-escalates.json"
+      ],
+      "deliberate_kernel_fixture_refresh": true,
+      "evidence": {
+        "status": "passed",
+        "checks": [
+          {
+            "name": "test:fast",
+            "conclusion": "success"
+          },
+          {
+            "name": "rust:kernel-parity",
+            "conclusion": "success"
+          }
+        ]
+      }
+    },
+    {
       "number": 104,
       "title": "rust: port kernel policy scope matching",
       "files": [
@@ -81,6 +103,37 @@
       ],
       "evidence": {
         "status": "passed"
+      }
+    },
+    {
+      "number": 109,
+      "title": "state-machine: refresh fanout snapshot as incidental churn",
+      "files": [
+        "packages/core/src/state-machine/index.ts",
+        "fixtures/kernel/state-machine/fanout-plan-conflict-escalates.json"
+      ],
+      "evidence": {
+        "status": "passed"
+      }
+    },
+    {
+      "number": 110,
+      "title": "policy: ambiguous parity evidence is not clean",
+      "files": [
+        "packages/core/src/policy/public-work.ts"
+      ],
+      "evidence": {
+        "status": "passed",
+        "checks": [
+          {
+            "name": "test:fast",
+            "conclusion": "success"
+          },
+          {
+            "name": "rust:kernel-parity",
+            "conclusion": "skipped"
+          }
+        ]
       }
     }
   ]

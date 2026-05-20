@@ -2,7 +2,7 @@
 spec_version: '2.0'
 task_id: rust-runtime-adapters-mcp
 created: '2026-05-18T00:00:00Z'
-updated: '2026-05-20T00:16:14Z'
+updated: '2026-05-20T00:38:00Z'
 status: draft
 harden_status: blocked
 size: extra_large
@@ -25,18 +25,26 @@ metadata. The client path initializes and calls a tool, but does not prove
 `tools/list` parity. It does not implement the Rust MCP server lifecycle
 required for `runx mcp serve`, `runx_resume`, duplicate tool-name rejection,
 JSON-RPC server error parity, or approval/resume result conversion.
+Implemented slice:
+- Added Rust MCP adapter coverage for two existing client lifecycle gaps:
+  timeout lower-bound propagation (`timeout_seconds: 0` clamps to 50 ms)
+  with sanitized provider tool errors, and malformed stdio JSON responses
+  through the real process transport returning the generic sanitized adapter
+  failure without leaking fixture input secrets.
+
 Blockers:
 - No Rust CLI MCP command is present under `crates/runx-cli/src`; the checked
   `rg` query over `crates/runx-cli/src` and `crates/runx-cli/Cargo.toml`
   returned no matches.
 - No MCP server test file exists; the checked test-file query finds only
   `crates/runx-runtime/tests/mcp_adapter.rs`.
-- Current Rust MCP test coverage is limited to
-  `mcp_argument_templates_map_structured_and_embedded_values`; it does not
-  cover client echo, sanitized tool errors, sandbox env enforcement, timeouts,
-  malformed JSON, missing metadata, size bounds, child termination, server
-  initialize/list/call, resume, duplicate tool names, or JSON-RPC server
-  errors.
+- Current Rust MCP test coverage includes argument mapping, sanitized client
+  tool errors with the 50 ms minimum timeout floor, malformed JSON response
+  sanitization through stdio framing, and MCP tool-catalog search/inspect
+  enablement. It still does not cover client echo, sandbox env enforcement,
+  full timeout/child termination behavior, missing metadata, size bounds,
+  server initialize/list/call, resume, duplicate tool names, or JSON-RPC
+  server errors.
 - `fixtures/runtime/adapters/mcp` does not exist, and no
   `scripts/generate-runtime-mcp-oracles.ts` or
   `scripts/check-runtime-mcp-oracles.sh` exists in this checkout.
@@ -44,10 +52,12 @@ Blockers:
   feature boundary exists, but there is no rmcp dependency or recorded library
   decision yet.
 Allowed follow-up command: none until implementation and parity fixtures land
-Latest runner update: 2026-05-20 local refresh. Checked
+Latest runner update: 2026-05-20 local implementation slice. Checked
 `cargo test --manifest-path crates/Cargo.toml -p runx-runtime mcp --features
-mcp -- --nocapture`; it passed, exercising one MCP adapter test and two MCP
-tool-catalog tests matched by the filter.
+mcp -- --nocapture`; it passed, exercising three MCP adapter tests and two MCP
+tool-catalog tests matched by the filter. Also ran
+`cargo fmt --manifest-path crates/Cargo.toml --all`; formatting was applied to
+the new test file.
 Review gate: blocked_missing_mcp_lifecycle_evidence
 
 ## Summary

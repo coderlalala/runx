@@ -2,7 +2,7 @@
 spec_version: '2.0'
 task_id: payment-authority-term-v1
 created: '2026-05-20T00:00:00Z'
-updated: '2026-05-20T00:21:00Z'
+updated: '2026-05-20T00:43:00Z'
 status: draft
 harden_status: not_run
 size: small
@@ -14,22 +14,22 @@ risk_level: high
 ## Current State
 
 Status: draft
-Current phase: partial implementation landed; payment fixture parity pending
-Next: add kernel fixture parity for payment authority subset decisions, then
-add runtime harness proof fixtures for rail admission and receipt-before-success
+Current phase: runtime proof discipline and kernel fixture parity landed
+Next: review/approve the payment authority shape before any rail/provider
+adapter work
 Reason: the local checkout already contains payment authority bounds in the
 spine schema, Rust contract/core payment authority types, runtime rail
 admission, payment execution tests, and strict parent/child harness receipt
-proof acceptance. This draft remains open because those surfaces must not be
-treated as production-ready payment authority until the pure-kernel payment
-subset helper has TypeScript-generated fixture parity and runtime payment
-fixtures validate through strict harness receipts.
-Blockers: payment authority fixture parity; runtime harness proof fixtures for
-payment rails; current harness spine schemas and Rust receipt/harness execution
-stay authoritative.
+proof acceptance. The runtime payment graph now validates its sealed parent/
+child receipt tree through strict proof acceptance before success. The
+pure-kernel payment subset helper now has TypeScript-generated fixture parity.
+Blockers: current harness spine schemas and Rust receipt/harness execution stay
+authoritative; no rail/provider adapter work should bypass strict harness
+receipts.
 Allowed follow-up command: inspect or implement the payment-fixture/runtime
 proof fixture gates; do not run `scafld harden payment-authority-term-v1`.
-Latest runner update: 2026-05-20 local implementation audit
+Latest runner update: 2026-05-20 runtime payment graph strict receipt proof
+slice and kernel payment-authority fixture parity landed
 Review gate: not_started
 
 ## Summary
@@ -172,16 +172,17 @@ Remaining executable slices:
    sealing harness receipt proves rail proof refs and receipt-before-success
    criteria.
 
-2. Kernel fixture parity: add TypeScript oracle generation and fixture JSON for
-   representative `is_payment_authority_subset` cases, then dispatch those cases
-   from `crates/runx-core/tests/policy_fixtures.rs`. Keep the existing Rust
-   unit/proptest coverage; do not make Rust authoritative by adding fixtures.
+2. Kernel fixture parity: landed. TypeScript oracle generation now emits
+   representative `is_payment_authority_subset` cases, and
+   `crates/runx-core/tests/policy_fixtures.rs` dispatches those cases while the
+   existing Rust unit/proptest coverage remains in place.
 
-3. Runtime harness proof fixtures: add focused harness/runtime fixtures for
-   allowed spend, amount widening denial, recipient/counterparty widening
-   denial, duplicate idempotency recovery, missing receipt proof, and sibling
-   reuse of a single-use spend capability. These fixtures must validate through
-   strict harness receipt proof, not merely graph status.
+3. Runtime harness proof fixtures: landed for current runtime coverage.
+   Payment execution tests cover allowed spend, amount widening denial, missing
+   receipt proof, missing admission inputs, and sealed graph receipt validation
+   through strict parent/child harness receipt proof. Sibling reuse of
+   single-use spend capability remains covered in the pure runtime authority
+   tests.
 
 4. Projection discipline: any ledger, account history, spend report, or
    reconciliation view remains a projection over harness receipts and rail proof

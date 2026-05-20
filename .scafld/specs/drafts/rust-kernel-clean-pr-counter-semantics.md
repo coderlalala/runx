@@ -14,17 +14,17 @@ risk_level: medium
 ## Current State
 
 Status: draft
-Current phase: none
+Current phase: local semantics implementation complete
 Next: harden before approve if the promotion evidence path needs counter
 semantics locked before `rust-kernel-blocking-promotion` runs.
-Reason: `scripts/count-clean-kernel-prs.ts`, fixture data, and tests exist, but
-the promotion path depends on audited semantics for advisory-start evidence,
-qualifying PR classification, required passing evidence, and fixture-mode
-operator evidence. This slice hardens those semantics without flipping CI.
+Reason: `scripts/count-clean-kernel-prs.ts`, fixture data, and tests now lock
+advisory-start evidence, qualifying PR classification, required passing
+evidence, fixture-mode operator evidence, and mixed TypeScript kernel plus
+kernel fixture refresh behavior without flipping CI.
 Blockers: none for semantics hardening. Live GitHub evidence and CI promotion
 remain blocked in `rust-kernel-blocking-promotion`.
 Allowed follow-up command: `scafld harden rust-kernel-clean-pr-counter-semantics`
-Latest runner update: none
+Latest runner update: 2026-05-20 local validation passed; harden not run.
 Review gate: not_started
 
 ## Summary
@@ -69,17 +69,28 @@ Out of scope:
 
 - Advisory start must be explicit from CLI input or audited fixture data; never
   infer it from file timestamps or git history.
-- A counting PR must touch authoritative TypeScript state-machine or policy
-  files, or must be an explicit deliberate kernel fixture refresh tied to that
-  surface.
+- A TypeScript kernel PR counts only when every changed file is under
+  `packages/core/src/state-machine/` or `packages/core/src/policy/` and ends in
+  `.ts`.
+- A deliberate kernel fixture refresh counts only when it is explicitly marked
+  with `deliberate_kernel_fixture_refresh`, `deliberateKernelFixtureRefresh`,
+  `kind: kernel_fixture_refresh`, or `classification: kernel_fixture_refresh`,
+  touches at least one `fixtures/kernel/` file, and every changed file is either
+  a kernel fixture file or an authoritative TypeScript kernel file.
 - Rust-only maintenance PRs remain advisory evidence but do not count toward the
   five-PR trigger.
 - Parser-only PRs do not count toward the current five-PR trigger.
 - Missing, skipped, failed, renamed, or ambiguous parity evidence makes the PR
-  non-counting unless an audited fixture supplies explicit operator evidence.
-- Mixed TypeScript kernel plus deliberate fixture refresh PRs must have an
-  explicit classification and fixture test; they must not fall through as
-  outside-scope by accident.
+  non-counting unless audited fixture data supplies explicit operator evidence
+  via `passing_evidence: true` or `passingEvidence: true`.
+- Evidence object pass tokens are accepted only from
+  `status`, `verdict`, `conclusion`, or `result`. When required checks are
+  present, every check must have a passing token, and a top-level evidence pass
+  token cannot override a skipped, failed, renamed, or ambiguous check.
+- Mixed TypeScript kernel plus deliberate fixture refresh PRs count as
+  `kernel_fixture_refresh` only when the explicit deliberate-refresh marker is
+  present. The same mixed file set without the marker is
+  `outside_kernel_promotion_scope`.
 
 ## Acceptance
 
@@ -89,63 +100,66 @@ Review provider: external Claude; local review does not satisfy complete.
 Harden required before approve: yes
 
 Definition of done:
-- [ ] `dod1` Counter classification rules are captured in code tests and this
+- [x] `dod1` Counter classification rules are captured in code tests and this
   spec.
-- [ ] `dod2` Ambiguous mixed kernel/fixture cases are either counted or rejected
+- [x] `dod2` Ambiguous mixed kernel/fixture cases are either counted or rejected
   by an explicit, tested rule.
-- [ ] `dod3` Missing advisory-start evidence and missing passing evidence fail
+- [x] `dod3` Missing advisory-start evidence and missing passing evidence fail
   closed.
-- [ ] `dod4` CI remains advisory.
-- [ ] `dod5` `rust-kernel-blocking-promotion` remains the only owner of the
+- [x] `dod4` CI remains advisory.
+- [x] `dod5` `rust-kernel-blocking-promotion` remains the only owner of the
   live five-PR evidence and CI flip.
 
 Validation:
-- [ ] `v1` command - counter tests pass.
+- [x] `v1` command - counter tests pass.
   - Command: `pnpm exec vitest run --config vitest.config.ts tests/count-clean-kernel-prs.test.ts`
   - Expected kind: `exit_code_zero`
   - Timeout seconds: 60
-  - Status: pending
-- [ ] `v2` command - fixture-mode counter still passes at the audited local
+  - Status: passed 2026-05-20; 1 file passed, 6 tests passed.
+- [x] `v2` command - fixture-mode counter still passes at the audited local
   threshold.
   - Command: `pnpm exec tsx scripts/count-clean-kernel-prs.ts --fixture tests/fixtures/clean-kernel-prs.json --min 3`
   - Expected kind: `exit_code_zero`
   - Timeout seconds: 60
-  - Status: pending
-- [ ] `v3` command - missing advisory-start evidence remains rejected.
+  - Status: passed 2026-05-20; fixture count 4, minimum 3, meets minimum true.
+- [x] `v3` command - missing advisory-start evidence remains rejected.
   - Command: `pnpm exec tsx -e "import { analyzeCleanKernelPrs } from './scripts/count-clean-kernel-prs.ts'; try { analyzeCleanKernelPrs({ prs: [] }); process.exit(1); } catch (error) { process.exit(String(error instanceof Error ? error.message : error).includes('missing advisory start evidence') ? 0 : 1); }"`
   - Expected kind: `exit_code_zero`
   - Timeout seconds: 30
-  - Status: pending
-- [ ] `v4` command - CI remains advisory after this slice.
+  - Status: passed 2026-05-20.
+- [x] `v4` command - CI remains advisory after this slice.
   - Command: `rg -n 'Advisory Rust kernel parity|continue-on-error: true' .github/workflows/ci.yml`
   - Expected kind: `exit_code_zero`
-  - Status: pending
+  - Status: passed 2026-05-20; advisory job and `continue-on-error: true`
+    still present.
 
 ## Phase 1: Semantics Audit
 
 Goal: document and test the exact classification rules.
 
-Status: pending
+Status: complete
 Dependencies: none
 
 Expected changes:
-- `tests/count-clean-kernel-prs.test.ts` adds any missing ambiguous-case tests.
-- `tests/fixtures/clean-kernel-prs.json` adds only audited local evidence needed
-  for those tests.
-- `scripts/count-clean-kernel-prs.ts` changes only if the audited tests expose a
-  semantic gap.
+- `tests/count-clean-kernel-prs.test.ts` added mixed kernel/fixture,
+  fail-closed required-check, operator-evidence, and minimum-failure coverage.
+- `tests/fixtures/clean-kernel-prs.json` added audited local mixed and
+  ambiguous evidence cases.
+- `scripts/count-clean-kernel-prs.ts` now classifies deliberate mixed
+  kernel/fixture refreshes explicitly and requires every listed required check
+  to pass.
 
 ## Phase 2: Promotion Handoff
 
 Goal: leave `rust-kernel-blocking-promotion` with an unambiguous counter
 contract.
 
-Status: pending
+Status: complete
 Dependencies: Phase 1
 
 Expected changes:
 - This spec records the final semantics and validation evidence.
-- No CI promotion occurs in this phase.
+- No CI promotion occurred in this phase.
 
 ## Review
 

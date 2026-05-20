@@ -1,4 +1,4 @@
-use runx_contracts::JsonValue;
+use runx_contracts::{AuthorityTerm, JsonValue};
 use runx_core::policy::{
     BuildAuthorityProofOptions, CredentialBindingRequest, GraphScopeAdmissionRequest,
     LocalAdmissionGrant, LocalAdmissionOptions, LocalAdmissionSkill, LocalScopeAdmissionOptions,
@@ -6,8 +6,9 @@ use runx_core::policy::{
     RetryAdmissionRequest, SandboxAdmissionOptions, SandboxDeclaration, admit_graph_step_scopes,
     admit_local_skill, admit_retry_policy, admit_sandbox, build_authority_proof_metadata,
     build_local_scope_admission, evaluate_public_comment_opportunity,
-    evaluate_public_pull_request_candidate, normalize_public_work_policy,
-    normalize_sandbox_declaration, sandbox_requires_approval, validate_credential_binding,
+    evaluate_public_pull_request_candidate, is_payment_authority_subset,
+    normalize_public_work_policy, normalize_sandbox_declaration, sandbox_requires_approval,
+    validate_credential_binding,
 };
 use serde::Deserialize;
 
@@ -139,6 +140,74 @@ const FIXTURES: &[(&str, &str)] = &[
         ),
     ),
     (
+        "payment-authority-allows-narrower-child",
+        include_str!(
+            "../../../fixtures/kernel/policy/payment-authority-allows-narrower-child.json"
+        ),
+    ),
+    (
+        "payment-authority-allows-reserve-without-single-use-spend-capability",
+        include_str!(
+            "../../../fixtures/kernel/policy/payment-authority-allows-reserve-without-single-use-spend-capability.json"
+        ),
+    ),
+    (
+        "payment-authority-denies-currency-widening",
+        include_str!(
+            "../../../fixtures/kernel/policy/payment-authority-denies-currency-widening.json"
+        ),
+    ),
+    (
+        "payment-authority-denies-dropping-receipt-before-success",
+        include_str!(
+            "../../../fixtures/kernel/policy/payment-authority-denies-dropping-receipt-before-success.json"
+        ),
+    ),
+    (
+        "payment-authority-denies-omitted-counterparty",
+        include_str!(
+            "../../../fixtures/kernel/policy/payment-authority-denies-omitted-counterparty.json"
+        ),
+    ),
+    (
+        "payment-authority-denies-omitted-operation",
+        include_str!(
+            "../../../fixtures/kernel/policy/payment-authority-denies-omitted-operation.json"
+        ),
+    ),
+    (
+        "payment-authority-denies-omitted-period",
+        include_str!(
+            "../../../fixtures/kernel/policy/payment-authority-denies-omitted-period.json"
+        ),
+    ),
+    (
+        "payment-authority-denies-omitted-realm",
+        include_str!("../../../fixtures/kernel/policy/payment-authority-denies-omitted-realm.json"),
+    ),
+    (
+        "payment-authority-denies-rail-widening",
+        include_str!("../../../fixtures/kernel/policy/payment-authority-denies-rail-widening.json"),
+    ),
+    (
+        "payment-authority-denies-resource-family-mismatch",
+        include_str!(
+            "../../../fixtures/kernel/policy/payment-authority-denies-resource-family-mismatch.json"
+        ),
+    ),
+    (
+        "payment-authority-denies-resource-ref-mismatch",
+        include_str!(
+            "../../../fixtures/kernel/policy/payment-authority-denies-resource-ref-mismatch.json"
+        ),
+    ),
+    (
+        "payment-authority-denies-single-use-spend-without-capability",
+        include_str!(
+            "../../../fixtures/kernel/policy/payment-authority-denies-single-use-spend-without-capability.json"
+        ),
+    ),
+    (
         "public-work-blocks-dependency-bot-pr",
         include_str!("../../../fixtures/kernel/policy/public-work-blocks-dependency-bot-pr.json"),
     ),
@@ -259,6 +328,11 @@ enum PolicyInput {
         #[serde(default)]
         policy: PublicWorkPolicy,
     },
+    #[serde(rename = "policy.isPaymentAuthoritySubset")]
+    IsPaymentAuthoritySubset {
+        child: Box<AuthorityTerm>,
+        parent: Box<AuthorityTerm>,
+    },
 }
 
 #[test]
@@ -314,6 +388,9 @@ fn evaluate_policy_input(input: PolicyInput) -> Result<serde_json::Value, serde_
         }
         PolicyInput::NormalizePublicWorkPolicy { policy } => {
             serde_json::to_value(normalize_public_work_policy(&policy))
+        }
+        PolicyInput::IsPaymentAuthoritySubset { child, parent } => {
+            serde_json::to_value(is_payment_authority_subset(&child, &parent))
         }
     }
 }

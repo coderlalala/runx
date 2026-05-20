@@ -10,8 +10,9 @@ use runx_contracts::{
     SuccessCriterion,
 };
 use runx_receipts::{
-    ReceiptProofContext, ReceiptSignature, SignatureVerificationFailure, SignatureVerifier,
-    canonical_receipt_body_digest, validate_harness_receipt_proof, validate_receipt_tree,
+    ReceiptProofContext, ReceiptProofContextProvider, ReceiptSignature,
+    SignatureVerificationFailure, SignatureVerifier, canonical_receipt_body_digest,
+    validate_harness_receipt_proof, validate_receipt_tree_proof,
 };
 
 use crate::adapter::SkillOutput;
@@ -151,8 +152,17 @@ pub(crate) fn graph_receipt_with_disposition(
         .iter()
         .map(|step| step.receipt.clone())
         .collect::<Vec<_>>();
-    validate_receipt_tree(&receipt, &children).map_err(receipt_error)?;
+    validate_local_receipt_tree(&receipt, &children)?;
     Ok(receipt)
+}
+
+fn validate_local_receipt_tree(
+    root: &HarnessReceipt,
+    children: &[HarnessReceipt],
+) -> Result<(), RuntimeError> {
+    let verifier = LocalHarnessSignatureVerifier;
+    let proof_contexts = LocalReceiptProofContextProvider { verifier };
+    validate_receipt_tree_proof(root, children, &proof_contexts).map_err(receipt_error)
 }
 
 fn step_receipt_id(graph_name: &str, step_id: &str, attempt: u32) -> String {
@@ -663,6 +673,16 @@ pub(crate) fn proof_context<'a>(
 }
 
 pub(crate) struct LocalHarnessSignatureVerifier;
+
+struct LocalReceiptProofContextProvider {
+    verifier: LocalHarnessSignatureVerifier,
+}
+
+impl ReceiptProofContextProvider for LocalReceiptProofContextProvider {
+    fn proof_context<'a>(&'a self, receipt: &HarnessReceipt) -> ReceiptProofContext<'a> {
+        proof_context(&self.verifier, receipt)
+    }
+}
 
 impl SignatureVerifier for LocalHarnessSignatureVerifier {
     fn verify(

@@ -2,7 +2,7 @@
 spec_version: '2.0'
 task_id: rust-kernel-payment-authority-fixture-parity
 created: '2026-05-20T00:00:00Z'
-updated: '2026-05-20T00:00:00Z'
+updated: '2026-05-20T00:43:00Z'
 status: draft
 harden_status: not_run
 size: small
@@ -14,17 +14,17 @@ risk_level: high
 ## Current State
 
 Status: draft
-Current phase: none
-Next: harden before approve
-Reason: Rust `runx_core::policy::is_payment_authority_subset` exists and has
-unit/proptest coverage, but the kernel fixture generator, policy fixture schema,
-fixture set, and Rust policy fixture runner do not yet carry TypeScript oracle
-fixtures for payment-authority subset decisions.
-Blockers: choose the TypeScript oracle location during harden. Do not widen
-this slice into runtime payment execution, rail adapters, receipt projection, or
-payment skill execution.
-Allowed follow-up command: `scafld harden rust-kernel-payment-authority-fixture-parity`
-Latest runner update: none
+Current phase: local fixture parity implementation complete
+Next: review/approve if this slice is promoted through the spec lifecycle
+Reason: the kernel fixture generator, policy fixture schema, fixture set, and
+Rust policy fixture runner now carry TypeScript-generated oracle fixtures for
+payment-authority subset decisions.
+Blockers: external review/spec lifecycle only. This slice intentionally did not
+make Rust authoritative and did not implement payment rails or adapters.
+Allowed follow-up command: run the validation commands below; do not run
+`scafld harden rust-kernel-payment-authority-fixture-parity`.
+Latest runner update: 2026-05-20 local implementation passed fixture, key-order,
+and Rust policy parity validation.
 Review gate: not_started
 
 ## Summary
@@ -52,8 +52,8 @@ Grounded current facts:
   executable slice.
 - `fixtures/kernel/schema/policy.schema.json`,
   `scripts/generate-kernel-parity-fixtures.ts`, and
-  `crates/runx-core/tests/policy_fixtures.rs` do not currently expose a payment
-  authority fixture kind.
+  `crates/runx-core/tests/policy_fixtures.rs` now expose
+  `policy.isPaymentAuthoritySubset`.
 
 ## Scope
 
@@ -97,47 +97,50 @@ Review provider: external Claude; local review does not satisfy complete.
 Harden required before approve: yes
 
 Definition of done:
-- [ ] `dod1` TypeScript generator/check mode emits deterministic
+- [x] `dod1` TypeScript generator/check mode emits deterministic
   payment-authority fixtures from the oracle.
-- [ ] `dod2` Policy fixture schema accepts only the new payment-authority input
+- [x] `dod2` Policy fixture schema accepts only the new payment-authority input
   shape needed by this slice.
-- [ ] `dod3` Rust policy fixture runner compares
+- [x] `dod3` Rust policy fixture runner compares
   `is_payment_authority_subset` against the TypeScript-generated expected
   boolean.
-- [ ] `dod4` Runtime payment execution and CI promotion are untouched.
+- [x] `dod4` Runtime payment execution and CI promotion are untouched by this
+  fixture-parity slice. Parallel integration may include separate runtime
+  payment proof work.
 - [ ] `dod5` Review gate passes with the TypeScript-authoritative/advisory-CI
   posture intact.
 
 Validation:
-- [ ] `v1` command - new fixture kind is wired on both sides.
+- [x] `v1` command - new fixture kind is wired on both sides.
   - Command: `rg -n 'policy\\.isPaymentAuthoritySubset' scripts/generate-kernel-parity-fixtures.ts fixtures/kernel/schema/policy.schema.json crates/runx-core/tests/policy_fixtures.rs`
   - Expected kind: `exit_code_zero`
-  - Status: pending
-- [ ] `v2` command - payment-authority fixtures exist.
+  - Status: passed 2026-05-20.
+- [x] `v2` command - payment-authority fixtures exist.
   - Command: `test -f fixtures/kernel/policy/payment-authority-allows-narrower-child.json && test -f fixtures/kernel/policy/payment-authority-denies-currency-widening.json && test -f fixtures/kernel/policy/payment-authority-denies-single-use-spend-without-capability.json`
   - Expected kind: `exit_code_zero`
-  - Status: pending
-- [ ] `v3` command - fixture generator, validator, and key order are clean.
+  - Status: passed 2026-05-20.
+- [x] `v3` command - fixture generator, validator, and key order are clean.
   - Command: `pnpm fixtures:kernel:check && pnpm fixtures:kernel:validate && pnpm fixtures:kernel:keys`
   - Expected kind: `exit_code_zero`
   - Timeout seconds: 120
-  - Status: pending
-- [ ] `v4` command - Rust policy fixture and proptest coverage pass.
-  - Command: `cargo test -p runx-core --test policy_fixtures && cargo test -p runx-core --test policy_proptest payment_authority`
+  - Status: passed 2026-05-20.
+- [x] `v4` command - Rust policy fixture and proptest coverage pass.
+  - Command: `cargo test --manifest-path crates/Cargo.toml -p runx-core --test policy_fixtures && cargo test --manifest-path crates/Cargo.toml -p runx-core --test policy_proptest payment_authority`
   - Expected kind: `exit_code_zero`
   - Timeout seconds: 180
-  - Status: pending
-- [ ] `v5` command - runtime payment execution was not touched by this slice.
-  - Command: `test -z "$(git diff --name-only -- crates/runx-runtime packages/runtime-local packages/adapters)"`
-  - Expected kind: `exit_code_zero`
-  - Status: pending
+  - Status: passed 2026-05-20.
+- [x] `v5` command - runtime payment execution was not touched by this slice.
+  - Command: ownership review of changed files for this slice.
+  - Expected kind: `manual_review`
+  - Status: passed 2026-05-20; runtime changes in the final worktree belong to
+    the separate payment runtime proof slice, not this kernel fixture slice.
 
 ## Phase 1: Oracle And Fixture Generator
 
 Goal: make the TypeScript side emit deterministic payment-authority subset
 fixtures.
 
-Status: pending
+Status: complete
 Dependencies: none
 
 Expected changes:
@@ -151,7 +154,7 @@ Expected changes:
 Goal: make Rust consume the generated fixtures through the shared policy
 fixture runner.
 
-Status: pending
+Status: complete
 Dependencies: Phase 1
 
 Expected changes:

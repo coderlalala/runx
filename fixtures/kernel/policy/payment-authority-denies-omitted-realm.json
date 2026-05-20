@@ -1,0 +1,171 @@
+{
+  "$schema": "../schema/policy.schema.json",
+  "expected": {
+    "kind": "output",
+    "value": false
+  },
+  "input": {
+    "child": {
+      "approvals": [
+        {
+          "approval_ref": {
+            "type": "decision",
+            "uri": "decision:payment-approval"
+          },
+          "approved_at": "2026-05-20T00:00:00Z",
+          "approved_by_ref": {
+            "type": "principal",
+            "uri": "principal:operator"
+          },
+          "criterion_ids": [
+            "checkout-spend-approved"
+          ]
+        }
+      ],
+      "bounds": {
+        "payment": {
+          "approval_threshold_minor": 2500,
+          "counterparty": "merchant-123",
+          "credential_form": "single_use_spend_capability",
+          "currency": "USD",
+          "idempotency_required": true,
+          "max_per_call_minor": 2500,
+          "max_per_period_minor": 20000,
+          "max_per_run_minor": 10000,
+          "operation": "checkout",
+          "period": "P1D",
+          "quote_required": true,
+          "quote_ttl_ms": 120000,
+          "rails": [
+            "card"
+          ],
+          "receipt_before_success": true,
+          "recovery_required": true,
+          "reservation_required": true,
+          "single_use_spend": true
+        }
+      },
+      "capabilities": [
+        "payment_single_use_spend"
+      ],
+      "conditions": [
+        {
+          "condition_id": "receipt-before-success",
+          "parameters": {
+            "rail": "card"
+          },
+          "predicate": "payment_receipt_present",
+          "refs": [
+            {
+              "type": "receipt",
+              "uri": "receipt:rail:checkout"
+            }
+          ]
+        }
+      ],
+      "expires_at": "2026-05-21T00:00:00Z",
+      "issued_by_ref": {
+        "type": "principal",
+        "uri": "principal:issuer"
+      },
+      "principal_ref": {
+        "type": "principal",
+        "uri": "principal:agent"
+      },
+      "resource_family": "payment",
+      "resource_ref": {
+        "type": "grant",
+        "uri": "grant:payment:checkout"
+      },
+      "term_id": "omitted-realm",
+      "verbs": [
+        "reserve",
+        "spend"
+      ]
+    },
+    "kind": "policy.isPaymentAuthoritySubset",
+    "parent": {
+      "approvals": [
+        {
+          "approval_ref": {
+            "type": "decision",
+            "uri": "decision:payment-approval"
+          },
+          "approved_at": "2026-05-20T00:00:00Z",
+          "approved_by_ref": {
+            "type": "principal",
+            "uri": "principal:operator"
+          },
+          "criterion_ids": [
+            "checkout-spend-approved"
+          ]
+        }
+      ],
+      "bounds": {
+        "payment": {
+          "approval_threshold_minor": 7500,
+          "counterparty": "merchant-123",
+          "credential_form": "single_use_spend_capability",
+          "currency": "USD",
+          "idempotency_required": true,
+          "max_per_call_minor": 10000,
+          "max_per_period_minor": 50000,
+          "max_per_run_minor": 25000,
+          "operation": "checkout",
+          "period": "P1D",
+          "quote_required": true,
+          "quote_ttl_ms": 300000,
+          "rails": [
+            "card",
+            "ach"
+          ],
+          "realm": "prod",
+          "receipt_before_success": true,
+          "recovery_required": true,
+          "reservation_required": true,
+          "single_use_spend": true
+        }
+      },
+      "capabilities": [
+        "payment_single_use_spend"
+      ],
+      "conditions": [
+        {
+          "condition_id": "receipt-before-success",
+          "parameters": {
+            "rail": "card"
+          },
+          "predicate": "payment_receipt_present",
+          "refs": [
+            {
+              "type": "receipt",
+              "uri": "receipt:rail:checkout"
+            }
+          ]
+        }
+      ],
+      "expires_at": "2026-06-01T00:00:00Z",
+      "issued_by_ref": {
+        "type": "principal",
+        "uri": "principal:issuer"
+      },
+      "principal_ref": {
+        "type": "principal",
+        "uri": "principal:agent"
+      },
+      "resource_family": "payment",
+      "resource_ref": {
+        "type": "grant",
+        "uri": "grant:payment:checkout"
+      },
+      "term_id": "parent",
+      "verbs": [
+        "quote",
+        "reserve",
+        "spend",
+        "verify"
+      ]
+    }
+  },
+  "name": "payment-authority-denies-omitted-realm"
+}

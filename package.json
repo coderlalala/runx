@@ -49,6 +49,7 @@
     "rust:check": "node scripts/check-rust-kernel-parity.mjs",
     "rust:crate-graph": "node scripts/check-rust-crate-graph.mjs",
     "rust:style": "node scripts/check-rust-core-style.mjs",
+    "receipts:importer-audit": "tsx scripts/check-receipt-importers.ts",
     "verify:fast": "node scripts/verify-fast.mjs",
     "lint": "pnpm typecheck"
   },

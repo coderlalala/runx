@@ -261,21 +261,21 @@ function hasPassingEvidence(pr: Record<string, unknown>): boolean {
 
 function evidenceContainsPass(evidence: Record<string, unknown>): boolean {
   const directValues = [evidence.status, evidence.verdict, evidence.conclusion, evidence.result];
-  if (directValues.some(isPassingToken)) {
-    return true;
-  }
+  const directEvidence = directValues.filter((value) => value !== undefined && value !== null);
+  const hasDirectPass = directValues.some(isPassingToken);
 
   const checks = evidence.checks ?? evidence.required_checks ?? evidence.requiredChecks;
   if (Array.isArray(checks) && checks.length > 0) {
-    return checks.every((check) => {
+    const allChecksPass = checks.every((check) => {
       if (!check || typeof check !== "object" || Array.isArray(check)) {
         return false;
       }
       const record = check as Record<string, unknown>;
       return [record.status, record.verdict, record.conclusion, record.result].some(isPassingToken);
     });
+    return allChecksPass && (directEvidence.length === 0 || hasDirectPass);
   }
-  return false;
+  return hasDirectPass;
 }
 
 function isPassingToken(value: unknown): boolean {
@@ -283,7 +283,7 @@ function isPassingToken(value: unknown): boolean {
 }
 
 function isTsKernelOnly(files: readonly string[]): boolean {
-  return files.every((file) => /^packages\/core\/src\/(?:state-machine|policy)\/.+\.ts$/u.test(file));
+  return files.every(isTsKernelFile);
 }
 
 function isDeliberateKernelFixtureRefresh(pr: Record<string, unknown>, files: readonly string[]): boolean {
@@ -291,7 +291,17 @@ function isDeliberateKernelFixtureRefresh(pr: Record<string, unknown>, files: re
     || pr.deliberateKernelFixtureRefresh === true
     || pr.kind === "kernel_fixture_refresh"
     || pr.classification === "kernel_fixture_refresh";
-  return explicit && files.every((file) => file.startsWith("fixtures/kernel/"));
+  return explicit
+    && files.some(isKernelFixtureFile)
+    && files.every((file) => isKernelFixtureFile(file) || isTsKernelFile(file));
+}
+
+function isTsKernelFile(file: string): boolean {
+  return /^packages\/core\/src\/(?:state-machine|policy)\/.+\.ts$/u.test(file);
+}
+
+function isKernelFixtureFile(file: string): boolean {
+  return file.startsWith("fixtures/kernel/");
 }
 
 function isRustOnly(files: readonly string[]): boolean {
@@ -324,12 +334,13 @@ async function readJsonFile(filePath: string): Promise<unknown> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const result = await runCountCleanKernelPrsCli(process.argv.slice(2));
-  if (result.stdout) {
-    process.stdout.write(result.stdout);
-  }
-  if (result.stderr) {
-    process.stderr.write(result.stderr);
-  }
-  process.exit(result.exitCode);
+  void runCountCleanKernelPrsCli(process.argv.slice(2)).then((result) => {
+    if (result.stdout) {
+      process.stdout.write(result.stdout);
+    }
+    if (result.stderr) {
+      process.stderr.write(result.stderr);
+    }
+    process.exitCode = result.exitCode;
+  });
 }

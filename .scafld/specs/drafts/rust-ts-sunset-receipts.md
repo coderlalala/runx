@@ -2,7 +2,7 @@
 spec_version: '2.0'
 task_id: rust-ts-sunset-receipts
 created: '2026-05-18T00:00:00Z'
-updated: '2026-05-20T00:21:00Z'
+updated: '2026-05-20T00:40:00Z'
 status: draft
 harden_status: not_run
 size: medium
@@ -15,8 +15,8 @@ risk_level: high
 
 Status: draft
 Current phase: strict Rust receipt and tree proof acceptance landed; importer
-work pending
-Next: audit the remaining TS receipt importers and record the production
+audit guardrail landed; import and shape blockers remain
+Next: migrate the remaining TS receipt importers and record the production
 signature verifier decision
 Reason: draft created under `plans/rust-takeover.md`. Fifth TS sunset,
 refreshed after the harness receipt shape was ratified. The sunset is not yet
@@ -26,10 +26,11 @@ Blockers: `rust-ts-sunset-executor` complete,
 `runx-contract-spine-hard-cutover` complete, `rust-receipts-parity` complete
 against post-cutover harness receipts, production signature verifier decision
 recorded, and TS receipt importer migration complete.
-Allowed follow-up command: inspect tree/importer drift; do not run
-`scafld harden rust-ts-sunset-receipts`.
+Allowed follow-up command: `pnpm receipts:importer-audit`; do not run `scafld
+harden rust-ts-sunset-receipts`.
 Latest runner update: 2026-05-20 strict store/journal/history and
-parent/child tree proof acceptance landed
+parent/child tree proof acceptance landed; 2026-05-20 importer/shape audit
+scanner added
 Review gate: not_started
 
 ## Summary
@@ -44,8 +45,9 @@ through `runx-receipts`.
 This spec no longer proposes immediate deletion of `packages/core/src/receipts/`.
 Deletion is unsafe until every live TS receipt importer has migrated and the
 runtime pseudo-signature path has an explicit production-verifier decision. The
-store, journal, history, and parent/child tree proof acceptance slices have
-landed; the next safe slice is importer audit and production verifier policy.
+store, journal, history, parent/child tree proof acceptance, and importer audit
+guardrail slices have landed; the next safe slice is importer migration and
+production verifier policy.
 
 No production caller may continue importing, emitting, reading, adapting, or
 aliasing the old TS receipt model after the deletion phase. Verification and
@@ -105,12 +107,50 @@ Current TypeScript sources:
 - `packages/contracts/src/schemas/local-receipt.ts` and
   `packages/contracts/src/index.ts` still expose retired local receipt
   contracts.
-- Active imports still reference `@runxhq/core/receipts` or
+- Active OSS imports still reference `@runxhq/core/receipts` or
   `../receipts/index.js` in `packages/runtime-local/src/**`,
   `packages/cli/src/**`, `packages/core/src/parser/index.ts`,
   `packages/core/src/registry/ingest.ts`,
-  `packages/core/src/marketplaces/fixture.ts`, and
-  `packages/core/src/knowledge/**`.
+  `packages/core/src/marketplaces/fixture.ts`,
+  `packages/core/src/knowledge/**`, and receipt-focused tests.
+- Sibling cloud checkout audit also found active `@runxhq/core/receipts`
+  imports in `../cloud/packages/api`, `../cloud/packages/receipts-store`,
+  `../cloud/packages/worker`, and `../cloud/tests`.
+
+Importer audit evidence, 2026-05-20:
+- Added `scripts/check-receipt-importers.ts`, runnable through
+  `pnpm receipts:importer-audit`, with deterministic classifications:
+  `active_blocker`, `fixture_archive`, `generated_stale_artifact`,
+  `false_positive`, and `migrated`.
+- Latest audit scanned 1371 files including the sibling `../cloud` checkout
+  and reported: `active_blocker=408`, `fixture_archive=11`,
+  `generated_stale_artifact=16`, `migrated=274`, `false_positive=0`.
+- Active blocker kinds: `retired_receipt_import=40`,
+  `retired_receipt_shape=310`, `retired_receipt_type=29`,
+  `runtime_pseudo_signature=21`, `retired_contract_export=4`,
+  `legacy_receipt_id_prefix=3`, and `retired_core_receipts_export=1`.
+- The OSS live retired-import blocker files are:
+  `packages/cli/src/commands/dev.ts`, `packages/cli/src/trainable-receipts.ts`,
+  `packages/runtime-local/src/sdk/index.ts`,
+  `packages/runtime-local/src/sdk/trusted-host-outcome.ts`,
+  `packages/runtime-local/src/runner-local/approval.ts`,
+  `packages/runtime-local/src/runner-local/context.ts`,
+  `packages/runtime-local/src/runner-local/graph-fanout-gates.ts`,
+  `packages/runtime-local/src/runner-local/graph-hydration.ts`,
+  `packages/runtime-local/src/runner-local/orchestrator/finalize.ts`,
+  `packages/runtime-local/src/runner-local/orchestrator/prepare-run.ts`,
+  `packages/runtime-local/src/runner-local/orchestrator/run-context.ts`,
+  `packages/runtime-local/src/runner-local/reflect.ts`,
+  `packages/runtime-local/src/runner-local/runner-helpers.ts`,
+  `packages/runtime-local/src/runner-local/skill-install.ts`,
+  `packages/core/src/knowledge/local-store.ts`,
+  `packages/core/src/marketplaces/fixture.ts`,
+  `packages/core/src/parser/index.ts`,
+  `packages/core/src/registry/ingest.ts`, and focused tests that still exercise
+  retired receipt APIs.
+- Prefix-based legacy graph/receipt inference remains in
+  `packages/runtime-local/src/runner-local/history.ts` at the `gx_`
+  `startsWith` fallback sites.
 
 Receipt model:
 - Receipt nodes are first-class sealed harness receipts with the canonical
@@ -131,6 +171,10 @@ Receipt model:
   as `sig:{digest}` with `LocalHarnessSignatureVerifier` and issuer
   `runtime-skeleton`. This proves the strict proof path is wired, but it is not
   an Ed25519-backed production signature acceptance model.
+- The importer audit guard also detects pseudo-signature references in
+  `crates/runx-runtime/src/receipts.rs`, `receipt_store.rs`, `receipt_tree.rs`,
+  `journal.rs`, and `harness/assertions.rs`; these remain active blockers until
+  the production verifier policy is recorded.
 - TS receipt imports still live:
   active source still imports TS receipt helpers, types, hash utilities, and
   local receipt contracts from `packages/core/src/receipts/**` or the
@@ -307,6 +351,7 @@ catalogue handoff remains in later phases.
   receipt fields.
 
 Phase 3: importer and shape audit.
+Status: guardrail landed 2026-05-20; blockers remain.
 - Search active source, tests, fixtures, scripts, generated surfaces, and cloud
   touchpoints for `packages/core/src/receipts`, `@runxhq/core/receipts`,
   `LocalSkillReceipt`, `LocalGraphReceipt`, retired receipt field names,
@@ -315,6 +360,9 @@ Phase 3: importer and shape audit.
   stale artifact, or false positive.
 - Record the cloud receipts-store state and block deletion if any live cloud
   path still requires retired receipt types.
+- Keep `pnpm receipts:importer-audit` passing in audit mode; deletion-phase
+  work may use `tsx scripts/check-receipt-importers.ts
+  --fail-on-active-blockers` once all blockers are expected to be gone.
 
 Phase 4: delete TS receipt implementation.
 - Delete `packages/core/src/receipts/**`.
@@ -382,6 +430,7 @@ Phase 6: final validation and review evidence.
 Strict Rust proof acceptance slice:
 
 ```sh
+pnpm receipts:importer-audit
 cargo test --manifest-path crates/Cargo.toml -p runx-receipts
 cargo test --manifest-path crates/Cargo.toml -p runx-runtime receipt_store
 cargo test --manifest-path crates/Cargo.toml -p runx-runtime journal_history
@@ -393,6 +442,7 @@ rg -n "sig:\\{digest\\}|sig:pending|runtime-skeleton" crates/runx-runtime/src/re
 Deletion-phase validation after strict acceptance and import migration:
 
 ```sh
+pnpm exec tsx scripts/check-receipt-importers.ts --fail-on-active-blockers
 test ! -d packages/core/src/receipts
 SCAN_ROOTS="apps bindings crates packages fixtures schemas scripts tests tools"
 ! rg -n "packages/core/src/receipts|@runxhq/core/receipts|LocalSkillReceipt|LocalGraphReceipt" $SCAN_ROOTS

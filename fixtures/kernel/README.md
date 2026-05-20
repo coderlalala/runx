@@ -60,9 +60,10 @@ The Rust policy fixture runner lives in
 `crates/runx-core/tests/policy_fixtures.rs`. Rust policy fixtures are policy parity evidence for `runx-core::policy`; they do not make Rust policy runtime-authoritative.
 Current policy fixtures cover authority proof, credential binding, scope
 admission, public work, local admission, sandbox normalization/admission, retry
-admission, and graph-scope admission. Payment-authority subset logic is covered
-by Rust unit/proptest coverage today; fixture parity for that helper remains a
-separate executable slice.
+admission, graph-scope admission, and the pure payment-authority subset
+comparator. Payment-authority fixtures use TypeScript-generated expected
+booleans and dispatch to `runx_core::policy::is_payment_authority_subset` in
+Rust; runtime payment execution remains outside this fixture surface.
 
 Fixtures under `runner/` pin fixture-runner ingestion behavior rather than a
 trusted-kernel decision. They exist to keep the cross-language fixture harness
