@@ -14,6 +14,21 @@ pub runx_core::kernel_eval::KernelEvalOutput::Output
 pub runx_core::kernel_eval::KernelEvalOutput::Output::value: runx_contracts::json::JsonValue
 pub fn runx_core::kernel_eval::evaluate_kernel_document_str(source: &str) -> core::result::Result<runx_core::kernel_eval::KernelEvalOutput, runx_core::kernel_eval::KernelEvalError>
 pub mod runx_core::policy
+pub mod runx_core::policy::authority_proof
+pub fn runx_core::policy::authority_proof::build_authority_proof(options: &runx_core::policy::BuildAuthorityProofOptions) -> runx_core::policy::AuthorityProof
+pub fn runx_core::policy::authority_proof::build_authority_proof_metadata(options: &runx_core::policy::BuildAuthorityProofOptions) -> runx_core::policy::AuthorityProofMetadata
+pub fn runx_core::policy::authority_proof::build_local_scope_admission(auth: core::option::Option<&runx_contracts::json::JsonValue>, grants: &[runx_core::policy::LocalAdmissionGrant], options: &runx_core::policy::LocalScopeAdmissionOptions) -> runx_core::policy::ScopeAdmission
+pub fn runx_core::policy::authority_proof::validate_credential_binding(request: &runx_core::policy::CredentialBindingRequest) -> runx_core::policy::CredentialBindingDecision
+pub mod runx_core::policy::public_work
+pub fn runx_core::policy::public_work::default_public_work_policy() -> runx_core::policy::RequiredPublicWorkPolicy
+pub fn runx_core::policy::public_work::evaluate_public_comment_opportunity(request: &runx_core::policy::PublicCommentOpportunityRequest, policy: &runx_core::policy::PublicWorkPolicy) -> runx_core::policy::PublicCommentPolicyDecision
+pub fn runx_core::policy::public_work::evaluate_public_pull_request_candidate(request: &runx_core::policy::PublicPullRequestCandidateRequest, policy: &runx_core::policy::PublicWorkPolicy) -> runx_core::policy::PublicPolicyDecision
+pub fn runx_core::policy::public_work::normalize_public_work_policy(policy: &runx_core::policy::PublicWorkPolicy) -> runx_core::policy::RequiredPublicWorkPolicy
+pub mod runx_core::policy::sandbox
+pub fn runx_core::policy::sandbox::admit_sandbox(sandbox: core::option::Option<&runx_core::policy::SandboxDeclaration>, options: &runx_core::policy::SandboxAdmissionOptions) -> runx_core::policy::SandboxAdmissionDecision
+pub fn runx_core::policy::sandbox::normalize_sandbox_declaration(sandbox: core::option::Option<&runx_core::policy::SandboxDeclaration>) -> runx_core::policy::RequiredSandboxDeclaration
+pub fn runx_core::policy::sandbox::sandbox_requires_approval(sandbox: core::option::Option<&runx_core::policy::SandboxDeclaration>) -> bool
+pub mod runx_core::policy::scope
 pub enum runx_core::policy::AdmissionDecision
 pub runx_core::policy::AdmissionDecision::Allow
 pub runx_core::policy::AdmissionDecision::Allow::reasons: alloc::vec::Vec<alloc::string::String>
@@ -48,6 +63,18 @@ pub runx_core::policy::GraphScopeAdmissionDecision::Deny::step_id: alloc::string
 pub enum runx_core::policy::LocalAdmissionGrantStatus
 pub runx_core::policy::LocalAdmissionGrantStatus::Active
 pub runx_core::policy::LocalAdmissionGrantStatus::Revoked
+pub enum runx_core::policy::PaymentAuthorityError
+pub runx_core::policy::PaymentAuthorityError::AuthorityNotSubset
+pub runx_core::policy::PaymentAuthorityError::MissingIdempotencyKey
+pub runx_core::policy::PaymentAuthorityError::MissingRailProof
+pub runx_core::policy::PaymentAuthorityError::MissingReceiptBeforeSuccess
+pub runx_core::policy::PaymentAuthorityError::MissingReservationDecision
+pub runx_core::policy::PaymentAuthorityError::MissingSubsetProof
+pub runx_core::policy::PaymentAuthorityError::ReservationDecisionNotSelected
+pub runx_core::policy::PaymentAuthorityError::SpendCapabilityAlreadyConsumed
+pub runx_core::policy::PaymentAuthorityError::SpendCapabilityBindingMismatch
+pub runx_core::policy::PaymentAuthorityError::SpendRequiresSingleUseCapability
+pub runx_core::policy::PaymentAuthorityError::WildcardCounterpartyDenied
 pub enum runx_core::policy::SandboxAdmissionDecision
 pub runx_core::policy::SandboxAdmissionDecision::Allow
 pub runx_core::policy::SandboxAdmissionDecision::Allow::reasons: alloc::vec::Vec<alloc::string::String>
@@ -210,6 +237,49 @@ pub struct runx_core::policy::LocalExecutionPolicy
 pub runx_core::policy::LocalExecutionPolicy::strict_cli_tool_inline_code: core::option::Option<bool>
 pub struct runx_core::policy::LocalScopeAdmissionOptions
 pub runx_core::policy::LocalScopeAdmissionOptions::denied_before_grant_resolution: core::option::Option<bool>
+pub struct runx_core::policy::PaymentRailAdmission<'a>
+pub runx_core::policy::PaymentRailAdmission::act_id: &'a str
+pub runx_core::policy::PaymentRailAdmission::child_authority: &'a runx_contracts::authority::AuthorityTerm
+pub runx_core::policy::PaymentRailAdmission::child_harness_ref: &'a runx_contracts::reference::Reference
+pub runx_core::policy::PaymentRailAdmission::consumed_spend_capability_refs: &'a [runx_contracts::reference::Reference]
+pub runx_core::policy::PaymentRailAdmission::idempotency_key: core::option::Option<&'a str>
+pub runx_core::policy::PaymentRailAdmission::parent_authority: &'a runx_contracts::authority::AuthorityTerm
+pub runx_core::policy::PaymentRailAdmission::reservation_decision: core::option::Option<&'a runx_contracts::decision::Decision>
+pub runx_core::policy::PaymentRailAdmission::spend_capability_binding: core::option::Option<runx_core::policy::PaymentSpendCapabilityBinding<'a>>
+pub runx_core::policy::PaymentRailAdmission::spend_capability_ref: core::option::Option<&'a runx_contracts::reference::Reference>
+pub runx_core::policy::PaymentRailAdmission::subset_proof_present: bool
+pub struct runx_core::policy::PaymentRailAdmissionDecision<'a>
+pub runx_core::policy::PaymentRailAdmissionDecision::child_term_id: &'a str
+pub runx_core::policy::PaymentRailAdmissionDecision::idempotency_key: core::option::Option<&'a str>
+pub runx_core::policy::PaymentRailAdmissionDecision::parent_term_id: &'a str
+pub runx_core::policy::PaymentRailAdmissionDecision::spend_capability_ref: core::option::Option<&'a runx_contracts::reference::Reference>
+pub struct runx_core::policy::PaymentRailAuthorization<'a>
+pub runx_core::policy::PaymentRailAuthorization::act_id: &'a str
+pub runx_core::policy::PaymentRailAuthorization::child_authority: &'a runx_contracts::authority::AuthorityTerm
+pub runx_core::policy::PaymentRailAuthorization::child_harness_ref: &'a runx_contracts::reference::Reference
+pub runx_core::policy::PaymentRailAuthorization::consumed_spend_capability_refs: &'a [runx_contracts::reference::Reference]
+pub runx_core::policy::PaymentRailAuthorization::idempotency_key: core::option::Option<&'a str>
+pub runx_core::policy::PaymentRailAuthorization::parent_authority: &'a runx_contracts::authority::AuthorityTerm
+pub runx_core::policy::PaymentRailAuthorization::rail_proof_refs: &'a [runx_contracts::reference::Reference]
+pub runx_core::policy::PaymentRailAuthorization::reservation_decision: core::option::Option<&'a runx_contracts::decision::Decision>
+pub runx_core::policy::PaymentRailAuthorization::spend_capability_binding: core::option::Option<runx_core::policy::PaymentSpendCapabilityBinding<'a>>
+pub runx_core::policy::PaymentRailAuthorization::spend_capability_ref: core::option::Option<&'a runx_contracts::reference::Reference>
+pub runx_core::policy::PaymentRailAuthorization::subset_proof_present: bool
+pub struct runx_core::policy::PaymentRailAuthorizationDecision<'a>
+pub runx_core::policy::PaymentRailAuthorizationDecision::child_term_id: &'a str
+pub runx_core::policy::PaymentRailAuthorizationDecision::idempotency_key: core::option::Option<&'a str>
+pub runx_core::policy::PaymentRailAuthorizationDecision::parent_term_id: &'a str
+pub runx_core::policy::PaymentRailAuthorizationDecision::rail_proof_refs: &'a [runx_contracts::reference::Reference]
+pub runx_core::policy::PaymentRailAuthorizationDecision::spend_capability_ref: core::option::Option<&'a runx_contracts::reference::Reference>
+pub struct runx_core::policy::PaymentSpendCapabilityBinding<'a>
+pub runx_core::policy::PaymentSpendCapabilityBinding::act_id: &'a str
+pub runx_core::policy::PaymentSpendCapabilityBinding::amount_minor: u64
+pub runx_core::policy::PaymentSpendCapabilityBinding::child_harness_ref: &'a runx_contracts::reference::Reference
+pub runx_core::policy::PaymentSpendCapabilityBinding::counterparty: &'a str
+pub runx_core::policy::PaymentSpendCapabilityBinding::currency: &'a str
+pub runx_core::policy::PaymentSpendCapabilityBinding::idempotency_key: &'a str
+pub runx_core::policy::PaymentSpendCapabilityBinding::rail: &'a str
+pub runx_core::policy::PaymentSpendCapabilityBinding::reservation_decision_id: &'a str
 pub struct runx_core::policy::PublicCommentOpportunityRequest
 pub runx_core::policy::PublicCommentOpportunityRequest::author_association: core::option::Option<alloc::string::String>
 pub runx_core::policy::PublicCommentOpportunityRequest::comments_count: core::option::Option<f64>
@@ -279,8 +349,10 @@ pub runx_core::policy::ScopeAdmission::requested_scopes: alloc::vec::Vec<alloc::
 pub runx_core::policy::ScopeAdmission::status: runx_core::policy::ScopeAdmissionStatus
 pub fn runx_core::policy::admit_graph_step_scopes(request: &runx_core::policy::GraphScopeAdmissionRequest) -> runx_core::policy::GraphScopeAdmissionDecision
 pub fn runx_core::policy::admit_local_skill(skill: &runx_core::policy::LocalAdmissionSkill, options: &runx_core::policy::LocalAdmissionOptions) -> runx_core::policy::AdmissionDecision
+pub fn runx_core::policy::admit_payment_rail(input: runx_core::policy::PaymentRailAdmission<'_>) -> core::result::Result<runx_core::policy::PaymentRailAdmissionDecision<'_>, runx_core::policy::PaymentAuthorityError>
 pub fn runx_core::policy::admit_retry_policy(request: &runx_core::policy::RetryAdmissionRequest) -> runx_core::policy::AdmissionDecision
 pub fn runx_core::policy::admit_sandbox(sandbox: core::option::Option<&runx_core::policy::SandboxDeclaration>, options: &runx_core::policy::SandboxAdmissionOptions) -> runx_core::policy::SandboxAdmissionDecision
+pub fn runx_core::policy::authorize_payment_rail(input: runx_core::policy::PaymentRailAuthorization<'_>) -> core::result::Result<runx_core::policy::PaymentRailAuthorizationDecision<'_>, runx_core::policy::PaymentAuthorityError>
 pub fn runx_core::policy::build_authority_proof(options: &runx_core::policy::BuildAuthorityProofOptions) -> runx_core::policy::AuthorityProof
 pub fn runx_core::policy::build_authority_proof_metadata(options: &runx_core::policy::BuildAuthorityProofOptions) -> runx_core::policy::AuthorityProofMetadata
 pub fn runx_core::policy::build_local_scope_admission(auth: core::option::Option<&runx_contracts::json::JsonValue>, grants: &[runx_core::policy::LocalAdmissionGrant], options: &runx_core::policy::LocalScopeAdmissionOptions) -> runx_core::policy::ScopeAdmission
@@ -290,6 +362,8 @@ pub fn runx_core::policy::evaluate_public_pull_request_candidate(request: &runx_
 pub fn runx_core::policy::is_payment_authority_subset(child: &runx_contracts::authority::AuthorityTerm, parent: &runx_contracts::authority::AuthorityTerm) -> bool
 pub fn runx_core::policy::normalize_public_work_policy(policy: &runx_core::policy::PublicWorkPolicy) -> runx_core::policy::RequiredPublicWorkPolicy
 pub fn runx_core::policy::normalize_sandbox_declaration(sandbox: core::option::Option<&runx_core::policy::SandboxDeclaration>) -> runx_core::policy::RequiredSandboxDeclaration
+pub fn runx_core::policy::payment_authority_requires_receipt_before_success(term: &runx_contracts::authority::AuthorityTerm) -> bool
+pub fn runx_core::policy::payment_authority_spends(term: &runx_contracts::authority::AuthorityTerm) -> bool
 pub fn runx_core::policy::sandbox_requires_approval(sandbox: core::option::Option<&runx_core::policy::SandboxDeclaration>) -> bool
 pub fn runx_core::policy::validate_credential_binding(request: &runx_core::policy::CredentialBindingRequest) -> runx_core::policy::CredentialBindingDecision
 pub mod runx_core::serde_conventions

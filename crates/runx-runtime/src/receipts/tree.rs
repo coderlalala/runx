@@ -4,7 +4,7 @@ use runx_receipts::{
     verify_receipt_tree_proof_with_resolver,
 };
 
-use crate::receipts::{RuntimeReceiptProofContextProvider, RuntimeReceiptSignaturePolicy};
+use super::seal::{RuntimeReceiptProofContextProvider, RuntimeReceiptSignaturePolicy};
 
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeReceiptResolver {

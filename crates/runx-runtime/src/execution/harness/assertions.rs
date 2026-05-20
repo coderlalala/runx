@@ -4,8 +4,8 @@ use runx_receipts::{
     validate_harness_receipt_proof, verify_harness_receipt_proof,
 };
 
-use crate::harness::fixtures::{HarnessExpectedStatus, HarnessReceiptExpectation};
-use crate::harness::runner::{HarnessReplayError, HarnessReplayOutput};
+use crate::execution::harness::fixtures::{HarnessExpectedStatus, HarnessReceiptExpectation};
+use crate::execution::harness::runner::{HarnessReplayError, HarnessReplayOutput};
 use crate::receipts::RuntimeReceiptProofContextProvider;
 
 #[derive(Clone, Debug, PartialEq)]

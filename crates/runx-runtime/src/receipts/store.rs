@@ -11,10 +11,10 @@ use runx_receipts::{ReceiptProofContextProvider, verify_harness_receipt_proof};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::receipt_paths::{
+use super::paths::{
     ReceiptStoreLabel, ReceiptStorePublicProjection, safe_receipt_store_projection,
 };
-use crate::receipts::{RuntimeReceiptProofContextProvider, RuntimeReceiptSignaturePolicy};
+use super::seal::{RuntimeReceiptProofContextProvider, RuntimeReceiptSignaturePolicy};
 
 const RECEIPT_STORE_INDEX_SCHEMA: &str = "runx.receipt_store_index.v1";
 const INDEX_FILE_NAME: &str = "index.json";

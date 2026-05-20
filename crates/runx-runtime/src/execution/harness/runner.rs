@@ -9,19 +9,19 @@ use runx_contracts::{
 };
 use thiserror::Error;
 
-use crate::RuntimeError;
-use crate::adapter::{SkillAdapter, SkillInvocation, SkillOutput};
-use crate::caller::Caller;
-use crate::graph::load_skill;
-use crate::harness::assertions::{assert_expectations, status_from_disposition};
-use crate::harness::fixtures::{
+use super::super::graph::load_skill;
+use super::assertions::{assert_expectations, status_from_disposition};
+use super::fixtures::{
     HarnessExpectedStatus, HarnessFixture, HarnessFixtureError, HarnessFixtureKind,
     fixture_kind_name, load_harness_fixture,
 };
+use crate::RuntimeError;
+use crate::adapter::{SkillAdapter, SkillInvocation, SkillOutput};
+use crate::caller::Caller;
+use crate::execution::runner::{GraphRun, Runtime, RuntimeOptions, StepRun};
 use crate::receipts::{
     StepReceiptWithDisposition, graph_receipt_with_disposition, step_receipt_with_disposition,
 };
-use crate::runner::{GraphRun, Runtime, RuntimeOptions, StepRun};
 
 #[derive(Clone, Debug)]
 pub struct HarnessReplayOutput {

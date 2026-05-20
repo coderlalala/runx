@@ -13,24 +13,24 @@ pub mod connect;
 pub mod dev;
 pub mod doctor;
 pub mod error;
-mod fanout;
-mod graph;
-pub mod harness;
+pub mod execution;
 mod hosted_http;
 pub mod journal;
 pub mod list;
 pub mod post_merge_observer;
-pub mod receipt_paths;
-pub mod receipt_store;
-pub mod receipt_tree;
 pub mod receipts;
 pub mod registry;
-pub mod runner;
 pub mod sandbox;
 pub mod scaffold;
-pub mod skill_run;
-pub mod target_runner;
 pub mod tool_catalogs;
+
+pub use execution::harness;
+pub use execution::runner;
+pub use execution::skill_run;
+pub use execution::target_runner;
+pub use receipts::paths as receipt_paths;
+pub use receipts::store as receipt_store;
+pub use receipts::tree as receipt_tree;
 
 #[cfg(any(
     feature = "cli-tool",
@@ -84,16 +84,16 @@ pub use list::{
     RunxListRequestedKind, RunxListSource, RunxListStatus, default_list_options,
     list_authoring_primitives,
 };
-pub use receipt_paths::{
+pub use receipts::paths::{
     INIT_CWD_ENV, RUNTIME_RECEIPTS_DIR_CONFIG_KEY, RUNX_CWD_ENV, RUNX_PROJECT_DIR_ENV,
     RUNX_RECEIPT_DIR_ENV, ReceiptPathInputs, ReceiptPathSource, ReceiptStoreLabel,
     ResolvedReceiptPath, RuntimeReceiptConfig, resolve_project_runx_dir, resolve_receipt_path,
     resolve_workspace_base, safe_receipt_store_label,
 };
-pub use receipt_store::{
+pub use receipts::store::{
     LocalReceiptStore, ReceiptStoreError, ReceiptStoreIndex, ReceiptStoreIndexEntry,
 };
-pub use receipt_tree::{
+pub use receipts::tree::{
     RuntimeReceiptResolver, validate_runtime_receipt_tree, verify_runtime_receipt_tree,
 };
 pub use registry::{RegistryInstallMetadataInput, registry_install_receipt_metadata};

@@ -14,8 +14,8 @@ use runx_receipts::{ReceiptProofContextProvider, verify_harness_receipt_proof};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::receipt_paths::safe_receipt_store_label;
-use crate::receipt_store::{LocalReceiptStore, ReceiptStoreError};
+use crate::receipts::paths::safe_receipt_store_label;
+use crate::receipts::store::{LocalReceiptStore, ReceiptStoreError};
 use crate::receipts::{RuntimeReceiptProofContextProvider, RuntimeReceiptSignaturePolicy};
 
 pub const JOURNAL_PROJECTION_SCHEMA: &str = "runx.journal_projection.v1";

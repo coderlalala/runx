@@ -115,7 +115,7 @@ fn catalog_adapter_prefers_local_manifest_before_fixture_catalog()
     assert_eq!(output.status, InvocationStatus::Success);
     assert_eq!(output.stdout, oracle_text("local-precedence", "stdout")?);
     assert_eq!(output.stderr, oracle_text("local-precedence", "stderr")?);
-    assert_eq!(oracle_text("local-precedence", "status")?, "success\n");
+    assert_eq!(oracle_text("local-precedence", "status")?, "sealed\n");
     Ok(())
 }
 

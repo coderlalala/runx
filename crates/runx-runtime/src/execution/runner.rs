@@ -16,12 +16,12 @@ use runx_core::state_machine::{
 };
 use runx_parser::{ExecutionGraph, GraphStep};
 
+use super::fanout::fanout_policies;
+use super::graph::{find_step, load_graph, load_skill, output_object, resolve_inputs, skill_dir};
 use crate::RuntimeError;
 use crate::adapter::{InvocationStatus, SkillAdapter, SkillInvocation, SkillOutput};
 use crate::approval::{ApprovalResolution, request_approval};
 use crate::caller::{Caller, NoopCaller};
-use crate::fanout::fanout_policies;
-use crate::graph::{find_step, load_graph, load_skill, output_object, resolve_inputs, skill_dir};
 use crate::journal::ExecutionJournal;
 use crate::receipts::{graph_receipt, step_receipt};
 use runx_core::policy::{PaymentRailAdmission, PaymentSpendCapabilityBinding, admit_payment_rail};
@@ -260,7 +260,7 @@ struct StepExecutionPlan<'a> {
 
 impl GraphExecution {
     fn new(graph: &ExecutionGraph) -> Self {
-        let definitions = crate::graph::step_definitions(graph);
+        let definitions = super::graph::step_definitions(graph);
         Self {
             state: create_sequential_graph_state(graph.name.clone(), &definitions),
             definitions,
@@ -281,7 +281,7 @@ impl GraphExecution {
             });
         }
         Ok(Self {
-            definitions: crate::graph::step_definitions(graph),
+            definitions: super::graph::step_definitions(graph),
             state: checkpoint.state,
             runs: checkpoint.steps,
             sync_points: checkpoint.sync_points,

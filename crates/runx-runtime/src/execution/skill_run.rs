@@ -16,8 +16,8 @@ use crate::adapter::{InvocationStatus, SkillInvocation, SkillOutput};
 use crate::agent_invocation::{
     AgentActInvocationSourceType, agent_act_invocation_id, agent_act_resolution_request,
 };
-use crate::receipt_paths::{ReceiptPathInputs, resolve_receipt_path};
-use crate::receipt_store::{LocalReceiptStore, ReceiptStoreError};
+use crate::receipts::paths::{ReceiptPathInputs, resolve_receipt_path};
+use crate::receipts::store::{LocalReceiptStore, ReceiptStoreError};
 use crate::receipts::{StepReceiptWithDisposition, step_receipt_with_disposition};
 
 const SKILL_RUN_SCHEMA: &str = "runx.skill_run.v1";

@@ -13,8 +13,8 @@ use runx_parser::{SkillInput, ValidatedSkill};
 
 use crate::adapter::{SkillAdapter, SkillInvocation, SkillOutput};
 use crate::caller::Caller;
-use crate::receipt_store::LocalReceiptStore;
 use crate::receipts::step_receipt;
+use crate::receipts::store::LocalReceiptStore;
 use crate::{GraphRun, Runtime, RuntimeError, RuntimeOptions};
 
 use super::adapter::McpAdapter;
