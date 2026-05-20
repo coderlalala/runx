@@ -13,7 +13,8 @@ import {
 } from "@runxhq/core/parser";
 import { buildRegistryFixtureVersion } from "./registry-fixtures.js";
 
-const paymentSecretKeyPattern = /(?:^|_)(?:pan|cvv|cvc|card_number|cardnumber|account_number|routing_number|private_key|seed_phrase|mnemonic|secret_key)(?:$|_)/i;
+const paymentSecretKeyPattern = /(?:^|_)(?:pan|cvv|cvc|card_number|cardnumber|account_number|routing_number|private_key|seed_phrase|mnemonic|secret_key|api_key|access_token|refresh_token|client_secret|merchant_secret|provider_secret|raw_secret|raw_token|bearer_token|password|credential_material|secret_material|key_material)(?:$|_)/i;
+const paymentSecretMetadataFields = new Set(["receives_rail_secret_material"]);
 const retiredReceiptFields = new Set(["schema_version", "source_type"]);
 const explicitGovernedPaymentSkillNames = new Set([
   "charge-challenge",
@@ -97,6 +98,34 @@ describe("payment skill execution profiles", () => {
       }
     }
   });
+
+  it("rejects common raw merchant and provider secret field names", () => {
+    const secretFieldNames = [
+      "merchant_secret",
+      "stripe_api_key",
+      "client_secret",
+      "access_token",
+      "api_key",
+      "provider_secret",
+      "raw_token",
+      "credential_material",
+      "secret_material",
+    ];
+
+    for (const fieldName of secretFieldNames) {
+      expect(findPaymentSecretFields({ inputs: { [fieldName]: { type: "string" } } }), fieldName)
+        .toEqual([`inputs.${fieldName}`]);
+    }
+
+    expect(findPaymentSecretFields({
+      credential_ref: "credential:mock:paid-search-001",
+      payment_credential_ref: "credential:mock:paid-search-001",
+      proof_ref: "receipt-proof:mock-charge:paid-search-001",
+      idempotency_key: "charge:paid-search-001",
+      verify_capability_ref: "capability:charge-verify:paid-search-001",
+      receives_rail_secret_material: false,
+    })).toEqual([]);
+  });
 });
 
 interface OutputDeclaration {
@@ -145,7 +174,7 @@ function findPaymentSecretFields(value: unknown, pathParts: readonly string[] = 
   }
   return Object.entries(value).flatMap(([key, entry]) => {
     const fieldPath = [...pathParts, key];
-    const current = paymentSecretKeyPattern.test(key) ? [fieldPath.join(".")] : [];
+    const current = paymentSecretKeyPattern.test(key) && !paymentSecretMetadataFields.has(key) ? [fieldPath.join(".")] : [];
     return [...current, ...findPaymentSecretFields(entry, fieldPath)];
   });
 }

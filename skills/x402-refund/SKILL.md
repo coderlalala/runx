@@ -1,13 +1,12 @@
 ---
 name: x402-refund
-description: Model unpinned same-family refund dispatch from the linked original receipt.
+description: Model a static same-family refund profile for future unpinned dispatch.
 ---
 
 # X402 Refund
 
 Compose refund quote, refund reserve, optional approval, and a modeled
-same-family refund settlement where the family is selected from the linked
-original charge receipt.
+same-family refund settlement using a static profile example.
 
 This graph profile documents the future unpinned refund surface. In v1 it is
 static registry shape only: no dynamic runtime dispatch and no live rail
@@ -22,7 +21,7 @@ mutation.
   `refund_approval`, and `refund_rail_packet`.
 - Evidence bar: every step carries the original receipt ref, selected family,
   refund idempotency key, and proof ref.
-- Strategic bar: keep dynamic dispatch as metadata until runtime owns it.
+- Strategic bar: keep dynamic dispatch out of v1 until runtime owns it.
 - Stop conditions: stop before settlement when the requested family does not
   match the original receipt family.
 

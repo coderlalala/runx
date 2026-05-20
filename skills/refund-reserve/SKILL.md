@@ -18,9 +18,9 @@ repair receipt state.
   settlement-family refund step.
 - Audience: operators, approval reviewers, registry tooling, and future refund
   runtime enforcement.
-- Artifact contract: `refund_decision`, `reserved_refund_authority`,
-  `refund_idempotency`, `approval`, `original_receipt_ref`, and
-  `open_questions`.
+- Artifact contract: `payment_decision`, `reserved_payment_authority`,
+  `reservation`, `idempotency`, `approval`, and `open_questions`. Refund
+  semantics are carried inside those existing payment reservation fields.
 - Evidence bar: selected refunds must preserve original receipt link,
   settlement family, amount, currency, and idempotency.
 - Strategic bar: reserve no broader authority than the linked charge receipt

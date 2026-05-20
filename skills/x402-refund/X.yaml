@@ -38,18 +38,23 @@ harness:
               receipt_ref: receipt:charge:mock:paid-search-001
             settlement_family: mock
           agent_step.reserve.output:
-            refund_decision:
+            payment_decision:
               decision_id: decision_refund_demo_001
               selected: true
-            reserved_refund_authority:
-              authority_ref: authority:payment:refund-demo-001
-            refund_idempotency:
-              key: refund:paid-search-001
+              operation: refund
               original_receipt_ref: receipt:charge:mock:paid-search-001
+            reserved_payment_authority:
+              authority_ref: authority:payment:refund-demo-001
+            idempotency:
+              key: refund:paid-search-001
+              recovery_required: true
+              original_receipt_ref: receipt:charge:mock:paid-search-001
+            reservation:
+              original_receipt_ref: receipt:charge:mock:paid-search-001
+              settlement_family: mock
             approval:
               required: false
               status: not_required
-            original_receipt_ref: receipt:charge:mock:paid-search-001
           agent_step.approve-refund.output:
             approved: true
           agent_step.settlement.output:
@@ -136,18 +141,20 @@ runners:
             gate_id: x402-refund.approval
             reason: Approve the linked refund reservation before settlement.
           context:
-            refund_decision: reserve.refund_reservation_packet.data.refund_decision
+            refund_decision: reserve.refund_reservation_packet.data.payment_decision
+            refund_reservation: reserve.refund_reservation_packet.data.reservation
+            refund_idempotency: reserve.refund_reservation_packet.data.idempotency
           artifacts:
             wrap_as: refund_approval
         - id: settlement
           run:
             type: refund-settlement
           inputs:
-            settlement_family: "{{original_receipt.settlement_family}}"
+            settlement_family: mock
           context:
-            original_receipt_ref: reserve.refund_reservation_packet.data.original_receipt_ref
-            refund_idempotency: reserve.refund_reservation_packet.data.refund_idempotency
-            reserved_refund_authority: reserve.refund_reservation_packet.data.reserved_refund_authority
+            refund_reservation: reserve.refund_reservation_packet.data.reservation
+            refund_idempotency: reserve.refund_reservation_packet.data.idempotency
+            reserved_refund_authority: reserve.refund_reservation_packet.data.reserved_payment_authority
           artifacts:
             wrap_as: refund_rail_packet
             packet: runx.payment.rail.v1
@@ -161,8 +168,7 @@ runners:
         direction: provider_refund
         phase: graph
         resource_family: payment
-        settlement_family: unpinned
-        dispatch_source: original_receipt.settlement_family
+        settlement_family: static_profile_example
         requires_original_receipt_ref: true
         same_family_required: true
         runtime_refund_enabled: false

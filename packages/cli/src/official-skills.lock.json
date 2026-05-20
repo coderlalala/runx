@@ -81,7 +81,7 @@
   },
   {
     "skill_id": "runx/mock-refund",
-    "version": "sha-3d2daa66ea55",
+    "version": "sha-79ac2e497c41",
     "digest": "89e3c65a6af341f6230963b09a0dd9dc2cf585ff229c237106313278cf848cd5"
   },
   {
@@ -96,7 +96,7 @@
   },
   {
     "skill_id": "runx/mpp-refund",
-    "version": "sha-1fed654c95e0",
+    "version": "sha-1f93c0c69edf",
     "digest": "ff4a5497f210d2061b63034a0bc0d128fb8962dab54adac2ddc1ea0d941f31cf"
   },
   {
@@ -166,8 +166,8 @@
   },
   {
     "skill_id": "runx/refund-reserve",
-    "version": "sha-118229eb111a",
-    "digest": "cb96c3f57787a08c83ef6c1396a18ac17f5bae5cf5bf4e7c932624f93361744a"
+    "version": "sha-72beba3609c5",
+    "digest": "4ba27e09b2a89c97921e9e09cc525187722fda002b5a81b2b57c47653280d201"
   },
   {
     "skill_id": "runx/release",
@@ -216,7 +216,7 @@
   },
   {
     "skill_id": "runx/stripe-refund",
-    "version": "sha-8d977e9be430",
+    "version": "sha-e3f18dade99d",
     "digest": "a4494af3371ec0dff3fccc159ac0cf8922822f34b2cd0ffc0677145573692057"
   },
   {
@@ -241,7 +241,7 @@
   },
   {
     "skill_id": "runx/x402-refund",
-    "version": "sha-4dd0723cf55e",
-    "digest": "c27c0ec25d0617a3a6288864cb75508d4f41bfe1897dd1aba02c791fc2ced4d0"
+    "version": "sha-dc04f0a77d7b",
+    "digest": "02efda3c54594418300fc4482b02c12a938129d71c425fb07802410af347901a"
   }
 ]
