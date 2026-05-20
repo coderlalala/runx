@@ -64,11 +64,11 @@
     ],
     "on_duplicate": "reuse"
   },
-  "outcomes": {
+  "post_merge": {
     "observe_provider": false,
     "verification_required": false,
-    "close_source_issue": "never",
-    "publish_final_source_thread_update": true
+    "source_issue_closure_mode": "never",
+    "publish_source_thread_closure_update": true
   },
   "permissions": {
     "auto_merge": false,

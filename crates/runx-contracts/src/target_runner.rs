@@ -11,10 +11,11 @@ use crate::{
     JsonNumber, JsonObject, JsonValue, OperationalPolicy, OperationalPolicyAction,
     OperationalPolicyAdmission, OperationalPolicyAdmissionRequest,
     OperationalPolicyAdmissionStatus, OperationalPolicyDedupeStrategy,
-    OperationalPolicyDuplicateBehavior, OperationalPolicyError, OperationalPolicyOutcomeCloseMode,
-    OperationalPolicyPublishMode, OperationalPolicyRunnerKind, OperationalPolicyRunnerRule,
-    OperationalPolicySourceProvider, OperationalPolicySourceRule, OperationalPolicyTargetRule,
-    Reference, ReferenceType, admit_operational_policy_request,
+    OperationalPolicyDuplicateBehavior, OperationalPolicyError, OperationalPolicyPublishMode,
+    OperationalPolicyRunnerKind, OperationalPolicyRunnerRule,
+    OperationalPolicySourceIssueClosureMode, OperationalPolicySourceProvider,
+    OperationalPolicySourceRule, OperationalPolicyTargetRule, Reference, ReferenceType,
+    admit_operational_policy_request,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -64,7 +65,7 @@ pub struct TargetRepoRunnerPlan {
     pub runner: TargetRepoRunnerRunnerPlan,
     pub owner: TargetRepoRunnerOwnerPlan,
     pub dedupe: TargetRepoRunnerDedupePlan,
-    pub outcome_close_mode: OperationalPolicyOutcomeCloseMode,
+    pub source_issue_closure_mode: OperationalPolicySourceIssueClosureMode,
     pub mutate_target_repo: bool,
     pub require_human_merge_gate: bool,
 }
@@ -372,7 +373,7 @@ pub fn plan_target_repo_runner(
             owners: admission.owners.unwrap_or_default(),
         },
         dedupe: build_dedupe_plan(policy, request, &context.target.repo)?,
-        outcome_close_mode: admission.outcome_close_mode,
+        source_issue_closure_mode: admission.source_issue_closure_mode,
         mutate_target_repo: admission.mutate_target_repo,
         require_human_merge_gate: admission.require_human_merge_gate,
     })

@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::operational_policy::OperationalPolicySourceRule;
 use crate::{
     ActForm, ClosureDisposition, CriterionStatus, HarnessReceipt, HarnessState, OperationalPolicy,
-    OperationalPolicyError, OperationalPolicyOutcomeCloseMode, OperationalPolicyPublishMode,
+    OperationalPolicyError, OperationalPolicyPublishMode, OperationalPolicySourceIssueClosureMode,
     Reference, ReferenceType, validate_operational_policy_semantics,
 };
 
@@ -311,7 +311,11 @@ pub fn plan_post_merge_observer_closure(
     let publication = publication_plan(policy, source, request)?;
     let final_state = classify_closure(policy, request)?;
     let pull_request_ref = pull_request_ref(&request.pull_request);
-    let source_issue = source_issue_plan(policy.outcomes.close_source_issue, final_state, request);
+    let source_issue = source_issue_plan(
+        policy.post_merge.source_issue_closure_mode,
+        final_state,
+        request,
+    );
     let verification = verification_plan(policy, final_state, &request.verification);
     let act_forms = act_forms(final_state, &publication, source_issue.disposition);
     let seal_criteria = seal_criteria(
@@ -505,7 +509,7 @@ fn validated_observer_source<'a>(
     request: &PostMergeObserverPlanRequest,
 ) -> Result<&'a OperationalPolicySourceRule, PostMergeObserverPlanError> {
     validate_operational_policy_semantics(policy).map_err(PostMergeObserverPlanError::Policy)?;
-    if !policy.outcomes.observe_provider {
+    if !policy.post_merge.observe_provider {
         return Err(PostMergeObserverPlanError::ProviderObservationDisabled);
     }
     select_source(policy, request.source_id.as_deref())
@@ -524,7 +528,7 @@ fn publication_plan(
     }
     Ok(PostMergeObserverPublicationPlan {
         final_source_thread_update,
-        source_issue_comment_required: policy.outcomes.publish_final_source_thread_update,
+        source_issue_comment_required: policy.post_merge.publish_source_thread_closure_update,
         publish_mode: source.source_thread.publish_mode,
         source_thread_ref: request.source_thread_ref.clone(),
     })
@@ -579,7 +583,7 @@ fn classify_closure(
         PostMergeVerificationStatus::Pending => {
             Ok(PostMergeObserverClosureState::MergedPendingVerification)
         }
-        PostMergeVerificationStatus::NotRequired if policy.outcomes.verification_required => {
+        PostMergeVerificationStatus::NotRequired if policy.post_merge.verification_required => {
             Err(PostMergeObserverPlanError::VerificationRequired)
         }
         PostMergeVerificationStatus::NotRequired => {
@@ -592,23 +596,23 @@ fn source_thread_publication_required(
     policy: &OperationalPolicy,
     source: &OperationalPolicySourceRule,
 ) -> bool {
-    policy.outcomes.publish_final_source_thread_update
+    policy.post_merge.publish_source_thread_closure_update
         && source.source_thread.publish_mode != OperationalPolicyPublishMode::None
 }
 
 fn source_issue_plan(
-    close_mode: OperationalPolicyOutcomeCloseMode,
+    close_mode: OperationalPolicySourceIssueClosureMode,
     final_state: PostMergeObserverClosureState,
     request: &PostMergeObserverPlanRequest,
 ) -> PostMergeObserverSourceIssuePlan {
     let disposition = match (close_mode, final_state) {
         (
-            OperationalPolicyOutcomeCloseMode::WhenVerified
-            | OperationalPolicyOutcomeCloseMode::WhenTerminal,
+            OperationalPolicySourceIssueClosureMode::WhenVerified
+            | OperationalPolicySourceIssueClosureMode::WhenTerminal,
             PostMergeObserverClosureState::MergedVerified,
         ) => PostMergeSourceIssueDisposition::Close,
         (
-            OperationalPolicyOutcomeCloseMode::WhenTerminal,
+            OperationalPolicySourceIssueClosureMode::WhenTerminal,
             PostMergeObserverClosureState::FailedVerification,
         ) => PostMergeSourceIssueDisposition::Close,
         _ => PostMergeSourceIssueDisposition::KeepOpen,
@@ -631,7 +635,7 @@ fn source_issue_plan(
 fn keep_open_reason(final_state: PostMergeObserverClosureState) -> &'static str {
     match final_state {
         PostMergeObserverClosureState::MergedVerified => {
-            "source issue remains open because policy does not close verified outcomes"
+            "source issue remains open because policy does not close verified post-merge states"
         }
         PostMergeObserverClosureState::FailedVerification => {
             "source issue remains open because merge verification failed"
@@ -651,7 +655,7 @@ fn verification_plan(
     verification: &PostMergeVerificationObservation,
 ) -> PostMergeObserverVerificationPlan {
     PostMergeObserverVerificationPlan {
-        required: policy.outcomes.verification_required
+        required: policy.post_merge.verification_required
             && final_state != PostMergeObserverClosureState::ClosedUnmerged,
         status: if final_state == PostMergeObserverClosureState::ClosedUnmerged {
             PostMergeVerificationStatus::NotRequired

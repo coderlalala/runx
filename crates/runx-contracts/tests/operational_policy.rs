@@ -1,7 +1,7 @@
 use runx_contracts::{
     OperationalPolicy, OperationalPolicyAction, OperationalPolicyAdmissionRequest,
-    OperationalPolicyAdmissionStatus, OperationalPolicyDedupeStrategy,
-    OperationalPolicyOutcomeCloseMode, OperationalPolicySchema, admit_operational_policy_request,
+    OperationalPolicyAdmissionStatus, OperationalPolicyDedupeStrategy, OperationalPolicySchema,
+    OperationalPolicySourceIssueClosureMode, admit_operational_policy_request,
     lint_operational_policy_contract, project_operational_policy_readback,
     validate_operational_policy_contract, validate_operational_policy_semantics,
 };
@@ -123,8 +123,8 @@ fn nitrosend_policy_admits_each_target_repo_route() -> Result<(), Box<dyn std::e
             OperationalPolicyDedupeStrategy::SourceFingerprint
         );
         assert_eq!(
-            admission.outcome_close_mode,
-            OperationalPolicyOutcomeCloseMode::WhenVerified
+            admission.source_issue_closure_mode,
+            OperationalPolicySourceIssueClosureMode::WhenVerified
         );
         assert!(admission.source_thread_required);
         assert!(admission.mutate_target_repo);
