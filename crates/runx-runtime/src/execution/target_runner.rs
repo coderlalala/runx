@@ -65,6 +65,7 @@ pub struct TargetRepoRunnerLiveExecution {
     pub provider_lookup_command: TargetRepoRunnerProviderDedupeLookupCommand,
     pub dedupe_observation: TargetRepoRunnerDedupeLookupObservation,
     pub runner_observation: Option<TargetRepoRunnerGovernedRunnerObservation>,
+    pub pull_request_request: TargetRepoRunnerPullRequestObservationRequest,
     pub execution: TargetRepoRunnerFixtureExecution,
     pub revision_receipt: HarnessReceipt,
     pub revision_projection: TargetRepoRunnerRevisionReceiptProjection,
@@ -300,6 +301,7 @@ pub enum TargetRepoRunnerGithubPullRequestSearchState {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TargetRepoRunnerPullRequestObservationRequest {
+    pub command: TargetRepoRunnerPullRequestMutationCommand,
     pub disposition: TargetRepoRunnerPullRequestDisposition,
     pub target_repo: String,
     pub dedupe_key: String,
@@ -307,6 +309,48 @@ pub struct TargetRepoRunnerPullRequestObservationRequest {
     pub existing_pull_request: Option<TargetRepoRunnerExistingPullRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runner_observation: Option<TargetRepoRunnerGovernedRunnerObservation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TargetRepoRunnerPullRequestMutationCommand {
+    pub provider: TargetRepoRunnerProvider,
+    pub disposition: TargetRepoRunnerPullRequestDisposition,
+    pub target_repo: String,
+    pub repository: TargetRepoRunnerGithubRepository,
+    pub target_repo_ref: Reference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_branch: Option<String>,
+    pub dedupe_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_issue_ref: Option<Reference>,
+    pub source_thread_ref: Reference,
+    pub mutation: TargetRepoRunnerPullRequestMutation,
+    pub human_merge_gate_required: bool,
+    pub local_path_hidden: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TargetRepoRunnerPullRequestMutation {
+    Create(TargetRepoRunnerPullRequestCreateCommand),
+    Reuse(TargetRepoRunnerPullRequestReuseCommand),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TargetRepoRunnerPullRequestCreateCommand {
+    pub title: String,
+    pub body: String,
+    pub runner_id: String,
+    pub runner_summary: String,
+    pub runner_revision_refs: Vec<Reference>,
+    pub artifact_refs: Vec<Reference>,
+    pub verification_refs: Vec<Reference>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct TargetRepoRunnerPullRequestReuseCommand {
+    pub existing_pull_request: TargetRepoRunnerExistingPullRequest,
+    pub reason: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -682,14 +726,14 @@ pub fn execute_target_repo_runner_with_adapter<A: TargetRepoRunnerAdapter>(
     } else {
         None
     };
-    let pull_request =
-        adapter.observe_pull_request(&TargetRepoRunnerPullRequestObservationRequest {
-            disposition,
-            target_repo: execution_plan.checkout.target_repo.clone(),
-            dedupe_key: execution_plan.provider_lookup.key.clone(),
-            existing_pull_request: dedupe_execution.existing_pull_request.clone(),
-            runner_observation: runner_observation.clone(),
-        })?;
+    let pull_request_request = target_repo_runner_pull_request_observation_request(
+        &execution_plan,
+        &dedupe_execution,
+        disposition,
+        runner_observation.clone(),
+    )?;
+    let pull_request = adapter.observe_pull_request(&pull_request_request)?;
+    validate_pull_request_readback(&pull_request_request.command, &pull_request)?;
 
     let execution = execute_target_repo_runner_execution_fixture(
         plan,
@@ -722,6 +766,7 @@ pub fn execute_target_repo_runner_with_adapter<A: TargetRepoRunnerAdapter>(
         provider_lookup_command,
         dedupe_observation,
         runner_observation,
+        pull_request_request,
         execution,
         revision_receipt,
         revision_projection,
@@ -855,6 +900,213 @@ fn validate_provider_dedupe_lookup_observation(
         return Err(TargetRepoRunnerRuntimeError::CommandValidation {
             operation: "provider_dedupe_lookup",
             message: "provider lookup readback exceeded the command result limit".to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn target_repo_runner_pull_request_observation_request(
+    execution_plan: &TargetRepoRunnerExecutionPlan,
+    dedupe_execution: &TargetRepoRunnerDedupeLookupExecution,
+    disposition: TargetRepoRunnerPullRequestDisposition,
+    runner_observation: Option<TargetRepoRunnerGovernedRunnerObservation>,
+) -> Result<TargetRepoRunnerPullRequestObservationRequest, TargetRepoRunnerRuntimeError> {
+    let command = target_repo_runner_pull_request_mutation_command(
+        execution_plan,
+        dedupe_execution,
+        disposition,
+        runner_observation.as_ref(),
+    )?;
+    Ok(TargetRepoRunnerPullRequestObservationRequest {
+        command,
+        disposition,
+        target_repo: execution_plan.checkout.target_repo.clone(),
+        dedupe_key: execution_plan.provider_lookup.key.clone(),
+        existing_pull_request: dedupe_execution.existing_pull_request.clone(),
+        runner_observation,
+    })
+}
+
+fn target_repo_runner_pull_request_mutation_command(
+    execution_plan: &TargetRepoRunnerExecutionPlan,
+    dedupe_execution: &TargetRepoRunnerDedupeLookupExecution,
+    disposition: TargetRepoRunnerPullRequestDisposition,
+    runner_observation: Option<&TargetRepoRunnerGovernedRunnerObservation>,
+) -> Result<TargetRepoRunnerPullRequestMutationCommand, TargetRepoRunnerRuntimeError> {
+    let repository = github_repository(&execution_plan.checkout.target_repo, "pull_request")?;
+    let mutation = match disposition {
+        TargetRepoRunnerPullRequestDisposition::Create => {
+            let observation = runner_observation.ok_or_else(|| {
+                TargetRepoRunnerRuntimeError::CommandValidation {
+                    operation: "pull_request",
+                    message: "runner observation is required before creating a pull request"
+                        .to_owned(),
+                }
+            })?;
+            TargetRepoRunnerPullRequestMutation::Create(TargetRepoRunnerPullRequestCreateCommand {
+                title: pull_request_create_title(execution_plan),
+                body: pull_request_create_body(execution_plan, dedupe_execution, observation),
+                runner_id: observation.runner_id.clone(),
+                runner_summary: observation.summary.clone(),
+                runner_revision_refs: observation.revision_refs.clone(),
+                artifact_refs: observation.artifact_refs.clone(),
+                verification_refs: observation.verification_refs.clone(),
+            })
+        }
+        TargetRepoRunnerPullRequestDisposition::Reuse => {
+            let existing_pull_request =
+                dedupe_execution
+                    .existing_pull_request
+                    .clone()
+                    .ok_or_else(|| TargetRepoRunnerRuntimeError::CommandValidation {
+                        operation: "pull_request",
+                        message: "existing pull request is required for reuse".to_owned(),
+                    })?;
+            TargetRepoRunnerPullRequestMutation::Reuse(TargetRepoRunnerPullRequestReuseCommand {
+                existing_pull_request,
+                reason: "Provider dedupe returned a matching open pull request.".to_owned(),
+            })
+        }
+    };
+
+    Ok(TargetRepoRunnerPullRequestMutationCommand {
+        provider: execution_plan.provider_lookup.provider,
+        disposition,
+        target_repo: execution_plan.checkout.target_repo.clone(),
+        repository,
+        target_repo_ref: execution_plan.target_repo_ref.clone(),
+        base_branch: execution_plan.checkout.base_branch.clone(),
+        dedupe_key: execution_plan.provider_lookup.key.clone(),
+        source_issue_ref: execution_plan.source_issue_ref.clone(),
+        source_thread_ref: execution_plan.source_thread_ref.clone(),
+        mutation,
+        human_merge_gate_required: true,
+        local_path_hidden: true,
+    })
+}
+
+fn pull_request_create_title(execution_plan: &TargetRepoRunnerExecutionPlan) -> String {
+    format!(
+        "Runx target update for {}",
+        execution_plan.checkout.target_repo
+    )
+}
+
+fn pull_request_create_body(
+    execution_plan: &TargetRepoRunnerExecutionPlan,
+    dedupe_execution: &TargetRepoRunnerDedupeLookupExecution,
+    runner_observation: &TargetRepoRunnerGovernedRunnerObservation,
+) -> String {
+    let source_issue = execution_plan
+        .source_issue_ref
+        .as_ref()
+        .map(|reference| reference.uri.as_str())
+        .unwrap_or("none");
+    let markers = execution_plan
+        .provider_lookup
+        .query
+        .markers
+        .iter()
+        .map(|marker| format!("- {marker}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "Runx target runner prepared this pull request for human review.\n\nTarget repo: {}\nSource thread: {}\nSource issue: {source_issue}\nDedupe key: {}\n\nDedupe markers:\n{markers}\n\nRunner: {}\n{}\n\nHuman review remains the merge gate.",
+        execution_plan.checkout.target_repo,
+        execution_plan.source_thread_ref.uri,
+        dedupe_execution.key,
+        runner_observation.runner_id,
+        runner_observation.summary
+    )
+}
+
+fn validate_pull_request_readback(
+    command: &TargetRepoRunnerPullRequestMutationCommand,
+    pull_request: &TargetRepoRunnerExistingPullRequest,
+) -> Result<(), TargetRepoRunnerRuntimeError> {
+    let url_number = github_pull_request_number(&command.repository.full_name, &pull_request.url)?;
+    if let Some(readback_number) = pull_request.number {
+        if readback_number != url_number {
+            return Err(TargetRepoRunnerRuntimeError::CommandValidation {
+                operation: "pull_request",
+                message: "pull request readback number does not match its URL".to_owned(),
+            });
+        }
+    }
+    if let Some(branch) = &pull_request.branch {
+        validate_pull_request_branch(branch)?;
+    }
+
+    match &command.mutation {
+        TargetRepoRunnerPullRequestMutation::Create(_) => Ok(()),
+        TargetRepoRunnerPullRequestMutation::Reuse(reuse) => {
+            if pull_request.url != reuse.existing_pull_request.url {
+                return Err(TargetRepoRunnerRuntimeError::CommandValidation {
+                    operation: "pull_request",
+                    message: "reused pull request readback does not match provider dedupe"
+                        .to_owned(),
+                });
+            }
+            if let Some(expected_number) = reuse.existing_pull_request.number {
+                if pull_request.number != Some(expected_number) {
+                    return Err(TargetRepoRunnerRuntimeError::CommandValidation {
+                        operation: "pull_request",
+                        message: "reused pull request number does not match provider dedupe"
+                            .to_owned(),
+                    });
+                }
+            }
+            if let (Some(expected_branch), Some(readback_branch)) =
+                (&reuse.existing_pull_request.branch, &pull_request.branch)
+            {
+                if expected_branch != readback_branch {
+                    return Err(TargetRepoRunnerRuntimeError::CommandValidation {
+                        operation: "pull_request",
+                        message: "reused pull request branch does not match provider dedupe"
+                            .to_owned(),
+                    });
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn github_pull_request_number(repo: &str, url: &str) -> Result<u64, TargetRepoRunnerRuntimeError> {
+    let prefix = format!("https://github.com/{repo}/pull/");
+    let Some(number) = url.strip_prefix(&prefix) else {
+        return Err(TargetRepoRunnerRuntimeError::CommandValidation {
+            operation: "pull_request",
+            message: "pull request readback URL must belong to the target repo".to_owned(),
+        });
+    };
+    let number = number.strip_suffix('/').unwrap_or(number);
+    if number.is_empty() || !number.chars().all(|character| character.is_ascii_digit()) {
+        return Err(TargetRepoRunnerRuntimeError::CommandValidation {
+            operation: "pull_request",
+            message: "pull request readback URL must end with a pull request number".to_owned(),
+        });
+    }
+    number
+        .parse::<u64>()
+        .map_err(|error| TargetRepoRunnerRuntimeError::CommandValidation {
+            operation: "pull_request",
+            message: format!("pull request readback number is invalid: {error}"),
+        })
+}
+
+fn validate_pull_request_branch(branch: &str) -> Result<(), TargetRepoRunnerRuntimeError> {
+    if branch.trim().is_empty()
+        || branch.starts_with('/')
+        || branch.ends_with('/')
+        || branch.contains("..")
+        || branch.chars().any(|character| {
+            character.is_control() || character.is_whitespace() || character == '\\'
+        })
+    {
+        return Err(TargetRepoRunnerRuntimeError::CommandValidation {
+            operation: "pull_request",
+            message: "pull request readback branch is not a safe branch name".to_owned(),
         });
     }
     Ok(())

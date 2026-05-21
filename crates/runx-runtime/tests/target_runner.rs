@@ -16,11 +16,11 @@ use runx_runtime::target_runner::{
     TargetRepoRunnerGovernedRunnerObservation, TargetRepoRunnerHttpError,
     TargetRepoRunnerHttpMethod, TargetRepoRunnerHttpRequest, TargetRepoRunnerHttpResponse,
     TargetRepoRunnerHttpTransport, TargetRepoRunnerProviderDedupeLookupCommand,
-    TargetRepoRunnerPullRequestObservationRequest, TargetRepoRunnerRuntimeError,
-    TargetRepoRunnerSourcePublicationCommand, TargetRepoRunnerSourcePublicationObservation,
-    TargetRepoRunnerSourcePublicationRequest, execute_target_repo_runner_execution_fixture,
-    execute_target_repo_runner_fixture, execute_target_repo_runner_with_adapter,
-    target_repo_runner_provider_dedupe_lookup_command,
+    TargetRepoRunnerPullRequestMutation, TargetRepoRunnerPullRequestObservationRequest,
+    TargetRepoRunnerRuntimeError, TargetRepoRunnerSourcePublicationCommand,
+    TargetRepoRunnerSourcePublicationObservation, TargetRepoRunnerSourcePublicationRequest,
+    execute_target_repo_runner_execution_fixture, execute_target_repo_runner_fixture,
+    execute_target_repo_runner_with_adapter, target_repo_runner_provider_dedupe_lookup_command,
     target_repo_runner_provider_dedupe_observation_from_pull_requests,
 };
 use serde_json::json;
@@ -391,6 +391,7 @@ fn live_adapter_rejects_invalid_checkout_command_before_adapter_calls()
     plan.target.repo = "nitrosend/api/extra".to_owned();
     let mut adapter = FakeTargetRepoRunnerAdapter {
         created_pull_request: created_pull_request(),
+        pull_request_readback_override: None,
         provider_pull_requests: Vec::new(),
         expected_disposition: TargetRepoRunnerPullRequestDisposition::Create,
         omit_source_issue_publication: false,
@@ -417,6 +418,7 @@ fn live_adapter_composes_observations_into_revision_receipt_without_network()
     let plan = plan_target_repo_runner(&policy, &nitrosend_request("nitrosend/api"))?;
     let mut adapter = FakeTargetRepoRunnerAdapter {
         created_pull_request: created_pull_request(),
+        pull_request_readback_override: None,
         provider_pull_requests: Vec::new(),
         expected_disposition: TargetRepoRunnerPullRequestDisposition::Create,
         omit_source_issue_publication: false,
@@ -444,6 +446,48 @@ fn live_adapter_composes_observations_into_revision_receipt_without_network()
         live.provider_lookup_command.query.terms[0],
         "repo:nitrosend/api"
     );
+    assert_eq!(
+        live.pull_request_request.command.provider,
+        TargetRepoRunnerProvider::Github
+    );
+    assert_eq!(
+        live.pull_request_request.command.target_repo,
+        "nitrosend/api"
+    );
+    assert_eq!(
+        live.pull_request_request.command.repository.full_name,
+        "nitrosend/api"
+    );
+    assert_eq!(
+        live.pull_request_request.command.base_branch.as_deref(),
+        Some("main")
+    );
+    assert!(live.pull_request_request.command.human_merge_gate_required);
+    assert!(live.pull_request_request.command.local_path_hidden);
+    match &live.pull_request_request.command.mutation {
+        TargetRepoRunnerPullRequestMutation::Create(command) => {
+            assert_eq!(command.runner_id, "aster-production");
+            assert!(command.body.contains("runx-dedupe-key:"));
+            assert!(
+                command
+                    .body
+                    .contains("https://github.com/nitrosend/nitrosend/issues/482")
+            );
+            assert!(
+                command
+                    .body
+                    .contains("slack://nitrosend/C0APFMY0V8Q/1778834840.485629")
+            );
+            assert!(
+                command
+                    .body
+                    .contains("Human review remains the merge gate.")
+            );
+        }
+        TargetRepoRunnerPullRequestMutation::Reuse(_) => {
+            return Err("expected create pull request command".into());
+        }
+    }
     assert_eq!(
         live.execution.disposition,
         TargetRepoRunnerPullRequestDisposition::Create
@@ -562,6 +606,7 @@ fn live_adapter_reuses_provider_pull_request_without_runner_and_seals_reuse_meta
     };
     let mut adapter = FakeTargetRepoRunnerAdapter {
         created_pull_request: created_pull_request(),
+        pull_request_readback_override: None,
         provider_pull_requests: vec![existing],
         expected_disposition: TargetRepoRunnerPullRequestDisposition::Reuse,
         omit_source_issue_publication: false,
@@ -575,6 +620,18 @@ fn live_adapter_reuses_provider_pull_request_without_runner_and_seals_reuse_meta
         vec!["checkout", "dedupe", "pull_request", "source_publication"]
     );
     assert!(live.runner_observation.is_none());
+    match &live.pull_request_request.command.mutation {
+        TargetRepoRunnerPullRequestMutation::Reuse(command) => {
+            assert_eq!(
+                command.existing_pull_request.url,
+                "https://github.com/nitrosend/api/pull/144"
+            );
+            assert_eq!(command.existing_pull_request.number, Some(144));
+        }
+        TargetRepoRunnerPullRequestMutation::Create(_) => {
+            return Err("expected reuse pull request command".into());
+        }
+    }
     assert_eq!(
         live.execution.disposition,
         TargetRepoRunnerPullRequestDisposition::Reuse
@@ -632,6 +689,7 @@ fn live_adapter_fails_when_source_publication_readback_omits_source_issue()
     let plan = plan_target_repo_runner(&policy, &nitrosend_request("nitrosend/api"))?;
     let mut adapter = FakeTargetRepoRunnerAdapter {
         created_pull_request: created_pull_request(),
+        pull_request_readback_override: None,
         provider_pull_requests: Vec::new(),
         expected_disposition: TargetRepoRunnerPullRequestDisposition::Create,
         omit_source_issue_publication: true,
@@ -654,6 +712,80 @@ fn live_adapter_fails_when_source_publication_readback_omits_source_issue()
             "source_publication"
         ]
     );
+    Ok(())
+}
+
+#[test]
+fn live_adapter_fails_when_created_pr_readback_points_at_other_repo()
+-> Result<(), Box<dyn std::error::Error>> {
+    let policy: OperationalPolicy = serde_json::from_str(NITROSEND_LIKE)?;
+    let plan = plan_target_repo_runner(&policy, &nitrosend_request("nitrosend/api"))?;
+    let mut adapter = FakeTargetRepoRunnerAdapter {
+        created_pull_request: created_pull_request(),
+        pull_request_readback_override: Some(TargetRepoRunnerExistingPullRequest {
+            url: "https://github.com/nitrosend/app/pull/145".to_owned(),
+            number: Some(145),
+            branch: Some("runx/source-482-new".to_owned()),
+        }),
+        provider_pull_requests: Vec::new(),
+        expected_disposition: TargetRepoRunnerPullRequestDisposition::Create,
+        omit_source_issue_publication: false,
+        events: Vec::new(),
+    };
+
+    let error = execute_target_repo_runner_with_adapter(&plan, &mut adapter, CREATED_AT).err();
+
+    assert!(matches!(
+        error,
+        Some(TargetRepoRunnerRuntimeError::CommandValidation {
+            operation: "pull_request",
+            ..
+        })
+    ));
+    assert_eq!(
+        adapter.events,
+        vec!["checkout", "dedupe", "runner", "pull_request"]
+    );
+    Ok(())
+}
+
+#[test]
+fn live_adapter_fails_when_reuse_pr_readback_differs_from_dedupe()
+-> Result<(), Box<dyn std::error::Error>> {
+    let policy: OperationalPolicy = serde_json::from_str(NITROSEND_LIKE)?;
+    let plan = plan_target_repo_runner(&policy, &nitrosend_request("nitrosend/api"))?;
+    let lookup = plan_target_repo_runner_execution(&plan, &readiness(true))?.provider_lookup;
+    let existing = TargetRepoRunnerProviderPullRequest {
+        url: "https://github.com/nitrosend/api/pull/144".to_owned(),
+        number: Some(144),
+        branch: Some("runx/source-482".to_owned()),
+        open: true,
+        markers: lookup.query.markers.clone(),
+        refs: lookup.query.required_refs.clone(),
+    };
+    let mut adapter = FakeTargetRepoRunnerAdapter {
+        created_pull_request: created_pull_request(),
+        pull_request_readback_override: Some(TargetRepoRunnerExistingPullRequest {
+            url: "https://github.com/nitrosend/api/pull/145".to_owned(),
+            number: Some(145),
+            branch: Some("runx/source-482-new".to_owned()),
+        }),
+        provider_pull_requests: vec![existing],
+        expected_disposition: TargetRepoRunnerPullRequestDisposition::Reuse,
+        omit_source_issue_publication: false,
+        events: Vec::new(),
+    };
+
+    let error = execute_target_repo_runner_with_adapter(&plan, &mut adapter, CREATED_AT).err();
+
+    assert!(matches!(
+        error,
+        Some(TargetRepoRunnerRuntimeError::CommandValidation {
+            operation: "pull_request",
+            ..
+        })
+    ));
+    assert_eq!(adapter.events, vec!["checkout", "dedupe", "pull_request"]);
     Ok(())
 }
 
@@ -714,6 +846,7 @@ impl TargetRepoRunnerHttpTransport for &RecordingGithubTransport {
 
 struct FakeTargetRepoRunnerAdapter {
     created_pull_request: TargetRepoRunnerExistingPullRequest,
+    pull_request_readback_override: Option<TargetRepoRunnerExistingPullRequest>,
     provider_pull_requests: Vec<TargetRepoRunnerProviderPullRequest>,
     expected_disposition: TargetRepoRunnerPullRequestDisposition,
     omit_source_issue_publication: bool,
@@ -804,14 +937,24 @@ impl TargetRepoRunnerAdapter for FakeTargetRepoRunnerAdapter {
     ) -> Result<TargetRepoRunnerExistingPullRequest, TargetRepoRunnerAdapterError> {
         self.events.push("pull_request");
         assert_eq!(request.disposition, self.expected_disposition);
+        assert_pull_request_mutation_command(request)?;
+        if let Some(readback) = &self.pull_request_readback_override {
+            return Ok(readback.clone());
+        }
         match request.disposition {
             TargetRepoRunnerPullRequestDisposition::Create => {
                 assert!(request.existing_pull_request.is_none());
                 assert!(request.runner_observation.is_some());
-                Ok(self.created_pull_request.clone())
+                Ok(self
+                    .pull_request_readback_override
+                    .clone()
+                    .unwrap_or_else(|| self.created_pull_request.clone()))
             }
             TargetRepoRunnerPullRequestDisposition::Reuse => {
                 assert!(request.runner_observation.is_none());
+                if let Some(readback) = &self.pull_request_readback_override {
+                    return Ok(readback.clone());
+                }
                 request.existing_pull_request.clone().ok_or_else(|| {
                     TargetRepoRunnerAdapterError::new(
                         "pull_request",
@@ -893,6 +1036,81 @@ fn assert_source_publication_commands(request: &TargetRepoRunnerSourcePublicatio
     }
     assert!(saw_issue_comment);
     assert!(saw_thread_reply);
+}
+
+fn assert_pull_request_mutation_command(
+    request: &TargetRepoRunnerPullRequestObservationRequest,
+) -> Result<(), TargetRepoRunnerAdapterError> {
+    assert_eq!(request.command.provider, TargetRepoRunnerProvider::Github);
+    assert_eq!(request.command.disposition, request.disposition);
+    assert_eq!(request.command.target_repo, request.target_repo);
+    assert_eq!(request.command.repository.full_name, "nitrosend/api");
+    assert_eq!(
+        request.command.target_repo_ref.uri,
+        "https://github.com/nitrosend/api"
+    );
+    assert_eq!(request.command.base_branch.as_deref(), Some("main"));
+    assert_eq!(request.command.dedupe_key, request.dedupe_key);
+    assert_eq!(
+        request.command.source_thread_ref.uri,
+        "slack://nitrosend/C0APFMY0V8Q/1778834840.485629"
+    );
+    assert_eq!(
+        request
+            .command
+            .source_issue_ref
+            .as_ref()
+            .map(|reference| reference.uri.as_str()),
+        Some("https://github.com/nitrosend/nitrosend/issues/482")
+    );
+    assert!(request.command.human_merge_gate_required);
+    assert!(request.command.local_path_hidden);
+    match (&request.disposition, &request.command.mutation) {
+        (
+            TargetRepoRunnerPullRequestDisposition::Create,
+            TargetRepoRunnerPullRequestMutation::Create(command),
+        ) => {
+            assert!(request.existing_pull_request.is_none());
+            assert!(request.runner_observation.is_some());
+            assert_eq!(command.runner_id, "aster-production");
+            assert!(command.body.contains(&request.command.dedupe_key));
+            assert!(
+                command
+                    .body
+                    .contains("runx-dedupe:target_repo=nitrosend/api")
+            );
+            assert!(
+                command
+                    .body
+                    .contains("https://github.com/nitrosend/nitrosend/issues/482")
+            );
+            assert!(
+                command
+                    .body
+                    .contains("slack://nitrosend/C0APFMY0V8Q/1778834840.485629")
+            );
+        }
+        (
+            TargetRepoRunnerPullRequestDisposition::Reuse,
+            TargetRepoRunnerPullRequestMutation::Reuse(command),
+        ) => {
+            assert!(request.runner_observation.is_none());
+            assert_eq!(
+                request
+                    .existing_pull_request
+                    .as_ref()
+                    .map(|pull_request| pull_request.url.as_str()),
+                Some(command.existing_pull_request.url.as_str())
+            );
+        }
+        _ => {
+            return Err(TargetRepoRunnerAdapterError::new(
+                "pull_request",
+                "pull request mutation command does not match disposition",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn assert_github_provider_lookup_command(command: &TargetRepoRunnerProviderDedupeLookupCommand) {
