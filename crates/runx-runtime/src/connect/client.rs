@@ -119,6 +119,9 @@ impl<T: HostedTransport, O: ConnectOpener> ConnectClient<T, O> {
         )
     }
 
+    // rust-style-allow: long-function because preprovision is the hosted
+    // Connect state transition boundary and keeps every redacted terminal
+    // response arm in one auditable match.
     pub fn preprovision(
         &self,
         request: &HttpConnectPreprovisionRequest,

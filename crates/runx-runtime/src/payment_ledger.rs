@@ -1,3 +1,6 @@
+// rust-style-allow: large-file because the x402 payment ledger projection,
+// idempotent local event append, and receipt artifact assembly remain one
+// audited boundary until the payment state modules are split.
 use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
@@ -8,7 +11,7 @@ use runx_contracts::{
     sha256_prefixed,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{self, Value as JsonWireValue, json};
 use thiserror::Error;
 
 use crate::execution::runner::StepRun;
@@ -189,6 +192,8 @@ pub enum PaymentLedgerProjectionError {
     LedgerEventJson { path: PathBuf, message: String },
 }
 
+// rust-style-allow: long-function because the projection validates reservation,
+// settlement/refusal evidence, child receipts, and accrual in one audited pass.
 pub fn build_payment_ledger_projection(
     input: PaymentLedgerProjectionInput<'_>,
 ) -> Result<PaymentLedgerProjection, PaymentLedgerProjectionError> {
@@ -263,6 +268,8 @@ pub fn build_payment_ledger_projection(
     })
 }
 
+// rust-style-allow: long-function because artifact path derivation, JSON
+// serialization, hashing, and reference construction must stay byte-aligned.
 pub fn write_payment_ledger_projection_artifact(
     receipt_dir: impl AsRef<Path>,
     projection: &PaymentLedgerProjection,
@@ -399,6 +406,8 @@ pub fn build_x402_payment_ledger_projection_from_steps(
     })
 }
 
+// rust-style-allow: long-function because append is the idempotency boundary:
+// read existing events, compare semantic identity, reject conflicts, then write.
 pub fn append_payment_ledger_projected_event(
     receipt_dir: impl AsRef<Path>,
     run_id: &str,
@@ -434,7 +443,7 @@ pub fn append_payment_ledger_projected_event(
             .map(str::trim)
             .filter(|line| !line.is_empty())
         {
-            let existing = serde_json::from_str::<serde_json::Value>(line).map_err(|source| {
+            let existing = serde_json::from_str::<JsonWireValue>(line).map_err(|source| {
                 PaymentLedgerProjectionError::LedgerEventJson {
                     path: ledger_path.clone(),
                     message: source.to_string(),
@@ -632,6 +641,8 @@ fn has_payment_reservation_packet(step: &StepRun) -> bool {
     .is_some()
 }
 
+// rust-style-allow: long-function because reservation packet projection accepts
+// both bound authority and legacy fixture-adjacent packet fields in one reader.
 fn reservation_evidence(
     step: &StepRun,
 ) -> Result<Option<PaymentReservationEvidence>, PaymentLedgerProjectionError> {
@@ -881,7 +892,7 @@ fn payment_ledger_projected_record(
     created_at: &str,
     payload: &PaymentLedgerProjectedEventPayload,
     payload_bytes: &[u8],
-) -> serde_json::Value {
+) -> JsonWireValue {
     json!({
         "entry": {
             "type": "run_event",
@@ -912,7 +923,7 @@ fn payment_ledger_projected_record(
 }
 
 fn is_same_payment_ledger_event(
-    record: &serde_json::Value,
+    record: &JsonWireValue,
     payload: &PaymentLedgerProjectedEventPayload,
 ) -> bool {
     let entry = &record["entry"];

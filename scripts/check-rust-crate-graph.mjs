@@ -89,7 +89,6 @@ const runtimeDisallowedDeps = [
   "axum",
   "clap",
   "hyper",
-  "rmcp",
   "serde_yaml",
   "serde_yml",
   "ureq",
@@ -312,6 +311,9 @@ function checkRuntimeAsyncHttpContract(crateName, manifest) {
   if (!/^cli-tool\s*=\s*\["async-http"\]\s*$/mu.test(featuresBody)) {
     findings.push("runx-runtime cli-tool feature must imply async-http so the cargo CLI exercises reviewed HTTP");
   }
+  if (!/^mcp-rmcp\s*=\s*\["dep:rmcp", "async-http", "tokio\/process", "tokio\/io-util"\]\s*$/mu.test(featuresBody)) {
+    findings.push("runx-runtime mcp-rmcp feature must be exactly [\"dep:rmcp\", \"async-http\", \"tokio/process\", \"tokio/io-util\"]");
+  }
 
   const reqwest = dependencyInlineSpec(manifest, "dependencies", "reqwest");
   if (!reqwest) {
@@ -361,6 +363,25 @@ function checkRuntimeAsyncHttpContract(crateName, manifest) {
       if (tokioFeatures.includes(forbiddenFeature)) {
         findings.push(`runx-runtime tokio dependency must not enable the ${forbiddenFeature} feature`);
       }
+    }
+  }
+
+  const rmcp = dependencyInlineSpec(manifest, "dependencies", "rmcp");
+  if (!rmcp) {
+    findings.push("runx-runtime must declare optional rmcp for the approved mcp-rmcp edge");
+  } else {
+    if (!/version\s*=\s*"=[^"]+"/u.test(rmcp)) {
+      findings.push("runx-runtime rmcp dependency must use an exact version pin");
+    }
+    if (!/default-features\s*=\s*false/u.test(rmcp)) {
+      findings.push("runx-runtime rmcp dependency must disable default features");
+    }
+    if (!/optional\s*=\s*true/u.test(rmcp)) {
+      findings.push("runx-runtime rmcp dependency must stay optional");
+    }
+    const rmcpFeatures = dependencyInlineFeatures(rmcp);
+    if (rmcpFeatures.join(",") !== "client") {
+      findings.push("runx-runtime rmcp dependency must enable only the client feature in this staged cutover");
     }
   }
 }

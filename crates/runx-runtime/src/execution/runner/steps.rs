@@ -1,3 +1,6 @@
+// rust-style-allow: large-file because graph step execution currently keeps
+// authority admission, native step execution, approval handling, and payment
+// state persistence in one runtime boundary until the runner module split.
 use std::path::Path;
 
 use runx_contracts::{ApprovalGate, JsonNumber, JsonObject, JsonValue, ResolutionResponseActor};
@@ -80,6 +83,8 @@ where
     })
 }
 
+// rust-style-allow: long-function because payment state persistence binds
+// authority, output, receipt, and recovery-state invariants in one transaction.
 fn persist_payment_state_for_step<A>(
     runtime: &Runtime<A>,
     graph_dir: &Path,

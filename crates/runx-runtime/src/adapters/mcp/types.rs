@@ -186,6 +186,12 @@ impl McpTransportError {
             McpTransportErrorKind::Failed => "MCP adapter failed.".to_owned(),
         }
     }
+
+    #[cfg(all(test, feature = "mcp-rmcp"))]
+    #[must_use]
+    pub(super) fn message_for_test(&self) -> &str {
+        &self.message
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

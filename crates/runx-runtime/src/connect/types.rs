@@ -177,6 +177,8 @@ pub(crate) enum HttpConnectStartResponse {
 }
 
 impl fmt::Debug for HttpConnectStartResponse {
+    // rust-style-allow: long-function because every hosted Connect start
+    // response variant redacts a different secret-bearing field set.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Created { grant } => formatter

@@ -24,6 +24,8 @@ use std::time::Instant;
 #[cfg(all(feature = "mcp", not(feature = "mcp-rmcp")))]
 use runx_contracts::JsonNumber;
 use runx_contracts::{JsonObject, JsonValue};
+#[cfg(feature = "mcp-rmcp")]
+use serde_json::{self, Value as JsonWireValue};
 
 use crate::credentials::SecretEnv;
 use crate::sandbox::SandboxPlan;
@@ -234,10 +236,25 @@ async fn serve_rmcp_client(
         .stdin
         .take()
         .ok_or_else(|| McpTransportError::failed("MCP server stdin unavailable."))?;
-    let transport = RmcpContentLengthTransport::new(stdout, stdin, error_state);
+    let transport = RmcpContentLengthTransport::new(stdout, stdin, error_state.clone());
+    serve_rmcp_transport(transport, &error_state).await
+}
+
+#[cfg(feature = "mcp-rmcp")]
+async fn serve_rmcp_transport<T, E>(
+    transport: T,
+    error_state: &RmcpTransportErrorState,
+) -> Result<
+    rmcp::service::RunningService<rmcp::RoleClient, rmcp::model::ClientInfo>,
+    McpTransportError,
+>
+where
+    T: rmcp::transport::Transport<rmcp::RoleClient, Error = E> + Send + 'static,
+    E: std::error::Error + Send + Sync + 'static,
+{
     rmcp::serve_client(rmcp::model::ClientInfo::default(), transport)
         .await
-        .map_err(|_| McpTransportError::failed("MCP client initialization failed."))
+        .map_err(|error| rmcp_initialization_error(error, error_state))
 }
 
 #[cfg(feature = "mcp-rmcp")]
@@ -437,7 +454,7 @@ fn mcp_tool_descriptor_from_rmcp(
     Ok(McpToolDescriptor {
         name: tool.name.into_owned(),
         description: tool.description.map(std::borrow::Cow::into_owned),
-        input_schema: Some(runx_json_object(serde_json::Value::Object(
+        input_schema: Some(runx_json_object(JsonWireValue::Object(
             (*tool.input_schema).clone(),
         ))?),
     })
@@ -458,13 +475,13 @@ fn rmcp_json_object(value: JsonObject) -> Result<rmcp::model::JsonObject, McpTra
     match serde_json::to_value(value)
         .map_err(|_| McpTransportError::failed("MCP request conversion failed."))?
     {
-        serde_json::Value::Object(record) => Ok(record),
+        JsonWireValue::Object(record) => Ok(record),
         _ => Err(McpTransportError::failed("MCP request conversion failed.")),
     }
 }
 
 #[cfg(feature = "mcp-rmcp")]
-fn runx_json_object(value: serde_json::Value) -> Result<JsonObject, McpTransportError> {
+fn runx_json_object(value: JsonWireValue) -> Result<JsonObject, McpTransportError> {
     serde_json::from_value(value)
         .map_err(|_| McpTransportError::failed("MCP response conversion failed."))
 }
@@ -483,6 +500,17 @@ fn rmcp_service_error(
         }
         _ => McpTransportError::failed("MCP server request failed."),
     }
+}
+
+#[cfg(feature = "mcp-rmcp")]
+fn rmcp_initialization_error(
+    _error: rmcp::service::ClientInitializeError,
+    error_state: &RmcpTransportErrorState,
+) -> McpTransportError {
+    if let Some(message) = error_state.take() {
+        return McpTransportError::failed(message);
+    }
+    McpTransportError::failed("MCP client initialization failed.")
 }
 
 #[cfg(all(feature = "mcp", not(feature = "mcp-rmcp")))]
@@ -787,8 +815,10 @@ mod rmcp_transport_tests {
     use rmcp::transport::Transport;
     use tokio::io::AsyncWriteExt;
 
-    use super::{RmcpContentLengthTransport, RmcpTransportErrorState};
+    use super::{RmcpContentLengthTransport, RmcpTransportErrorState, serve_rmcp_transport};
 
+    // rust-style-allow: long-function because these adjacent transport
+    // regression tests share one in-memory Content-Length fixture.
     #[test]
     fn rmcp_receive_records_malformed_json_as_transport_error() {
         let message = receive_error_message(b"Content-Length: 1\r\n\r\n{");
@@ -819,6 +849,39 @@ mod rmcp_transport_tests {
             message.as_deref(),
             Some("MCP server response exceeded size limit.")
         );
+    }
+
+    #[test]
+    fn rmcp_initialize_surfaces_recorded_transport_error() {
+        let message = initialize_error_message(b"Content-Length: 1\r\n\r\n{");
+
+        assert!(
+            message
+                .as_deref()
+                .is_some_and(|message| message.contains("EOF while parsing an object")),
+            "{message:?}"
+        );
+    }
+
+    fn initialize_error_message(bytes: &'static [u8]) -> Option<String> {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .build()
+            .ok()?
+            .block_on(async move {
+                let (mut writer, reader) = tokio::io::duplex(bytes.len().max(1));
+                writer.write_all(bytes).await.ok()?;
+                drop(writer);
+
+                let error_state = RmcpTransportErrorState::default();
+                let transport =
+                    RmcpContentLengthTransport::new(reader, tokio::io::sink(), error_state.clone());
+
+                serve_rmcp_transport(transport, &error_state)
+                    .await
+                    .err()
+                    .map(|error| error.message_for_test().to_owned())
+            })
     }
 
     fn receive_error_message(bytes: &'static [u8]) -> Option<String> {
