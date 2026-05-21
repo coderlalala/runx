@@ -38,17 +38,39 @@ const currentPaymentRegistrySkillIds = [
 ] as const;
 const retiredPaymentRegistrySkillIds = [
   "runx/payment-authorize-reserve",
+  "runx/payment-charge",
+  "runx/payment-charge-challenge",
+  "runx/payment-charge-price",
+  "runx/payment-charge-verify",
   "runx/payment-execute",
+  "runx/payment-execution",
+  "runx/payment-fulfill",
   "runx/payment-fulfill-rail",
   "runx/payment-quote",
   "runx/payment-quote-preflight",
   "runx/payment-rail-mock",
   "runx/payment-recover",
   "runx/payment-recover-inspect",
+  "runx/payment-refund",
+  "runx/payment-refund-quote",
+  "runx/payment-refund-recover",
+  "runx/payment-refund-reserve",
   "runx/payment-reserve",
   "runx/x402-charge",
   "runx/x402-refund",
 ] as const;
+
+function isPaymentRegistrySkillId(skillId: string): boolean {
+  return (
+    skillId.startsWith("runx/payment-") ||
+    skillId.startsWith("runx/pay-") ||
+    skillId.startsWith("runx/charge-") ||
+    skillId.startsWith("runx/refund-") ||
+    skillId.startsWith("runx/x402-") ||
+    skillId === "runx/dispute-respond" ||
+    /^runx\/(?:mock|mpp|stripe)-(?:charge|pay|refund)$/.test(skillId)
+  );
+}
 
 // Skipped automatically when the local seeded registry isn't on disk
 // (CI nodes, fresh clones without the cloud .data layout, etc.).
@@ -77,10 +99,14 @@ runIfSeeded("graph registry refs — real seeded registry", () => {
   it("keeps the seeded local payment registry on the current skill shape", async () => {
     const store = createFileRegistryStore(REAL_REGISTRY_ROOT);
     const skills = await store.listSkills();
-    const skillIds = new Set(skills.map((skill) => skill.skill_id));
+    const listedSkillIds = skills.map((skill) => skill.skill_id);
+    const skillIds = new Set(listedSkillIds);
 
     expect(currentPaymentRegistrySkillIds.filter((skillId) => !skillIds.has(skillId))).toEqual([]);
     expect(retiredPaymentRegistrySkillIds.filter((skillId) => skillIds.has(skillId))).toEqual([]);
+    expect(listedSkillIds.filter(isPaymentRegistrySkillId).sort()).toEqual(
+      [...currentPaymentRegistrySkillIds].sort(),
+    );
   });
 
   it("materializes a real seeded skill to disk, parseable as a valid skill", async () => {

@@ -83,17 +83,39 @@ const currentPaymentRegistrySkillIds = [
 
 const retiredPaymentRegistrySkillIds = [
   "runx/payment-authorize-reserve",
+  "runx/payment-charge",
+  "runx/payment-charge-challenge",
+  "runx/payment-charge-price",
+  "runx/payment-charge-verify",
   "runx/payment-execute",
+  "runx/payment-execution",
+  "runx/payment-fulfill",
   "runx/payment-fulfill-rail",
   "runx/payment-quote",
   "runx/payment-quote-preflight",
   "runx/payment-rail-mock",
   "runx/payment-recover",
   "runx/payment-recover-inspect",
+  "runx/payment-refund",
+  "runx/payment-refund-quote",
+  "runx/payment-refund-recover",
+  "runx/payment-refund-reserve",
   "runx/payment-reserve",
   "runx/x402-charge",
   "runx/x402-refund",
 ] as const;
+
+function isPaymentRegistrySkillId(skillId: string): boolean {
+  return (
+    skillId.startsWith("runx/payment-") ||
+    skillId.startsWith("runx/pay-") ||
+    skillId.startsWith("runx/charge-") ||
+    skillId.startsWith("runx/refund-") ||
+    skillId.startsWith("runx/x402-") ||
+    skillId === "runx/dispute-respond" ||
+    /^runx\/(?:mock|mpp|stripe)-(?:charge|pay|refund)$/.test(skillId)
+  );
+}
 
 const harnessedShowcasePackages = [
   "content-pipeline",
@@ -150,10 +172,14 @@ describe("official skill catalog", () => {
     const entries = JSON.parse(
       await readFile(path.resolve("packages", "cli", "src", "official-skills.lock.json"), "utf8"),
     ) as ReadonlyArray<{ readonly skill_id: string }>;
-    const ids = new Set(entries.map((entry) => entry.skill_id));
+    const entryIds = entries.map((entry) => entry.skill_id);
+    const ids = new Set(entryIds);
 
     expect(currentPaymentRegistrySkillIds.filter((skillId) => !ids.has(skillId))).toEqual([]);
     expect(retiredPaymentRegistrySkillIds.filter((skillId) => ids.has(skillId))).toEqual([]);
+    expect(entryIds.filter(isPaymentRegistrySkillId).sort()).toEqual(
+      [...currentPaymentRegistrySkillIds].sort(),
+    );
   });
 
   it("keeps evaluator-facing packages runnable through native inline harness fixtures", async () => {
