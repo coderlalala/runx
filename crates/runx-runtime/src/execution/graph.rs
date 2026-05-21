@@ -76,23 +76,27 @@ pub(crate) fn resolve_inputs(
 }
 
 pub(crate) fn output_object(output: &SkillOutput) -> JsonObject {
-    #[cfg(feature = "cli-tool")]
-    {
-        crate::adapters::cli_tool::output_object(output)
+    let mut object = JsonObject::new();
+    if let Ok(JsonValue::Object(parsed)) = serde_json::from_str::<JsonValue>(&output.stdout) {
+        object.extend(parsed);
     }
-    #[cfg(not(feature = "cli-tool"))]
-    {
-        let mut object = JsonObject::new();
-        object.insert(
-            "stdout".to_owned(),
-            JsonValue::String(output.stdout.clone()),
-        );
-        object.insert(
-            "stderr".to_owned(),
-            JsonValue::String(output.stderr.clone()),
-        );
-        object
-    }
+    object.insert(
+        "stdout".to_owned(),
+        JsonValue::String(output.stdout.clone()),
+    );
+    object.insert(
+        "stderr".to_owned(),
+        JsonValue::String(output.stderr.clone()),
+    );
+    object.insert(
+        "status".to_owned(),
+        JsonValue::String(if output.succeeded() {
+            "success".to_owned()
+        } else {
+            "failure".to_owned()
+        }),
+    );
+    object
 }
 
 fn context_from(step: &GraphStep) -> Option<Vec<String>> {

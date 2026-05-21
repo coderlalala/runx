@@ -22,6 +22,16 @@ const steps = [
     args: ["build", "--quiet", "--manifest-path", "crates/Cargo.toml", "-p", "runx-cli", "--bin", "runx"],
   },
   {
+    label: "prove rust payment runtime",
+    command: cargo,
+    args: ["test", "--quiet", "--manifest-path", "crates/Cargo.toml", "-p", "runx-runtime", "--test", "payment_execution"],
+  },
+  {
+    label: "prove rust Stripe SPT payment runtime",
+    command: cargo,
+    args: ["test", "--quiet", "--manifest-path", "crates/Cargo.toml", "-p", "runx-runtime", "--test", "stripe_spt_payment"],
+  },
+  {
     label: "build workspace packages",
     command: pnpm,
     args: ["build"],

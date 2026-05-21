@@ -17,6 +17,9 @@ use runx_runtime::{
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
+const PAID_ECHO_IDEMPOTENCY_KEY: &str = "payment:paid-echo-001";
+const PAID_ECHO_RAIL_SESSION_MATERIAL_REF: &str = "rail-session-material:mock:paid-echo-001";
+
 #[test]
 fn approved_payment_approval_emits_approval_output_and_runs_fulfill()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -295,6 +298,175 @@ fn non_payment_step_without_rail_admission_inputs_invokes_adapter()
     Ok(())
 }
 
+#[test]
+fn x402_paid_echo_returns_echo_only_after_sealed_payment_proof()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = PaidEchoFixture::new()?;
+    let adapter = PaidEchoAdapter::new(PaidEchoRailProof::Present);
+    let invocations = adapter.invocations();
+    let runtime = Runtime::new(adapter, RuntimeOptions::default());
+    let mut caller = ApprovalCaller::approved(true);
+
+    let run = runtime.run_graph_file_with_caller(fixture.graph_path(), &mut caller)?;
+
+    assert_eq!(run.state.status, GraphStatus::Succeeded);
+    assert_eq!(
+        invocations
+            .borrow()
+            .iter()
+            .map(|invocation| invocation.skill_name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["pay-quote", "pay-reserve", "pay-fulfill-rail", "paid-echo"],
+        "paid echo must run after quote, reserve, and rail fulfillment"
+    );
+
+    let fulfill = step_run(&run.steps, "fulfill")?;
+    assert!(
+        fulfill.receipt.harness.acts[0]
+            .verification_refs
+            .iter()
+            .any(
+                |reference| reference.uri == "receipt-proof:mock:paid-echo-001"
+                    && reference.proof_kind.as_ref() == Some(&ProofKind::PaymentRail)
+            ),
+        "rail fulfillment must seal a typed payment rail proof before echo"
+    );
+
+    let echo = step_run(&run.steps, "echo")?;
+    let paid_echo_result = object_field(&echo.outputs, "paid_echo_result")?;
+    assert_eq!(
+        paid_echo_result.get("message"),
+        Some(&JsonValue::String("hello from paid echo".to_owned()))
+    );
+    assert_eq!(
+        paid_echo_result.get("payment_proof_ref"),
+        Some(&JsonValue::String(
+            "receipt-proof:mock:paid-echo-001".to_owned()
+        ))
+    );
+
+    let echo_invocation = invocations
+        .borrow()
+        .iter()
+        .find(|invocation| invocation.skill_name == "paid-echo")
+        .cloned()
+        .ok_or_else(|| std::io::Error::other("missing paid echo invocation"))?;
+    assert_eq!(
+        echo_invocation.inputs.get("payment_credential_ref"),
+        Some(&JsonValue::String(
+            "credential:mock:paid-echo-001".to_owned()
+        ))
+    );
+    assert_eq!(
+        echo_invocation.inputs.get("payment_proof_ref"),
+        Some(&JsonValue::String(
+            "receipt-proof:mock:paid-echo-001".to_owned()
+        ))
+    );
+
+    let echo_text = serde_json::to_string(&echo.outputs)?;
+    assert!(!echo_text.contains("credential_envelope"));
+    assert!(!echo_text.contains("rail_session_material_ref"));
+    assert!(!echo_text.contains(PAID_ECHO_RAIL_SESSION_MATERIAL_REF));
+
+    let graph_receipt_text = serde_json::to_string(&run.receipt)?;
+    assert!(!graph_receipt_text.contains("credential_envelope"));
+    assert!(!graph_receipt_text.contains("rail_session_material_ref"));
+    assert!(!graph_receipt_text.contains(PAID_ECHO_RAIL_SESSION_MATERIAL_REF));
+    Ok(())
+}
+
+#[test]
+fn x402_paid_echo_denied_approval_never_invokes_payment_or_echo()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = PaidEchoFixture::new()?;
+    let adapter = PaidEchoAdapter::new(PaidEchoRailProof::Present);
+    let invocations = adapter.invocations();
+    let runtime = Runtime::new(adapter, RuntimeOptions::default());
+    let mut caller = ApprovalCaller::approved(false);
+
+    let result = runtime.run_graph_file_with_caller(fixture.graph_path(), &mut caller);
+
+    match result {
+        Err(RuntimeError::GraphBlocked { step_id, reason }) => {
+            assert_eq!(step_id, "fulfill");
+            assert!(
+                reason.contains("approve-spend.payment_approval.data.approved"),
+                "blocked reason should name the failed payment approval gate"
+            );
+        }
+        Ok(run) => {
+            return Err(std::io::Error::other(format!(
+                "denied paid echo should block before fulfill/echo, ran {:?}",
+                step_ids(&run.steps)
+            ))
+            .into());
+        }
+        Err(error) => {
+            return Err(std::io::Error::other(format!("unexpected runtime error: {error}")).into());
+        }
+    }
+
+    assert_eq!(
+        invocations
+            .borrow()
+            .iter()
+            .map(|invocation| invocation.skill_name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["pay-quote", "pay-reserve"],
+        "approval denial must stop before rail fulfillment and paid echo"
+    );
+    Ok(())
+}
+
+#[test]
+fn x402_paid_echo_missing_rail_proof_never_invokes_echo() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = PaidEchoFixture::new()?;
+    let adapter = PaidEchoAdapter::new(PaidEchoRailProof::Missing);
+    let invocations = adapter.invocations();
+    let runtime = Runtime::new(adapter, RuntimeOptions::default());
+    let mut caller = ApprovalCaller::approved(true);
+
+    let result = runtime.run_graph_file_with_caller(fixture.graph_path(), &mut caller);
+
+    match result {
+        Err(RuntimeError::AuthorityDenied {
+            verb,
+            step_id,
+            reason,
+        }) => {
+            assert_eq!(verb, AuthorityVerb::Spend);
+            assert_eq!(step_id, "fulfill");
+            assert!(
+                reason.contains("rail proof"),
+                "payment authority denial should identify the missing rail proof"
+            );
+        }
+        Ok(run) => {
+            return Err(std::io::Error::other(format!(
+                "proofless payment should deny before echo, ran {:?}",
+                step_ids(&run.steps)
+            ))
+            .into());
+        }
+        Err(error) => {
+            return Err(std::io::Error::other(format!("unexpected runtime error: {error}")).into());
+        }
+    }
+
+    assert_eq!(
+        invocations
+            .borrow()
+            .iter()
+            .map(|invocation| invocation.skill_name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["pay-quote", "pay-reserve", "pay-fulfill-rail"],
+        "missing rail proof must stop before the paid echo tool receives a credential"
+    );
+    Ok(())
+}
+
 fn assert_payment_admission_denied_before_adapter(
     admission: FulfillAdmission,
     expected_reason_fragment: &str,
@@ -388,6 +560,158 @@ impl SkillAdapter for RecordingAdapter {
     }
 }
 
+#[derive(Clone, Copy)]
+enum PaidEchoRailProof {
+    Present,
+    Missing,
+}
+
+#[derive(Clone, Debug)]
+struct PaidEchoInvocation {
+    skill_name: String,
+    inputs: JsonObject,
+}
+
+struct PaidEchoAdapter {
+    invocations: Rc<RefCell<Vec<PaidEchoInvocation>>>,
+    rail_proof: PaidEchoRailProof,
+}
+
+impl PaidEchoAdapter {
+    fn new(rail_proof: PaidEchoRailProof) -> Self {
+        Self {
+            invocations: Rc::new(RefCell::new(Vec::new())),
+            rail_proof,
+        }
+    }
+
+    fn invocations(&self) -> Rc<RefCell<Vec<PaidEchoInvocation>>> {
+        Rc::clone(&self.invocations)
+    }
+}
+
+impl SkillAdapter for PaidEchoAdapter {
+    fn adapter_type(&self) -> &'static str {
+        "paid-echo-test"
+    }
+
+    fn invoke(&self, request: SkillInvocation) -> Result<SkillOutput, RuntimeError> {
+        self.invocations.borrow_mut().push(PaidEchoInvocation {
+            skill_name: request.skill_name.clone(),
+            inputs: request.inputs.clone(),
+        });
+        Ok(match request.skill_name.as_str() {
+            "pay-quote" => skill_success(json!({
+                "payment_quote_packet": {
+                    "data": {
+                        "payment_signal": {
+                            "signal_type": "payment_required",
+                            "challenge_id": "ch_mock_paid_echo_001",
+                            "amount_minor": 125,
+                            "currency": "USD",
+                            "rail": "mock",
+                            "counterparty": "merchant:paid-echo",
+                            "operation": "paid.echo"
+                        },
+                        "payment_quote": {
+                            "quote_id": "quote_paid_echo_001",
+                            "amount_minor": 125,
+                            "currency": "USD",
+                            "rails": ["mock"],
+                            "counterparty": "merchant:paid-echo",
+                            "operation": "paid.echo"
+                        }
+                    }
+                }
+            })),
+            "pay-reserve" => skill_success(json!({
+                "payment_reservation_packet": {
+                    "data": {
+                        "payment_decision": paid_echo_reservation_decision(),
+                        "reserved_payment_authority": paid_echo_reserved_payment_authority(),
+                        "spend_capability_ref": paid_echo_spend_capability_ref(),
+                        "idempotency": { "key": PAID_ECHO_IDEMPOTENCY_KEY }
+                    }
+                }
+            })),
+            "pay-fulfill-rail" => skill_success(paid_echo_rail_packet(self.rail_proof)),
+            "paid-echo" => {
+                if request
+                    .inputs
+                    .get("payment_credential_ref")
+                    .is_some_and(|value| {
+                        value == &JsonValue::String("credential:mock:paid-echo-001".to_owned())
+                    })
+                    && request
+                        .inputs
+                        .get("payment_proof_ref")
+                        .is_some_and(|value| {
+                            value
+                                == &JsonValue::String("receipt-proof:mock:paid-echo-001".to_owned())
+                        })
+                {
+                    skill_success(json!({
+                        "paid_echo_result": {
+                            "message": "hello from paid echo",
+                            "payment_proof_ref": "receipt-proof:mock:paid-echo-001"
+                        }
+                    }))
+                } else {
+                    skill_failure("paid echo requires a scoped payment credential and proof")
+                }
+            }
+            other => skill_failure(&format!("unexpected skill {other}")),
+        })
+    }
+}
+
+fn skill_success(value: Value) -> SkillOutput {
+    SkillOutput {
+        status: InvocationStatus::Success,
+        stdout: serde_json::to_string(&value).expect("test JSON should serialize"),
+        stderr: String::new(),
+        exit_code: Some(0),
+        duration_ms: 1,
+        metadata: JsonObject::new(),
+    }
+}
+
+fn skill_failure(message: &str) -> SkillOutput {
+    SkillOutput {
+        status: InvocationStatus::Failure,
+        stdout: String::new(),
+        stderr: message.to_owned(),
+        exit_code: Some(1),
+        duration_ms: 1,
+        metadata: JsonObject::new(),
+    }
+}
+
+fn paid_echo_rail_packet(rail_proof: PaidEchoRailProof) -> Value {
+    let mut data = json!({
+        "rail_result": {
+            "status": "fulfilled",
+            "rail": "mock",
+            "amount_minor": 125,
+            "currency": "USD"
+        },
+        "credential_envelope": {
+            "form": "paid_tool_credential",
+            "credential_ref": "credential:mock:paid-echo-001"
+        },
+        "redactions": ["rail_session_material"],
+        "recovery_hint": { "status": "sealed" }
+    });
+    if matches!(rail_proof, PaidEchoRailProof::Present) {
+        data["rail_proof"] = json!({
+            "proof_ref": "receipt-proof:mock:paid-echo-001",
+            "idempotency_key": PAID_ECHO_IDEMPOTENCY_KEY,
+            "rail_session_material_ref": PAID_ECHO_RAIL_SESSION_MATERIAL_REF
+        });
+    }
+    json!({ "payment_rail_packet": { "data": data } })
+}
+
 struct ApprovalCaller {
     events: RefCell<Vec<ExecutionEvent>>,
     requests: RefCell<Vec<ResolutionRequest>>,
@@ -465,6 +789,50 @@ Fulfill the approved payment.
     }
 }
 
+struct PaidEchoFixture {
+    _temp: TempDir,
+    graph_path: PathBuf,
+}
+
+impl PaidEchoFixture {
+    fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let temp = tempfile::tempdir()?;
+        write_cli_tool_skill(&temp.path().join("quote"), "pay-quote")?;
+        write_cli_tool_skill(&temp.path().join("reserve"), "pay-reserve")?;
+        write_cli_tool_skill(&temp.path().join("fulfill"), "pay-fulfill-rail")?;
+        write_cli_tool_skill(&temp.path().join("echo"), "paid-echo")?;
+        let graph_path = temp.path().join("graph.yaml");
+        fs::write(&graph_path, paid_echo_graph_yaml()?)?;
+        Ok(Self {
+            _temp: temp,
+            graph_path,
+        })
+    }
+
+    fn graph_path(&self) -> &Path {
+        self.graph_path.as_path()
+    }
+}
+
+fn write_cli_tool_skill(dir: &Path, name: &str) -> Result<(), std::io::Error> {
+    fs::create_dir(dir)?;
+    fs::write(
+        dir.join("SKILL.md"),
+        format!(
+            r#"---
+name: {name}
+description: Payment fixture skill.
+source:
+  type: cli-tool
+  command: runx-payment-test
+---
+
+Payment fixture skill.
+"#
+        ),
+    )
+}
+
 #[derive(Clone, Copy)]
 enum FulfillAdmission {
     Valid,
@@ -512,6 +880,80 @@ fn graph_yaml(
                 "artifacts": { "wrap_as": "payment_approval" }
             },
             fulfill
+        ],
+        "policy": {
+            "transitions": [
+                {
+                    "to": "fulfill",
+                    "field": "approve-spend.payment_approval.data.approved",
+                    "equals": true
+                }
+            ]
+        }
+    }))
+}
+
+fn paid_echo_graph_yaml() -> Result<String, serde_json::Error> {
+    serde_json::to_string_pretty(&json!({
+        "name": "x402-paid-echo",
+        "steps": [
+            {
+                "id": "quote",
+                "skill": "./quote",
+                "inputs": {
+                    "payment_signal": {
+                        "signal_type": "payment_required",
+                        "challenge_id": "ch_mock_paid_echo_001",
+                        "amount_minor": 125,
+                        "currency": "USD",
+                        "rail": "mock",
+                        "counterparty": "merchant:paid-echo",
+                        "operation": "paid.echo"
+                    }
+                }
+            },
+            {
+                "id": "reserve",
+                "skill": "./reserve",
+                "context": {
+                    "payment_quote_packet": "quote.payment_quote_packet.data"
+                }
+            },
+            {
+                "id": "approve-spend",
+                "run": { "type": "approval" },
+                "inputs": {
+                    "gate_id": "spend-approval",
+                    "gate_type": "payment",
+                    "reason": "Approve payment before paid echo.",
+                    "amount_minor": 125,
+                    "currency": "USD"
+                },
+                "artifacts": { "wrap_as": "payment_approval" }
+            },
+            {
+                "id": "fulfill",
+                "skill": "./fulfill",
+                "scopes": ["payment:spend"],
+                "mutation": true,
+                "idempotency_key": "paid-echo-fulfill",
+                "context": {
+                    "reserved_payment_authority": "reserve.payment_reservation_packet.data.reserved_payment_authority",
+                    "spend_capability_ref": "reserve.payment_reservation_packet.data.spend_capability_ref",
+                    "idempotency": "reserve.payment_reservation_packet.data.idempotency"
+                }
+            },
+            {
+                "id": "echo",
+                "skill": "./echo",
+                "inputs": {
+                    "message": "hello from paid echo"
+                },
+                "context": {
+                    "payment_credential_ref": "fulfill.payment_rail_packet.data.credential_envelope.credential_ref",
+                    "payment_proof_ref": "fulfill.payment_rail_packet.data.rail_proof.proof_ref"
+                }
+            }
         ],
         "policy": {
             "transitions": [
@@ -634,6 +1076,99 @@ fn reservation_decision() -> Value {
         "closure": null,
         "artifact_refs": []
     })
+}
+
+fn paid_echo_reserved_payment_authority() -> Value {
+    json!({
+        "parent_authority": paid_echo_payment_term("paid-echo-parent", ["quote", "reserve", "spend", "verify"], 10_000),
+        "child_authority": paid_echo_payment_term("paid-echo-child", ["reserve", "spend"], 2_500),
+        "reservation_decision": paid_echo_reservation_decision(),
+        "subset_proof_present": true,
+        "child_harness_ref": paid_echo_child_harness_ref(),
+        "spend_capability_binding": {
+            "child_harness_ref": paid_echo_child_harness_ref(),
+            "act_id": "act_fulfill",
+            "reservation_decision_id": "decision_paid_echo_reservation",
+            "idempotency_key": PAID_ECHO_IDEMPOTENCY_KEY,
+            "amount_minor": 125,
+            "currency": "USD",
+            "counterparty": "merchant:paid-echo",
+            "rail": "mock"
+        },
+        "consumed_spend_capability_refs": []
+    })
+}
+
+fn paid_echo_payment_term<const N: usize>(
+    term_id: &str,
+    verbs: [&str; N],
+    max_per_call_minor: u64,
+) -> Value {
+    let verbs = verbs.as_slice();
+    json!({
+        "term_id": term_id,
+        "principal_ref": reference("principal", "runx:principal:paid-echo-agent"),
+        "resource_ref": reference("grant", "runx:payment-grant:paid-echo"),
+        "resource_family": "payment",
+        "verbs": verbs,
+        "bounds": {
+            "payment": {
+                "currency": "USD",
+                "max_per_call_minor": max_per_call_minor,
+                "max_per_run_minor": 25_000,
+                "rails": ["mock"],
+                "counterparty": "merchant:paid-echo",
+                "operation": "paid.echo",
+                "credential_form": "single_use_spend_capability",
+                "quote_required": true,
+                "reservation_required": true,
+                "idempotency_required": true,
+                "recovery_required": true,
+                "receipt_before_success": true,
+                "single_use_spend": true
+            }
+        },
+        "capabilities": ["payment_single_use_spend"],
+        "expires_at": "2026-05-21T00:00:00Z",
+        "issued_by_ref": reference("grant", "runx:grant:paid-echo-issuer"),
+        "credential_ref": reference("credential", "runx:credential:paid-echo-session")
+    })
+}
+
+fn paid_echo_reservation_decision() -> Value {
+    json!({
+        "decision_id": "decision_paid_echo_reservation",
+        "choice": "continue",
+        "inputs": {
+            "signal_refs": [],
+            "target_ref": null,
+            "opportunity_refs": [],
+            "selection_ref": null
+        },
+        "proposed_intent": {
+            "purpose": "complete a bounded paid echo",
+            "legitimacy": "authorized by selected reservation decision",
+            "success_criteria": [],
+            "constraints": [],
+            "derived_from": []
+        },
+        "selected_act_id": "act_fulfill",
+        "selected_harness_ref": null,
+        "justification": {
+            "summary": "reservation selected a bounded paid echo spend act",
+            "evidence_refs": []
+        },
+        "closure": null,
+        "artifact_refs": []
+    })
+}
+
+fn paid_echo_child_harness_ref() -> Value {
+    reference("harness", "runx:harness:x402-paid-echo_fulfill")
+}
+
+fn paid_echo_spend_capability_ref() -> Value {
+    reference("credential", "runx:payment-capability:paid-echo-spend-1")
 }
 
 fn child_harness_ref() -> Value {
