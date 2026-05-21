@@ -5,8 +5,10 @@
 
 use std::fmt;
 
+use serde::Deserialize;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use url::Url;
 
 use runx_contracts::{
     Act, ActForm, Authority, AuthorityAttenuation, AuthoritySubsetProof, AuthoritySubsetResult,
@@ -28,6 +30,14 @@ use runx_contracts::{
     plan_target_repo_runner_source_publication_receipt,
 };
 use runx_receipts::{canonical_receipt_body_digest, validate_harness_receipt};
+
+pub use crate::runtime_http::{
+    HostedHttpError as TargetRepoRunnerHttpError, HostedHttpHeader as TargetRepoRunnerHttpHeader,
+    HostedHttpRequest as TargetRepoRunnerHttpRequest,
+    HostedHttpResponse as TargetRepoRunnerHttpResponse,
+    HostedTransport as TargetRepoRunnerHttpTransport, HttpMethod as TargetRepoRunnerHttpMethod,
+    ReqwestHttpTransport as TargetRepoRunnerDefaultHttpTransport,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TargetRepoRunnerFixtureExecutionInput {
@@ -121,6 +131,166 @@ pub struct TargetRepoRunnerGithubPullRequestSearchCommand {
     pub query: String,
     pub terms: Vec<String>,
 }
+
+#[derive(Clone, Debug)]
+pub struct TargetRepoRunnerGithubApiClient<T = TargetRepoRunnerDefaultHttpTransport> {
+    base_url: String,
+    transport: T,
+    token: Option<String>,
+}
+
+#[cfg(feature = "async-http")]
+impl TargetRepoRunnerGithubApiClient<TargetRepoRunnerDefaultHttpTransport> {
+    pub fn new(token: Option<String>) -> Result<Self, TargetRepoRunnerRuntimeError> {
+        Self::with_transport(
+            "https://api.github.com",
+            TargetRepoRunnerDefaultHttpTransport::new().map_err(|error| {
+                TargetRepoRunnerRuntimeError::CommandValidation {
+                    operation: "provider_api_lookup",
+                    message: error.to_string(),
+                }
+            })?,
+            token,
+        )
+    }
+}
+
+impl<T: TargetRepoRunnerHttpTransport> TargetRepoRunnerGithubApiClient<T> {
+    pub fn with_transport(
+        base_url: impl AsRef<str>,
+        transport: T,
+        token: Option<String>,
+    ) -> Result<Self, TargetRepoRunnerRuntimeError> {
+        let base_url = strip_one_trailing_slash(base_url.as_ref());
+        let url = Url::parse(&base_url).map_err(|error| {
+            TargetRepoRunnerRuntimeError::CommandValidation {
+                operation: "provider_api_lookup",
+                message: format!("invalid github api base url: {error}"),
+            }
+        })?;
+        if !matches!(url.scheme(), "http" | "https") {
+            return Err(TargetRepoRunnerRuntimeError::CommandValidation {
+                operation: "provider_api_lookup",
+                message: "github api base url must use http or https".to_owned(),
+            });
+        }
+        Ok(Self {
+            base_url,
+            transport,
+            token: token.filter(|value| !value.trim().is_empty()),
+        })
+    }
+
+    pub fn provider_dedupe_lookup(
+        &self,
+        command: &TargetRepoRunnerProviderDedupeLookupCommand,
+    ) -> Result<TargetRepoRunnerDedupeLookupObservation, TargetRepoRunnerRuntimeError> {
+        self.require_github_command(command)?;
+        let url = self.github_search_url(command)?;
+        let headers = self.github_headers();
+        let response = self
+            .transport
+            .send(TargetRepoRunnerHttpRequest {
+                method: TargetRepoRunnerHttpMethod::Get,
+                url: url.to_string(),
+                headers,
+                body: None,
+            })
+            .map_err(|error| TargetRepoRunnerRuntimeError::CommandValidation {
+                operation: "provider_api_lookup",
+                message: error.to_string(),
+            })?;
+        if !(200..=299).contains(&response.status) {
+            return Err(TargetRepoRunnerRuntimeError::CommandValidation {
+                operation: "provider_api_lookup",
+                message: format!("github search API returned HTTP {}", response.status),
+            });
+        }
+        let payload: GithubIssueSearchResponse =
+            serde_json::from_str(&response.body).map_err(|error| {
+                TargetRepoRunnerRuntimeError::CommandValidation {
+                    operation: "provider_api_lookup",
+                    message: format!("github search API returned invalid JSON: {error}"),
+                }
+            })?;
+        let pull_requests = payload
+            .items
+            .into_iter()
+            .filter_map(|item| github_search_item_to_pull_request(command, item))
+            .collect();
+        target_repo_runner_provider_dedupe_observation_from_pull_requests(command, pull_requests)
+    }
+
+    fn require_github_command(
+        &self,
+        command: &TargetRepoRunnerProviderDedupeLookupCommand,
+    ) -> Result<(), TargetRepoRunnerRuntimeError> {
+        if command.provider == TargetRepoRunnerProvider::Github {
+            return Ok(());
+        }
+        Err(TargetRepoRunnerRuntimeError::CommandValidation {
+            operation: "provider_api_lookup",
+            message: "github provider lookup client only supports github commands".to_owned(),
+        })
+    }
+
+    fn github_search_url(
+        &self,
+        command: &TargetRepoRunnerProviderDedupeLookupCommand,
+    ) -> Result<String, TargetRepoRunnerRuntimeError> {
+        let mut url = Url::parse(&format!("{}/search/issues", self.base_url)).map_err(|error| {
+            TargetRepoRunnerRuntimeError::CommandValidation {
+                operation: "provider_api_lookup",
+                message: format!("invalid github search url: {error}"),
+            }
+        })?;
+        {
+            let mut pairs = url.query_pairs_mut();
+            pairs.append_pair("q", &command.query.query);
+            pairs.append_pair("per_page", &command.result_limit.to_string());
+        }
+        Ok(url.to_string())
+    }
+
+    fn github_headers(&self) -> Vec<TargetRepoRunnerHttpHeader> {
+        let mut headers = vec![
+            TargetRepoRunnerHttpHeader::new("accept", "application/vnd.github+json"),
+            TargetRepoRunnerHttpHeader::new("user-agent", "runx-target-repo-runner"),
+            TargetRepoRunnerHttpHeader::new("x-github-api-version", "2022-11-28"),
+        ];
+        if let Some(token) = &self.token {
+            headers.push(TargetRepoRunnerHttpHeader::new(
+                "authorization",
+                format!("Bearer {token}"),
+            ));
+        }
+        headers
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct GithubIssueSearchResponse {
+    #[serde(default)]
+    items: Vec<GithubIssueSearchItem>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct GithubIssueSearchItem {
+    html_url: String,
+    #[serde(default)]
+    number: Option<u64>,
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    body: Option<String>,
+    #[serde(default)]
+    pull_request: Option<GithubPullRequestMarker>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct GithubPullRequestMarker {}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -753,6 +923,49 @@ fn validate_provider_lookup_term(
 fn github_search_exact_term(value: &str) -> String {
     let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
     format!("\"{escaped}\"")
+}
+
+fn github_search_item_to_pull_request(
+    command: &TargetRepoRunnerProviderDedupeLookupCommand,
+    item: GithubIssueSearchItem,
+) -> Option<TargetRepoRunnerProviderPullRequest> {
+    item.pull_request.as_ref()?;
+    let expected_prefix = format!("https://github.com/{}/pull/", command.target_repo);
+    if !item.html_url.starts_with(&expected_prefix) {
+        return None;
+    }
+    let text = [item.title.as_deref(), item.body.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n");
+    let markers = command
+        .markers
+        .iter()
+        .filter(|marker| text.contains(marker.as_str()))
+        .cloned()
+        .collect();
+    let refs = command
+        .required_refs
+        .iter()
+        .filter(|reference| text.contains(reference.uri.as_str()))
+        .cloned()
+        .collect();
+    Some(TargetRepoRunnerProviderPullRequest {
+        url: item.html_url,
+        number: item.number,
+        branch: None,
+        open: item
+            .state
+            .as_deref()
+            .is_none_or(|state| state.eq_ignore_ascii_case("open")),
+        markers,
+        refs,
+    })
+}
+
+fn strip_one_trailing_slash(value: &str) -> String {
+    value.strip_suffix('/').unwrap_or(value).to_owned()
 }
 
 // rust-style-allow: long-function because revision receipt assembly must keep

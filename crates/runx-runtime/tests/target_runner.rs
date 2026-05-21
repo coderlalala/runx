@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use runx_contracts::{
     ActForm, HarnessState, JsonValue, OperationalPolicy, OperationalPolicyAction, Reference,
     ReferenceType, TargetRepoRunnerDedupeLookupObservation, TargetRepoRunnerDedupeResult,
@@ -9,15 +11,19 @@ use runx_contracts::{
 use runx_receipts::canonical_receipt_body_digest;
 use runx_runtime::target_runner::{
     TargetRepoRunnerAdapter, TargetRepoRunnerAdapterError, TargetRepoRunnerCheckoutCommand,
-    TargetRepoRunnerFixtureExecutionInput, TargetRepoRunnerGithubPullRequestSearchState,
-    TargetRepoRunnerGovernedRunnerInvocation, TargetRepoRunnerGovernedRunnerObservation,
-    TargetRepoRunnerProviderDedupeLookupCommand, TargetRepoRunnerPullRequestObservationRequest,
-    TargetRepoRunnerRuntimeError, TargetRepoRunnerSourcePublicationCommand,
-    TargetRepoRunnerSourcePublicationObservation, TargetRepoRunnerSourcePublicationRequest,
-    execute_target_repo_runner_execution_fixture, execute_target_repo_runner_fixture,
-    execute_target_repo_runner_with_adapter, target_repo_runner_provider_dedupe_lookup_command,
+    TargetRepoRunnerFixtureExecutionInput, TargetRepoRunnerGithubApiClient,
+    TargetRepoRunnerGithubPullRequestSearchState, TargetRepoRunnerGovernedRunnerInvocation,
+    TargetRepoRunnerGovernedRunnerObservation, TargetRepoRunnerHttpError,
+    TargetRepoRunnerHttpMethod, TargetRepoRunnerHttpRequest, TargetRepoRunnerHttpResponse,
+    TargetRepoRunnerHttpTransport, TargetRepoRunnerProviderDedupeLookupCommand,
+    TargetRepoRunnerPullRequestObservationRequest, TargetRepoRunnerRuntimeError,
+    TargetRepoRunnerSourcePublicationCommand, TargetRepoRunnerSourcePublicationObservation,
+    TargetRepoRunnerSourcePublicationRequest, execute_target_repo_runner_execution_fixture,
+    execute_target_repo_runner_fixture, execute_target_repo_runner_with_adapter,
+    target_repo_runner_provider_dedupe_lookup_command,
     target_repo_runner_provider_dedupe_observation_from_pull_requests,
 };
+use serde_json::json;
 
 const NITROSEND_LIKE: &str =
     include_str!("../../../fixtures/operational-policy/nitrosend-like.json");
@@ -251,6 +257,109 @@ fn provider_lookup_command_is_concrete_github_pr_search() -> Result<(), Box<dyn 
             .contains("repo:nitrosend/api is:pr is:open")
     );
     assert_public_only(&command)?;
+    Ok(())
+}
+
+#[test]
+fn github_provider_api_lookup_projects_search_readback() -> Result<(), Box<dyn std::error::Error>> {
+    let policy: OperationalPolicy = serde_json::from_str(NITROSEND_LIKE)?;
+    let plan = plan_target_repo_runner(&policy, &nitrosend_request("nitrosend/api"))?;
+    let execution_plan = plan_target_repo_runner_execution(&plan, &readiness(true))?;
+    let command =
+        target_repo_runner_provider_dedupe_lookup_command(&execution_plan.provider_lookup)?;
+    let body = format!(
+        "{}\n{}\n{}",
+        command.markers.join("\n"),
+        command
+            .required_refs
+            .iter()
+            .map(|reference| reference.uri.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        "Human review remains the merge gate."
+    );
+    let transport = RecordingGithubTransport::with_body(
+        json!({
+            "items": [
+                {
+                    "html_url": "https://github.com/nitrosend/api/pull/144",
+                    "number": 144,
+                    "state": "open",
+                    "title": "runx target fix",
+                    "body": body,
+                    "pull_request": {}
+                }
+            ]
+        })
+        .to_string(),
+    );
+    let client = TargetRepoRunnerGithubApiClient::with_transport(
+        "https://api.github.example/",
+        &transport,
+        Some("SECRET_GITHUB_TOKEN".to_owned()),
+    )?;
+
+    let observation = client.provider_dedupe_lookup(&command)?;
+
+    assert_eq!(observation.provider, TargetRepoRunnerProvider::Github);
+    assert_eq!(observation.target_repo, "nitrosend/api");
+    assert_eq!(observation.key, command.dedupe_key);
+    assert_eq!(observation.pull_requests.len(), 1);
+    assert_eq!(
+        observation.pull_requests[0].url,
+        "https://github.com/nitrosend/api/pull/144"
+    );
+    assert_eq!(observation.pull_requests[0].number, Some(144));
+    assert!(observation.pull_requests[0].open);
+    assert_eq!(observation.pull_requests[0].markers, command.markers);
+    assert_eq!(observation.pull_requests[0].refs, command.required_refs);
+
+    let sent = transport.requests.borrow();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].method, TargetRepoRunnerHttpMethod::Get);
+    assert!(
+        sent[0]
+            .url
+            .starts_with("https://api.github.example/search/issues?")
+    );
+    assert!(sent[0].url.contains("per_page=20"));
+    assert!(sent[0].url.contains("q=repo%3Anitrosend%2Fapi"));
+    assert!(
+        sent[0]
+            .headers
+            .iter()
+            .any(|header| header.name == "authorization")
+    );
+    assert!(!format!("{:?}", sent[0]).contains("SECRET_GITHUB_TOKEN"));
+    assert_public_only(&observation)?;
+    Ok(())
+}
+
+#[test]
+fn github_provider_api_lookup_fails_closed_on_http_error() -> Result<(), Box<dyn std::error::Error>>
+{
+    let policy: OperationalPolicy = serde_json::from_str(NITROSEND_LIKE)?;
+    let plan = plan_target_repo_runner(&policy, &nitrosend_request("nitrosend/api"))?;
+    let execution_plan = plan_target_repo_runner_execution(&plan, &readiness(true))?;
+    let command =
+        target_repo_runner_provider_dedupe_lookup_command(&execution_plan.provider_lookup)?;
+    let transport = RecordingGithubTransport::with_status(502, "{\"message\":\"bad gateway\"}");
+    let client = TargetRepoRunnerGithubApiClient::with_transport(
+        "https://api.github.example",
+        &transport,
+        None,
+    )?;
+
+    let error = client.provider_dedupe_lookup(&command).err();
+
+    assert!(matches!(
+        error,
+        Some(TargetRepoRunnerRuntimeError::CommandValidation {
+            operation: "provider_api_lookup",
+            ..
+        })
+    ));
+    assert_eq!(transport.requests.borrow().len(), 1);
     Ok(())
 }
 
@@ -563,6 +672,43 @@ fn nitrosend_request(target_repo: &str) -> TargetRepoRunnerPlanRequest {
         },
         signal_fingerprint: Some("sha256:nitrosend-source-482".to_owned()),
         existing_pull_request: None,
+    }
+}
+
+struct RecordingGithubTransport {
+    status: u16,
+    body: String,
+    requests: RefCell<Vec<TargetRepoRunnerHttpRequest>>,
+}
+
+impl RecordingGithubTransport {
+    fn with_body(body: String) -> Self {
+        Self {
+            status: 200,
+            body,
+            requests: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn with_status(status: u16, body: &str) -> Self {
+        Self {
+            status,
+            body: body.to_owned(),
+            requests: RefCell::new(Vec::new()),
+        }
+    }
+}
+
+impl TargetRepoRunnerHttpTransport for &RecordingGithubTransport {
+    fn send(
+        &self,
+        request: TargetRepoRunnerHttpRequest,
+    ) -> Result<TargetRepoRunnerHttpResponse, TargetRepoRunnerHttpError> {
+        self.requests.borrow_mut().push(request);
+        Ok(TargetRepoRunnerHttpResponse {
+            status: self.status,
+            body: self.body.clone(),
+        })
     }
 }
 

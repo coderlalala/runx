@@ -2,7 +2,7 @@
 spec_version: '2.0'
 task_id: runx-target-repo-runners
 created: '2026-05-19T02:08:02Z'
-updated: '2026-05-21T03:57:54Z'
+updated: '2026-05-21T09:45:53Z'
 status: draft
 harden_status: in_progress
 size: large
@@ -21,19 +21,21 @@ fixture-executable for policy admission, same-repo/cross-repo planning,
 readiness gating, provider dedupe observations, PR create/reuse receipt
 metadata, and source-publication receipt metadata, but it is not live-target
 executable.
-Blockers: live provider API lookup, target checkout/git mutation, pull-request
-create/update, outbox pushers for source issue/thread publication, and Aster
-scheduling/readback are not implemented in this target-runner path.
+Blockers: target checkout/git mutation, pull-request create/update, outbox
+pushers for source issue/thread publication, and Aster scheduling/readback are
+not implemented in this target-runner path. Live GitHub provider API lookup now
+has a transport-backed search client, but live end-to-end target mutation is
+still blocked.
 Allowed follow-up command: `scafld harden runx-target-repo-runners --mark-passed`
 only after the live execution blockers are resolved or explicitly descoped.
-Latest runner update: 2026-05-21 added typed runtime checkout commands and
-concrete GitHub open-PR dedupe search commands with fail-closed command/readback
-validation. The adapter boundary now receives executable provider intent rather
-than a broad fixture plan, while tests still use deterministic no-network
-readback projection.
-Remaining target-runner work is provider API transport, checkout/git mutation,
-PR create/update, source-publication pushers, and Aster scheduling/readback
-rather than contract drift.
+Latest runner update: 2026-05-21 added a transport-backed GitHub Search API
+client for provider dedupe lookup. It sends the concrete open-PR search command,
+redacts authorization headers in request debug output, projects only GitHub pull
+request search items for the target repo, and only marks markers/source refs
+present when they are echoed in returned PR text so reuse remains fail-closed.
+Remaining target-runner work is checkout/git mutation, PR create/update,
+source-publication pushers, and Aster scheduling/readback rather than contract
+drift.
 Review gate: not_started
 
 ## Summary
@@ -250,6 +252,9 @@ Acceptance:
 - [x] Runtime provider lookup emits a concrete GitHub open-PR search command
   containing repo qualifiers, dedupe markers, source issue/thread refs, and a
   bounded result limit before projecting deterministic readback.
+- [x] Runtime GitHub provider lookup can execute the open-PR search command
+  through an HTTP transport and project readback into the dedupe observation
+  without leaking authorization values.
 
 ## Rollback
 
@@ -332,3 +337,7 @@ Issues:
   provider dedupe search commands and readback projection. Remaining work is
   executing those commands through provider API transport and real target git/PR
   mutation, plus source-publication pushers and Aster scheduling/readback.
+- 2026-05-21: Added a transport-backed GitHub provider lookup client for the
+  target-runner open-PR dedupe search command, with readback projection and
+  HTTP error coverage. Remaining work is real target checkout/git mutation, PR
+  create/update, source-publication pushers, and Aster scheduling/readback.

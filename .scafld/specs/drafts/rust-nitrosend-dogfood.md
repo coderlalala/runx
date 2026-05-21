@@ -2,7 +2,7 @@
 spec_version: '2.0'
 task_id: rust-nitrosend-dogfood
 created: '2026-05-18T00:00:00Z'
-updated: '2026-05-21T00:31:00+10:00'
+updated: '2026-05-21T19:44:33+10:00'
 status: draft
 harden_status: not_run
 size: medium
@@ -19,14 +19,16 @@ external replay pending
 Next: add Rust runtime replay only after target execution and observer runtime
 gates are ready
 Reason: refreshed against the current local OSS checkout and the actual
-Nitrosend repo. Nitrosend now uses `runx.operational_policy.v1` for its
-repo-local issue-intake policy and the Rust harness receipt contract in its
-dogfood fixtures.
+Nitrosend repo. OSS fixture and policy contract validation is still green, and
+Nitrosend wrapper harness tests still replay through the Rust binary, but the
+actual Nitrosend `config/runx-issue-flow.json` now contains a top-level
+`post_merge` block that the current Rust operational-policy schema rejects.
 Blockers: `runx-target-repo-runners` and
 `runx-post-merge-closure-observer` are still draft for live external replay.
 A sanitized external-shaped fixture contract exists and Nitrosend local wrapper
 fixtures replay through the Rust binary, but no live target-runner/observer
-external replay has been added.
+external replay has been added. The actual Nitrosend policy/schema drift must
+also be resolved before this dogfood spec can advance.
 Allowed follow-up command: none during this refresh; do not run
 `scafld harden rust-nitrosend-dogfood`.
 Latest runner update: 2026-05-21 closed the Segment dogfood evidence gap:
@@ -203,13 +205,53 @@ Current local discovery/guard commands:
 find fixtures/runtime/skills -maxdepth 4 -type f | sort
 test -f fixtures/external/nitrosend/issue-intake/api-source-thread.json
 cargo test --manifest-path crates/Cargo.toml -p runx-contracts --test nitrosend_external_fixture -- --nocapture
-pnpm --filter @runxhq/cli run runx policy lint fixtures/operational-policy/nitrosend-like.json --json
-pnpm --filter @runxhq/cli run runx policy inspect fixtures/operational-policy/nitrosend-like.json --json
+./crates/target/debug/runx policy lint fixtures/operational-policy/nitrosend-like.json --json
+./crates/target/debug/runx policy inspect fixtures/operational-policy/nitrosend-like.json --json
 cargo test --manifest-path crates/Cargo.toml -p runx-contracts --test operational_policy -- --nocapture
 cargo test --manifest-path crates/Cargo.toml -p runx-contracts
-! rg -n "runx\\.issue_to_pr_outcome\\.v1|issue_to_pr_outcome|verification[_-]report|target[_-]?effect|\"effect\"\\s*:" fixtures/runtime fixtures/operational-policy skills crates/runx-runtime
+! rg -n "runx\\.issue_to_pr_outcome\\.v1|issue_to_pr_outcome|verification[_-]report|target[_-]?effect|\"effect\"\\s*:" fixtures/runtime fixtures/operational-policy fixtures/external skills crates/runx-runtime/src
+scafld validate rust-nitrosend-dogfood --json
 git diff --check -- .scafld/specs/drafts/rust-nitrosend-dogfood.md
 ```
+
+2026-05-21 current refresh results:
+
+- `find fixtures/runtime/skills -maxdepth 4 -type f | sort` passed and still
+  lists the generic `issue-intake` and `issue-to-pr` runtime fixture cases.
+- `test -f fixtures/external/nitrosend/issue-intake/api-source-thread.json`
+  passed.
+- `cargo test --manifest-path crates/Cargo.toml -p runx-contracts --test nitrosend_external_fixture -- --nocapture`
+  passed: 2 tests.
+- The documented `pnpm --filter @runxhq/cli run runx policy ...` commands are
+  stale in the current checkout because `@runxhq/cli` exposes a `runx` binary
+  but no `runx` npm script. The current safe invocation is the Rust binary
+  directly.
+- `./crates/target/debug/runx policy lint fixtures/operational-policy/nitrosend-like.json --json`
+  passed with `status: "success"` and no findings.
+- `./crates/target/debug/runx policy inspect fixtures/operational-policy/nitrosend-like.json --json`
+  passed with `status: "success"` and no findings; source locators are redacted
+  to counts.
+- `cargo test --manifest-path crates/Cargo.toml -p runx-contracts --test operational_policy -- --nocapture`
+  passed: 9 tests.
+- `cargo test --manifest-path crates/Cargo.toml -p runx-contracts` passed. This
+  includes contract-level target-runner and post-merge observer tests, but this
+  is not live external replay evidence and does not clear the draft blockers.
+- The original retired-artifact guard over `crates/runx-runtime` now false
+  positives on `crates/runx-runtime/tests/external/aster_agent_step.rs`, where
+  the retired names are rejection-test strings. The narrowed guard over
+  `crates/runx-runtime/src` plus fixtures and skills passed.
+- `scafld validate rust-nitrosend-dogfood --json` passed.
+- In Nitrosend, `/Users/kam/dev/runx/runx/oss/crates/target/debug/runx policy lint config/runx-issue-flow.json --json`
+  failed because `config/runx-issue-flow.json` contains unknown top-level field
+  `post_merge`; the current Rust schema expects `outcomes` for that surface.
+- In Nitrosend, `/Users/kam/dev/runx/runx/oss/crates/target/debug/runx policy inspect config/runx-issue-flow.json --json`
+  failed for the same `post_merge` schema mismatch.
+- In Nitrosend,
+  `RUNX_BIN=/Users/kam/dev/runx/runx/oss/crates/target/debug/runx node --test scripts/onboarding.test.mjs scripts/segment-from-prose.test.mjs scripts/issue-intake.test.mjs scripts/github-issue-thread.test.mjs scripts/post-issue-intake-comments.test.mjs scripts/runx-target-outcome.test.mjs scripts/scafld-command-review.test.mjs scripts/runx-harness.test.mjs`
+  passed: 122 tests, 0 skipped.
+- In Nitrosend, the retired-artifact and fallback-knob guard passed:
+  `! rg -n "needs_resolution|runx\\.issue_to_pr_outcome\\.v1|issue_to_pr_outcome|verification[_-]report|target[_-]?effect|\"effect\"\\s*:|RUNX_JS_BIN|RUNX_NPM_PACKAGE|target_repositories|allowed_repositories|route_hints" scripts config fixtures/runx .github/workflows/issue-intake.yml .github/workflows/wrapper-ci.yml`.
+- `git diff --check` passed in Nitrosend before this spec update.
 
 2026-05-20 local refresh results:
 

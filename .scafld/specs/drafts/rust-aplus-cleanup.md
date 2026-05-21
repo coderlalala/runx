@@ -43,6 +43,10 @@ Items touching files under active parallel work are marked **[blocked-until:
   mask missing owner/name segments before validation. It now matches the two
   required non-empty segments explicitly and rejects extra segments before path
   safety checks.
+- **Runtime time helpers** — removed the duplicate `now_iso8601`,
+  `civil_from_unix_seconds`, and `civil_from_days` implementations from
+  `runtime/scaffold/ids.rs` and `runtime/registry/local/util.rs`. Both now use
+  one private `runtime/time.rs` helper.
 
 ## Tier 1 — correctness / drift risk
 
@@ -121,11 +125,8 @@ Items touching files under active parallel work are marked **[blocked-until:
 - `reference_type_name()` — **byte-identical** in `runtime/receipts/seal.rs:617`
   and `runtime/execution/target_runner.rs:901`. → one shared fn, or a
   `ReferenceType::as_str()` in contracts. *Both files active (RunxRef); after.*
-- `now_iso8601` + `civil_from_unix_seconds` + `civil_from_days` — **verbatim
-  duplicate** in `runtime/scaffold/ids.rs:49,59,69` and
-  `runtime/registry/local/util.rs:229,239,249`. → one `runtime/time.rs` module.
-  *Blocked only by `runtime/src/lib.rs` being dirty (needs the new `mod time;`
-  decl); trivial once lib.rs settles.*
+- **[done]** `now_iso8601` + `civil_from_unix_seconds` + `civil_from_days` —
+  consolidated into one private `runtime/time.rs` module.
 - `reference()` URI builder duplicated `seal.rs:599` + `target_runner.rs:890`
   (pairs with `reference_type_name`).
 
@@ -178,6 +179,85 @@ Items touching files under active parallel work are marked **[blocked-until:
   tell a `term_id` from a `step_id`. → newtypes for the 4-5 highest-traffic ids
   (`ReceiptId`, `StepId`, `ActId`, `RunId`). High churn; do last, as one pass,
   when the spine is stable.
+
+## Class L — Naming & module structure (A+ infra naming vs the core model)
+
+Audit of module names, filenames, and the layering they imply, judged against
+the runx core vocabulary (act / authority / harness / decision / signal /
+receipt / host / skill / graph / scope / sandbox). The crate layer itself is
+clean (`contracts` → `core` → `parser`/`receipts` → `runtime` → `cli`/`sdk`);
+findings are below that line.
+
+- **L1. Module-file style is inconsistent across the workspace (mechanical,
+  highest-leverage).** `runx-runtime` is the *only* crate using legacy
+  `mod.rs` — 10 of them: `adapters/mod.rs`, `adapters/mcp/mod.rs`,
+  `connect/mod.rs`, `dev/mod.rs`, `execution/mod.rs`,
+  `execution/harness/mod.rs`, `receipts/mod.rs`, `registry/mod.rs`,
+  `scaffold/mod.rs`, `tool_catalogs/mod.rs`. Every other crate uses the modern
+  `foo.rs + foo/` style (`contracts/operational_policy.rs + operational_policy/`,
+  `core/policy.rs + policy/`, etc.). → convert the runtime's 10 `mod.rs` to
+  `foo.rs` siblings. Matches the workspace convention and the established
+  preference (modern style was chosen when the contracts decomposition was
+  corrected). Pure mechanical move; no logic change.
+
+- **L2. `execution/orchestrator.rs` vs `execution/runner.rs` — synonym names
+  hide a real layering.** `orchestrator.rs` is the canonical entrypoint facade
+  (`LocalOrchestrator`, `RunRequest`/`RunResult`/`RunStatus`); `runner.rs` is
+  the graph engine (`Runtime`, `GraphRun`, the step state machine). The names
+  are near-synonyms, so a reader can't tell which is the front door. → rename
+  for legibility, e.g. `runner.rs` → `engine.rs` (keep `orchestrator` as the
+  entrypoint), or `orchestrator.rs` → `entry.rs`. Pick the pair that reads as
+  facade-over-engine.
+
+- **L3. `caller.rs::Caller` is off the core model.** It is the host callback
+  interface (`report(event)`, `resolve(request)`) — exactly the boundary the
+  contracts crate names `host` (`host_protocol`, `HostRunResult`,
+  `HostRunState`, `ResolutionRequest`). `Caller` doesn't connect to that word.
+  Verified: zero external consumers (CLI/SDK don't reference it), so a rename
+  is safe and runtime-local. → consider `Host` / `HostBridge` /
+  `HostInterface` so the runtime↔host boundary uses one vocabulary. Counter:
+  `Caller` is a defensible inversion-of-control name (a test `NoopCaller`
+  isn't a "host"); decision call, not a clear defect. Lower priority than L1/L2.
+
+- **L4. `adapter.rs` (the `SkillAdapter` trait + invocation types) vs
+  `adapters/` (the implementations) — distinguished only by singular/plural.**
+  Fragile: a one-character difference carries the contract-vs-impl boundary.
+  → after L1, fold the trait into `adapters.rs` (the modern parent file), or
+  rename `adapter.rs` → `skill_adapter.rs` to make the trait's identity
+  explicit and break the singular/plural collision.
+
+- **L5. `post_merge_observer.rs` is an orphan at the runtime top level.** It is
+  a runtime-side projector/observer sitting among unrelated peers (`adapter`,
+  `approval`, `caller`, `config`, `doctor`). → cluster it under a named home
+  (`observers/` or `signals/`), or move it into the closure flow under
+  `execution/` if that is where it belongs. Structural tidiness, not a defect.
+
+- **L6. Generic `types.rs` proliferation (7 instances): `core/policy/types.rs`,
+  `core/state_machine/types.rs`, `parser/graph/types.rs`,
+  `runtime/connect/types.rs`, `runtime/dev/types.rs`,
+  `runtime/registry/types.rs`, `runtime/adapters/mcp/types.rs`** (plus
+  `parser/graph/helpers.rs`, `registry/local/util.rs`). Defensible inside a
+  multi-file feature module (the parent is just re-exports, no single "primary"
+  file), but inconsistent with the contracts decision to fold types into the
+  parent. → document one rule: "types live in the parent file unless the module
+  has ≥3 sibling concern-files, in which case a `types.rs` sibling is allowed."
+  Then apply it. Low priority; consistency rather than correctness.
+
+- **L7. Verb-prefix near-synonyms in the pure-crate public surface (minor).**
+  Validation-class operations split across `validate_*` (3), `lint_*` (1),
+  `evaluate_*` (4); construction split across `build_*` (3), `create_*` (2),
+  `derive_*` (3). → pick one verb per operation class (e.g. `validate` for
+  fail-closed checks, `lint` for finding-collection, `build` for construction)
+  and document it. Low priority polish.
+
+- **L8. `runtime_http.rs` — generic name for the transitional curl-subprocess
+  HTTP transport.** Acceptable as-is; it is replaced wholesale by
+  `rust-async-http-layer`. Note only — rename naturally when that spec lands
+  (`http.rs` once it is a real client, or delete).
+
+Sequencing note: L1 (mod.rs → modern) should run *before* L4 (adapter fold) and
+is independent of the Tier 1-3 logic work. L2/L3 are small, isolated renames.
+L5-L8 are tidiness.
 
 ## Explicitly NOT findings (examined, kept)
 

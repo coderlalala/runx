@@ -437,12 +437,26 @@ fn source_issue_ref(plan: &TargetRepoRunnerPlan) -> Option<Reference> {
     plan.source.issue_url.as_ref().map(|issue_url| Reference {
         reference_type: ReferenceType::GithubIssue,
         uri: issue_url.clone(),
-        provider: Some(plan.source.provider.to_string()),
-        locator: Some(plan.source.locator.clone()),
+        provider: Some("github".to_owned()),
+        locator: Some(github_issue_locator(issue_url)),
         label: Some("source issue".to_owned()),
         observed_at: None,
         proof_kind: None,
     })
+}
+
+fn github_issue_locator(issue_url: &str) -> String {
+    let path = issue_url
+        .strip_prefix("https://github.com/")
+        .or_else(|| issue_url.strip_prefix("github://"));
+    let Some(path) = path else {
+        return issue_url.to_owned();
+    };
+    let parts = path.split('/').collect::<Vec<_>>();
+    if parts.len() >= 4 && parts[2] == "issues" {
+        return format!("{}/{}#{}", parts[0], parts[1], parts[3]);
+    }
+    issue_url.to_owned()
 }
 
 fn source_thread_ref(plan: &TargetRepoRunnerPlan) -> Reference {

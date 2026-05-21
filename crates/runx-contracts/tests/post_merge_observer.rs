@@ -3,12 +3,16 @@ use runx_contracts::post_merge_observer::{
 };
 use runx_contracts::{
     ActForm, ClosureDisposition, CriterionStatus, HarnessReceipt, HarnessState, OperationalPolicy,
-    PostMergeObserverClosureState, PostMergeObserverCriterionPlan, PostMergeObserverPlan,
-    PostMergeObserverPlanError, PostMergeObserverPlanRequest, PostMergeObserverRuntimeDecision,
-    PostMergeObserverSignalSource, PostMergeProvider, PostMergePullRequestObservation,
-    PostMergePullRequestState, PostMergeSourceIssueDisposition, PostMergeVerificationObservation,
-    PostMergeVerificationStatus, Reference, ReferenceType, plan_post_merge_observer_closure,
-    plan_post_merge_observer_runtime_dedupe, project_post_merge_observer_publication_from_receipt,
+    OperationalPolicyAction, OperationalPolicySourceProvider, PostMergeObserverClosureState,
+    PostMergeObserverCriterionPlan, PostMergeObserverPlan, PostMergeObserverPlanError,
+    PostMergeObserverPlanRequest, PostMergeObserverRuntimeDecision, PostMergeObserverSignalSource,
+    PostMergeProvider, PostMergePullRequestObservation, PostMergePullRequestState,
+    PostMergeSourceIssueDisposition, PostMergeVerificationObservation, PostMergeVerificationStatus,
+    Reference, ReferenceType, TargetRepoRunnerExistingPullRequest, TargetRepoRunnerPlanRequest,
+    TargetRepoRunnerSourceContext, plan_post_merge_observer_closure,
+    plan_post_merge_observer_runtime_dedupe, plan_target_repo_runner,
+    plan_target_repo_runner_source_publication_receipt,
+    project_post_merge_observer_publication_from_receipt,
 };
 
 const NITROSEND_LIKE: &str =
@@ -315,6 +319,85 @@ fn webhook_and_scheduler_commands_normalize_to_same_observer_key()
     assert_eq!(
         webhook.pull_request_ref.reference_type,
         ReferenceType::GithubPullRequest
+    );
+    Ok(())
+}
+
+#[test]
+fn target_runner_publication_refs_normalize_to_observer_command()
+-> Result<(), Box<dyn std::error::Error>> {
+    let policy = nitrosend_policy()?;
+    let target_plan = plan_target_repo_runner(
+        &policy,
+        &TargetRepoRunnerPlanRequest {
+            source_id: Some("bugs-fixes".to_owned()),
+            target_repo: "nitrosend/api".to_owned(),
+            action: OperationalPolicyAction::IssueToPr,
+            runner_id: Some("aster-production".to_owned()),
+            source: TargetRepoRunnerSourceContext {
+                provider: OperationalPolicySourceProvider::Slack,
+                locator: "slack://nitrosend/C0APFMY0V8Q".to_owned(),
+                thread_locator: Some("slack://nitrosend/C0APFMY0V8Q/1778834840.485629".to_owned()),
+                thread_ts: Some("1778834840.485629".to_owned()),
+                issue_url: Some("https://github.com/nitrosend/nitrosend/issues/482".to_owned()),
+            },
+            signal_fingerprint: Some("sha256:nitrosend-source-482".to_owned()),
+            existing_pull_request: Some(TargetRepoRunnerExistingPullRequest {
+                url: "https://github.com/nitrosend/api/pull/144".to_owned(),
+                number: Some(144),
+                branch: Some("runx/source-482".to_owned()),
+            }),
+        },
+    )?;
+    let publication = plan_target_repo_runner_source_publication_receipt(
+        &target_plan,
+        &TargetRepoRunnerExistingPullRequest {
+            url: "https://github.com/nitrosend/api/pull/144".to_owned(),
+            number: Some(144),
+            branch: Some("runx/source-482".to_owned()),
+        },
+    );
+    let source_issue_ref = publication
+        .source_issue_ref
+        .clone()
+        .ok_or("target-runner publication should carry a source issue ref")?;
+
+    let command = normalize_post_merge_observer_command(
+        &policy,
+        &PostMergeObserverCommandRequest {
+            source_id: Some("bugs-fixes".to_owned()),
+            source_issue_ref,
+            source_thread_ref: Some(publication.source_thread_ref),
+            pull_request_ref: publication.pull_request_ref,
+            signal_source: PostMergeObserverSignalSource::Webhook,
+            signal_ref: Some(webhook_delivery_ref()),
+        },
+    )?;
+
+    assert_eq!(
+        command.command_key,
+        "post-merge-observer:https://github.com/nitrosend/nitrosend/issues/482:https://github.com/nitrosend/api/pull/144"
+    );
+    assert_eq!(command.source_id, "bugs-fixes");
+    assert_eq!(command.source_issue_ref.provider.as_deref(), Some("github"));
+    assert_eq!(
+        command.source_issue_ref.locator.as_deref(),
+        Some("nitrosend/nitrosend#482")
+    );
+    assert_eq!(command.pull_request_ref.provider.as_deref(), Some("github"));
+    assert_eq!(
+        command.source_thread_ref.as_ref().map(|reference| {
+            (
+                reference.reference_type.clone(),
+                reference.provider.as_deref(),
+                reference.locator.as_deref(),
+            )
+        }),
+        Some((
+            ReferenceType::SlackThread,
+            Some("slack"),
+            Some("slack://nitrosend/C0APFMY0V8Q/1778834840.485629")
+        ))
     );
     Ok(())
 }

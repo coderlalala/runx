@@ -502,6 +502,20 @@ fn source_publication_receipt_carries_original_thread_and_target_pr()
         Some("https://github.com/nitrosend/nitrosend/issues/482")
     );
     assert_eq!(
+        publication
+            .source_issue_ref
+            .as_ref()
+            .and_then(|reference| reference.provider.as_deref()),
+        Some("github")
+    );
+    assert_eq!(
+        publication
+            .source_issue_ref
+            .as_ref()
+            .and_then(|reference| reference.locator.as_deref()),
+        Some("nitrosend/nitrosend#482")
+    );
+    assert_eq!(
         publication.source_thread_ref.uri,
         "slack://nitrosend/C0APFMY0V8Q/1778834840.485629"
     );
