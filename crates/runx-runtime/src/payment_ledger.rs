@@ -1,14 +1,22 @@
 use std::collections::HashSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use runx_contracts::{HarnessReceipt, ProofKind, Reference, ReferenceType};
+use runx_contracts::{
+    ClosureDisposition, HarnessReceipt, JsonNumber, JsonValue, ProofKind, Reference, ReferenceType,
+    sha256_prefixed,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use thiserror::Error;
+
+use crate::execution::runner::StepRun;
 
 pub const PAYMENT_LEDGER_PROJECTION_SCHEMA_VERSION: &str = "runx.payment_ledger_projection.v1";
 pub const X402_PAY_PAYMENT_PROFILE: &str = "x402-pay";
 pub const PAYMENT_LEDGER_PROJECTED_EVENT_KIND: &str = "payment_ledger_projected";
+pub const PAYMENT_LEDGER_EVENT_LEDGER_DIR: &str = "ledgers";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -30,6 +38,13 @@ pub struct PaymentLedgerProjectionArtifact {
     pub artifact_type: String,
     pub path: PathBuf,
     pub event_payload: PaymentLedgerProjectedEventPayload,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PaymentLedgerRuntimeEvent {
+    pub ledger_path: PathBuf,
+    pub artifact: PaymentLedgerProjectionArtifact,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,6 +175,18 @@ pub enum PaymentLedgerProjectionError {
     ArtifactIo { path: PathBuf, message: String },
     #[error("payment ledger projection artifact JSON failed at {path}: {message}")]
     ArtifactJson { path: PathBuf, message: String },
+    #[error("payment ledger projection evidence is missing {field}")]
+    MissingEvidenceField { field: &'static str },
+    #[error("payment ledger projection evidence field {field} has an invalid value")]
+    InvalidEvidenceField { field: &'static str },
+    #[error("payment ledger projection run id {run_id} is not safe for a local ledger file")]
+    InvalidRunLedgerId { run_id: String },
+    #[error("payment ledger projection event already exists with different contents at {path}")]
+    LedgerEventConflict { path: PathBuf },
+    #[error("payment ledger projection event I/O failed at {path}: {message}")]
+    LedgerEventIo { path: PathBuf, message: String },
+    #[error("payment ledger projection event JSON failed at {path}: {message}")]
+    LedgerEventJson { path: PathBuf, message: String },
 }
 
 pub fn build_payment_ledger_projection(
@@ -304,6 +331,150 @@ pub fn write_payment_ledger_projection_artifact(
     })
 }
 
+pub fn persist_x402_payment_ledger_projection_event(
+    receipt_dir: impl AsRef<Path>,
+    run_id: &str,
+    created_at: &str,
+    graph_receipt: &HarnessReceipt,
+    steps: &[StepRun],
+    scenario_id: &str,
+) -> Result<Option<PaymentLedgerRuntimeEvent>, PaymentLedgerProjectionError> {
+    if graph_receipt.seal.disposition != ClosureDisposition::Closed
+        || !is_x402_payment_receipt(graph_receipt)
+        || !steps.iter().any(has_payment_reservation_packet)
+    {
+        return Ok(None);
+    }
+    let projection =
+        build_x402_payment_ledger_projection_from_steps(graph_receipt, steps, scenario_id)?;
+    let artifact = write_payment_ledger_projection_artifact(&receipt_dir, &projection)?;
+    let ledger_path = append_payment_ledger_projected_event(
+        receipt_dir,
+        run_id,
+        created_at,
+        &artifact.event_payload,
+    )?;
+    Ok(Some(PaymentLedgerRuntimeEvent {
+        ledger_path,
+        artifact,
+    }))
+}
+
+pub fn build_x402_payment_ledger_projection_from_steps(
+    graph_receipt: &HarnessReceipt,
+    steps: &[StepRun],
+    scenario_id: &str,
+) -> Result<PaymentLedgerProjection, PaymentLedgerProjectionError> {
+    let mut evidence = Vec::new();
+    for step in steps {
+        if let Some(reservation) = reservation_evidence(step)? {
+            evidence.push(PaymentLedgerEvidence {
+                receipt: &step.receipt,
+                packet: PaymentLedgerEvidencePacket::Reservation(reservation),
+            });
+        }
+        if let Some(settlement) = settlement_evidence(step)? {
+            evidence.push(PaymentLedgerEvidence {
+                receipt: &step.receipt,
+                packet: PaymentLedgerEvidencePacket::RailSettlement(settlement),
+            });
+        }
+        if let Some(refusal) = refusal_evidence(step)? {
+            evidence.push(PaymentLedgerEvidence {
+                receipt: &step.receipt,
+                packet: PaymentLedgerEvidencePacket::Refusal(refusal),
+            });
+        }
+        if let Some(paid_tool) = paid_tool_evidence(step)? {
+            evidence.push(PaymentLedgerEvidence {
+                receipt: &step.receipt,
+                packet: PaymentLedgerEvidencePacket::PaidTool(paid_tool),
+            });
+        }
+    }
+    build_payment_ledger_projection(PaymentLedgerProjectionInput {
+        graph_receipt,
+        scenario_id,
+        evidence,
+    })
+}
+
+pub fn append_payment_ledger_projected_event(
+    receipt_dir: impl AsRef<Path>,
+    run_id: &str,
+    created_at: &str,
+    payload: &PaymentLedgerProjectedEventPayload,
+) -> Result<PathBuf, PaymentLedgerProjectionError> {
+    validate_run_ledger_id(run_id)?;
+    let ledger_dir = receipt_dir.as_ref().join(PAYMENT_LEDGER_EVENT_LEDGER_DIR);
+    let ledger_path = ledger_dir.join(format!("{run_id}.jsonl"));
+    let payload_bytes = serde_json::to_vec(payload).map_err(|source| {
+        PaymentLedgerProjectionError::LedgerEventJson {
+            path: ledger_path.clone(),
+            message: source.to_string(),
+        }
+    })?;
+    let record = payment_ledger_projected_record(run_id, created_at, payload, &payload_bytes);
+    let line = serde_json::to_vec(&record).map_err(|source| {
+        PaymentLedgerProjectionError::LedgerEventJson {
+            path: ledger_path.clone(),
+            message: source.to_string(),
+        }
+    })?;
+
+    if ledger_path.exists() {
+        let contents = fs::read_to_string(&ledger_path).map_err(|source| {
+            PaymentLedgerProjectionError::LedgerEventIo {
+                path: ledger_path.clone(),
+                message: source.to_string(),
+            }
+        })?;
+        for line in contents
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+        {
+            let existing = serde_json::from_str::<serde_json::Value>(line).map_err(|source| {
+                PaymentLedgerProjectionError::LedgerEventJson {
+                    path: ledger_path.clone(),
+                    message: source.to_string(),
+                }
+            })?;
+            if is_same_payment_ledger_event(&existing, payload) {
+                if existing == record {
+                    return Ok(ledger_path);
+                }
+                return Err(PaymentLedgerProjectionError::LedgerEventConflict {
+                    path: ledger_path,
+                });
+            }
+        }
+    } else {
+        fs::create_dir_all(&ledger_dir).map_err(|source| {
+            PaymentLedgerProjectionError::LedgerEventIo {
+                path: ledger_dir.clone(),
+                message: source.to_string(),
+            }
+        })?;
+    }
+
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&ledger_path)
+        .map_err(|source| PaymentLedgerProjectionError::LedgerEventIo {
+            path: ledger_path.clone(),
+            message: source.to_string(),
+        })?;
+    file.write_all(&line)
+        .and_then(|()| file.write_all(b"\n"))
+        .map_err(|source| PaymentLedgerProjectionError::LedgerEventIo {
+            path: ledger_path.clone(),
+            message: source.to_string(),
+        })?;
+    Ok(ledger_path)
+}
+
 fn refused_accrual(reservation: &PaymentReservationEvidence) -> PaymentLedgerAccrual {
     PaymentLedgerAccrual {
         amount_minor: 0,
@@ -446,4 +617,309 @@ fn push_unique(refs: &mut Vec<String>, reference: String) {
     if !refs.contains(&reference) {
         refs.push(reference);
     }
+}
+
+fn is_x402_payment_receipt(receipt: &HarnessReceipt) -> bool {
+    receipt.id.contains("x402-pay") || receipt.harness.harness_ref.uri.contains("x402-pay")
+}
+
+fn has_payment_reservation_packet(step: &StepRun) -> bool {
+    with_step_outputs(step, |outputs| {
+        Ok(packet_data(outputs, "payment_reservation_packet").map(|_| ()))
+    })
+    .ok()
+    .flatten()
+    .is_some()
+}
+
+fn reservation_evidence(
+    step: &StepRun,
+) -> Result<Option<PaymentReservationEvidence>, PaymentLedgerProjectionError> {
+    with_step_outputs(step, |outputs| {
+        let Some(data) = packet_data(outputs, "payment_reservation_packet") else {
+            return Ok(None);
+        };
+        let Some(binding) = object_path(
+            data,
+            &["reserved_payment_authority", "spend_capability_binding"],
+        )
+        .or_else(|| object_path(data, &["spend_capability_binding"])) else {
+            return Ok(None);
+        };
+        let payment_bounds = object_path(
+            data,
+            &[
+                "reserved_payment_authority",
+                "child_authority",
+                "bounds",
+                "payment",
+            ],
+        )
+        .or_else(|| {
+            object_path(
+                data,
+                &[
+                    "reserved_payment_authority",
+                    "parent_authority",
+                    "bounds",
+                    "payment",
+                ],
+            )
+        });
+        Ok(Some(PaymentReservationEvidence {
+            amount_minor: required_u64(
+                binding,
+                "amount_minor",
+                "spend_capability_binding.amount_minor",
+            )?,
+            currency: required_string(binding, "currency", "spend_capability_binding.currency")?
+                .to_owned(),
+            rail: required_string(binding, "rail", "spend_capability_binding.rail")?.to_owned(),
+            counterparty: required_string(
+                binding,
+                "counterparty",
+                "spend_capability_binding.counterparty",
+            )?
+            .to_owned(),
+            operation: payment_bounds
+                .and_then(|bounds| string_field(bounds, "operation"))
+                .ok_or(PaymentLedgerProjectionError::MissingEvidenceField {
+                    field: "reserved_payment_authority.*.bounds.payment.operation",
+                })?
+                .to_owned(),
+            idempotency_key: required_string(
+                binding,
+                "idempotency_key",
+                "spend_capability_binding.idempotency_key",
+            )?
+            .to_owned(),
+            spend_capability_ref: object_path(data, &["spend_capability_ref"])
+                .and_then(|reference| string_field(reference, "uri"))
+                .ok_or(PaymentLedgerProjectionError::MissingEvidenceField {
+                    field: "spend_capability_ref.uri",
+                })?
+                .to_owned(),
+        }))
+    })
+}
+
+fn settlement_evidence(
+    step: &StepRun,
+) -> Result<Option<PaymentRailSettlementEvidence>, PaymentLedgerProjectionError> {
+    with_step_outputs(step, |outputs| {
+        let Some(data) = packet_data(outputs, "payment_rail_packet") else {
+            return Ok(None);
+        };
+        let Some(proof) = object_path(data, &["rail_proof"]) else {
+            return Ok(None);
+        };
+        let result = object_path(data, &["rail_result"]).ok_or(
+            PaymentLedgerProjectionError::MissingEvidenceField {
+                field: "payment_rail_packet.data.rail_result",
+            },
+        )?;
+        Ok(Some(PaymentRailSettlementEvidence {
+            amount_minor: required_u64(result, "amount_minor", "rail_result.amount_minor")?,
+            currency: required_string(result, "currency", "rail_result.currency")?.to_owned(),
+            rail: required_string(result, "rail", "rail_result.rail")?.to_owned(),
+            proof_ref: required_string(proof, "proof_ref", "rail_proof.proof_ref")?.to_owned(),
+            idempotency_key: required_string(
+                proof,
+                "idempotency_key",
+                "rail_proof.idempotency_key",
+            )?
+            .to_owned(),
+        }))
+    })
+}
+
+fn refusal_evidence(
+    step: &StepRun,
+) -> Result<Option<PaymentRefusalEvidence>, PaymentLedgerProjectionError> {
+    with_step_outputs(step, |outputs| {
+        let refusal = packet_data(outputs, "payment_refusal_packet").or_else(|| {
+            packet_data(outputs, "payment_reservation_packet")
+                .and_then(|data| object_path(data, &["payment_refusal_packet"]))
+        });
+        let Some(refusal) = refusal else {
+            return Ok(None);
+        };
+        Ok(Some(PaymentRefusalEvidence {
+            reason_code: required_string(
+                refusal,
+                "reason_code",
+                "payment_refusal_packet.reason_code",
+            )?
+            .to_owned(),
+            refused_stage: step.step_id.clone(),
+            rail_call_performed: bool_field(refusal, "rail_call_performed").unwrap_or(false),
+            ledger_spend_recorded: bool_field(refusal, "ledger_spend_recorded").unwrap_or(false),
+        }))
+    })
+}
+
+fn paid_tool_evidence(
+    step: &StepRun,
+) -> Result<Option<PaidToolEvidence>, PaymentLedgerProjectionError> {
+    with_step_outputs(step, |outputs| {
+        let Some(result) = object_path(outputs, &["paid_echo_result"]) else {
+            return Ok(None);
+        };
+        Ok(Some(PaidToolEvidence {
+            payment_proof_ref: required_string(
+                result,
+                "payment_proof_ref",
+                "paid_echo_result.payment_proof_ref",
+            )?
+            .to_owned(),
+        }))
+    })
+}
+
+fn with_step_outputs<T>(
+    step: &StepRun,
+    extract: impl Fn(&runx_contracts::JsonObject) -> Result<Option<T>, PaymentLedgerProjectionError>,
+) -> Result<Option<T>, PaymentLedgerProjectionError> {
+    if let Some(value) = extract(&step.outputs)? {
+        return Ok(Some(value));
+    }
+    let Ok(JsonValue::Object(parsed)) = serde_json::from_str::<JsonValue>(&step.output.stdout)
+    else {
+        return Ok(None);
+    };
+    extract(&parsed)
+}
+
+fn packet_data<'a>(
+    outputs: &'a runx_contracts::JsonObject,
+    packet: &str,
+) -> Option<&'a runx_contracts::JsonObject> {
+    object_path(outputs, &[packet, "data"])
+}
+
+fn object_path<'a>(
+    object: &'a runx_contracts::JsonObject,
+    path: &[&str],
+) -> Option<&'a runx_contracts::JsonObject> {
+    let mut current = object;
+    for (index, segment) in path.iter().enumerate() {
+        let value = current.get(*segment)?;
+        if index + 1 == path.len() {
+            return match value {
+                JsonValue::Object(object) => Some(object),
+                _ => None,
+            };
+        }
+        let JsonValue::Object(next) = value else {
+            return None;
+        };
+        current = next;
+    }
+    Some(current)
+}
+
+fn required_string<'a>(
+    object: &'a runx_contracts::JsonObject,
+    key: &'static str,
+    field: &'static str,
+) -> Result<&'a str, PaymentLedgerProjectionError> {
+    string_field(object, key).ok_or(PaymentLedgerProjectionError::MissingEvidenceField { field })
+}
+
+fn string_field<'a>(object: &'a runx_contracts::JsonObject, key: &str) -> Option<&'a str> {
+    match object.get(key)? {
+        JsonValue::String(value) if !value.is_empty() => Some(value),
+        _ => None,
+    }
+}
+
+fn bool_field(object: &runx_contracts::JsonObject, key: &str) -> Option<bool> {
+    match object.get(key)? {
+        JsonValue::Bool(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn required_u64(
+    object: &runx_contracts::JsonObject,
+    key: &'static str,
+    field: &'static str,
+) -> Result<u64, PaymentLedgerProjectionError> {
+    match object.get(key) {
+        Some(JsonValue::Number(JsonNumber::U64(value))) => Ok(*value),
+        Some(JsonValue::Number(JsonNumber::I64(value))) => u64::try_from(*value)
+            .map_err(|_| PaymentLedgerProjectionError::InvalidEvidenceField { field }),
+        Some(JsonValue::Number(JsonNumber::F64(value)))
+            if value.is_finite() && value.fract() == 0.0 && *value >= 0.0 =>
+        {
+            Ok(*value as u64)
+        }
+        Some(JsonValue::Number(_)) => {
+            Err(PaymentLedgerProjectionError::InvalidEvidenceField { field })
+        }
+        Some(_) => Err(PaymentLedgerProjectionError::InvalidEvidenceField { field }),
+        None => Err(PaymentLedgerProjectionError::MissingEvidenceField { field }),
+    }
+}
+
+fn validate_run_ledger_id(run_id: &str) -> Result<(), PaymentLedgerProjectionError> {
+    if !run_id.is_empty()
+        && run_id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+    {
+        Ok(())
+    } else {
+        Err(PaymentLedgerProjectionError::InvalidRunLedgerId {
+            run_id: run_id.to_owned(),
+        })
+    }
+}
+
+fn payment_ledger_projected_record(
+    run_id: &str,
+    created_at: &str,
+    payload: &PaymentLedgerProjectedEventPayload,
+    payload_bytes: &[u8],
+) -> serde_json::Value {
+    json!({
+        "entry": {
+            "type": "run_event",
+            "version": "1",
+            "data": {
+                "kind": PAYMENT_LEDGER_PROJECTED_EVENT_KIND,
+                "status": "completed",
+                "step_id": null,
+                "detail": payload
+            },
+            "meta": {
+                "artifact_id": format!("ax_payment_ledger_projected_{}", sha256_prefixed(payload.source_receipt_id.as_bytes()).trim_start_matches("sha256:")),
+                "run_id": run_id,
+                "step_id": null,
+                "producer": {
+                    "skill": X402_PAY_PAYMENT_PROFILE,
+                    "runner": "graph"
+                },
+                "created_at": created_at,
+                "hash": sha256_prefixed(payload_bytes),
+                "size_bytes": payload_bytes.len(),
+                "parent_artifact_id": payload.projection_artifact_id,
+                "receipt_id": payload.source_receipt_id,
+                "redacted": false
+            }
+        }
+    })
+}
+
+fn is_same_payment_ledger_event(
+    record: &serde_json::Value,
+    payload: &PaymentLedgerProjectedEventPayload,
+) -> bool {
+    let entry = &record["entry"];
+    entry["type"].as_str() == Some("run_event")
+        && entry["data"]["kind"].as_str() == Some(PAYMENT_LEDGER_PROJECTED_EVENT_KIND)
+        && entry["data"]["detail"]["source_receipt_id"].as_str()
+            == Some(payload.source_receipt_id.as_str())
+        && entry["data"]["detail"]["projection_artifact_id"].as_str()
+            == Some(payload.projection_artifact_id.as_str())
 }

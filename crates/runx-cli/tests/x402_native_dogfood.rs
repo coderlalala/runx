@@ -1,5 +1,7 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
@@ -71,6 +73,70 @@ fn native_x402_paid_echo_fixture_passes_only_refs_downstream()
         ]
     );
 
+    Ok(())
+}
+
+#[test]
+fn native_x402_ledger_projection() -> Result<(), Box<dyn std::error::Error>> {
+    let receipt_dir = isolated_receipt_dir()?;
+    let output = native_command()?
+        .env("RUNX_RECEIPT_DIR", &receipt_dir)
+        .args([
+            "harness",
+            "fixtures/harness/x402-pay-paid-echo.yaml",
+            "--json",
+        ])
+        .output()?;
+    assert_success(&output)?;
+    let stdout = String::from_utf8(output.stdout)?;
+    for denied in [
+        "credential_envelope",
+        "rail_session_material",
+        "rail-session-material:mock:paid-echo-001",
+    ] {
+        assert!(
+            !stdout.contains(denied),
+            "native CLI receipt output must not expose raw payment material: {denied}"
+        );
+    }
+
+    let receipt: Value = serde_json::from_str(&stdout)?;
+    assert_eq!(receipt["seal"]["disposition"], "closed");
+
+    let projection_path = receipt_dir
+        .join("artifacts")
+        .join("payment-ledger")
+        .join("x402-pay")
+        .join("hrn_rcpt_x402-pay-paid-echo.json");
+    let projection: Value = serde_json::from_str(&fs::read_to_string(&projection_path)?)?;
+    assert_eq!(
+        projection["schema_version"],
+        "runx.payment_ledger_projection.v1"
+    );
+    assert_eq!(projection["payment_profile"], "x402-pay");
+    assert_eq!(projection["scenario_id"], "P1.5");
+    assert_eq!(projection["disposition"], "settled");
+    assert_eq!(projection["accrual"]["amount_minor"], 125);
+
+    let ledger_path = receipt_dir
+        .join("ledgers")
+        .join("gx_x402-pay-paid-echo.jsonl");
+    let ledger = fs::read_to_string(&ledger_path)?;
+    let lines = ledger.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 1);
+    let event: Value = serde_json::from_str(lines[0])?;
+    assert_eq!(event["entry"]["type"], "run_event");
+    assert_eq!(event["entry"]["data"]["kind"], "payment_ledger_projected");
+    assert_eq!(
+        event["entry"]["data"]["detail"]["projection_artifact_id"],
+        "x402-pay:runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo"
+    );
+    assert_eq!(
+        event["entry"]["data"]["detail"]["source_receipt_id"],
+        "runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo"
+    );
+
+    fs::remove_dir_all(&receipt_dir).ok();
     Ok(())
 }
 
@@ -300,4 +366,16 @@ fn repo_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()?)
+}
+
+fn isolated_receipt_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let path = repo_root()?
+        .join("crates")
+        .join("target")
+        .join("x402-ledger-projection")
+        .join(format!("{}-{nanos}", std::process::id()));
+    fs::remove_dir_all(&path).ok();
+    fs::create_dir_all(&path)?;
+    Ok(path)
 }

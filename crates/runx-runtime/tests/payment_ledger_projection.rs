@@ -3,7 +3,8 @@ use runx_runtime::payment_ledger::{
     PaidToolEvidence, PaymentLedgerEvidence, PaymentLedgerEvidencePacket,
     PaymentLedgerProjectedEventPayload, PaymentLedgerProjection, PaymentLedgerProjectionInput,
     PaymentRailSettlementEvidence, PaymentRefusalEvidence, PaymentReservationEvidence,
-    build_payment_ledger_projection, write_payment_ledger_projection_artifact,
+    build_payment_ledger_projection, persist_x402_payment_ledger_projection_event,
+    write_payment_ledger_projection_artifact,
 };
 use runx_runtime::receipts::{graph_receipt, step_receipt};
 use runx_runtime::{InvocationStatus, SkillOutput, StepRun};
@@ -158,6 +159,77 @@ fn x402_projection_artifact_writer_persists_under_receipt_dir_and_returns_event_
     Ok(())
 }
 
+#[test]
+fn x402_projection_event_persists_after_sealed_graph_receipt()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let reserve = step_run(
+        "x402-pay-paid-echo",
+        "reserve",
+        r#"{"payment_reservation_packet":{"data":{"reserved_payment_authority":{"child_authority":{"bounds":{"payment":{"operation":"paid.echo"}}}},"spend_capability_binding":{"idempotency_key":"payment:paid-echo-001","amount_minor":125,"currency":"USD","counterparty":"merchant:paid-echo","rail":"mock"},"spend_capability_ref":{"type":"credential","uri":"runx:payment-capability:paid-echo-spend-1"}}}}"#,
+    )?;
+    let fulfill = step_run(
+        "x402-pay-paid-echo",
+        "fulfill",
+        r#"{"payment_rail_packet":{"data":{"rail_result":{"status":"fulfilled","rail":"mock","amount_minor":125,"currency":"USD"},"rail_proof":{"proof_ref":"receipt-proof:mock:paid-echo-001","idempotency_key":"payment:paid-echo-001"},"credential_envelope":{"form":"paid_tool_credential","credential_ref":"credential:mock:paid-echo-001"}}}}"#,
+    )?;
+    let echo = step_run(
+        "x402-pay-paid-echo",
+        "echo",
+        r#"{"paid_echo_result":{"message":"hello from paid echo","payment_capability_ref":"credential:mock:paid-echo-001","payment_proof_ref":"receipt-proof:mock:paid-echo-001","input_surface":"sealed_refs_only"}}"#,
+    )?;
+    let graph = graph(
+        "x402-pay-paid-echo_graph",
+        &[reserve.clone(), fulfill.clone(), echo.clone()],
+    )?;
+    let steps = vec![reserve, fulfill, echo];
+
+    let event = persist_x402_payment_ledger_projection_event(
+        temp.path(),
+        "gx_x402-pay-paid-echo",
+        CREATED_AT,
+        &graph,
+        &steps,
+        "P1.5",
+    )?
+    .ok_or("missing x402 payment ledger event")?;
+    let second = persist_x402_payment_ledger_projection_event(
+        temp.path(),
+        "gx_x402-pay-paid-echo",
+        CREATED_AT,
+        &graph,
+        &steps,
+        "P1.5",
+    );
+
+    assert!(event.artifact.path.exists());
+    assert_eq!(
+        event.ledger_path,
+        temp.path()
+            .join("ledgers")
+            .join("gx_x402-pay-paid-echo.jsonl")
+    );
+    let lines = std::fs::read_to_string(&event.ledger_path)?
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert_eq!(lines.len(), 1);
+    let record: Value = serde_json::from_str(&lines[0])?;
+    assert_eq!(record["entry"]["type"], "run_event");
+    assert_eq!(record["entry"]["data"]["kind"], "payment_ledger_projected");
+    assert_eq!(
+        record["entry"]["data"]["detail"]["source_receipt_id"],
+        "runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo_graph"
+    );
+    assert_eq!(record["entry"]["meta"]["run_id"], "gx_x402-pay-paid-echo");
+    assert!(second.is_ok(), "second write must be idempotent");
+    assert_eq!(
+        std::fs::read_to_string(&event.ledger_path)?.lines().count(),
+        1
+    );
+    Ok(())
+}
+
 fn paid_echo_reservation(
     idempotency_key: &str,
     spend_capability_ref: &str,
@@ -201,6 +273,13 @@ fn step_run(
         metadata: JsonObject::new(),
     };
     let receipt = step_receipt(graph_name, step_id, 1, &output, CREATED_AT)?;
+    let outputs = serde_json::from_str::<runx_contracts::JsonValue>(&output.stdout)
+        .ok()
+        .and_then(|value| match value {
+            runx_contracts::JsonValue::Object(object) => Some(object),
+            _ => None,
+        })
+        .unwrap_or_default();
     Ok(StepRun {
         step_id: step_id.to_owned(),
         attempt: 1,
@@ -208,7 +287,7 @@ fn step_run(
         runner: None,
         fanout_group: None,
         output,
-        outputs: JsonObject::new(),
+        outputs,
         receipt,
     })
 }

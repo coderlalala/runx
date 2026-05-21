@@ -25,6 +25,8 @@ use crate::adapter::{InvocationStatus, SkillAdapter, SkillInvocation, SkillOutpu
 use crate::agent_invocation::{AgentActInvocationSourceType, agent_act_invocation_id};
 use crate::execution::runner::{GraphRun, Runtime, RuntimeOptions, StepRun};
 use crate::host::Host;
+use crate::payment_ledger::persist_x402_payment_ledger_projection_event;
+use crate::receipts::paths::{RUNX_RECEIPT_DIR_ENV, ReceiptPathInputs, resolve_receipt_path};
 use crate::receipts::{
     StepReceiptWithDisposition, graph_receipt_with_disposition, step_receipt_with_disposition,
 };
@@ -672,8 +674,68 @@ where
     let runtime = Runtime::new(adapter, options);
     let mut host = FixtureHost::new(fixture);
     let graph_run = runtime.run_graph_file_for_harness(graph_path, &mut host)?;
+    persist_payment_ledger_projection_if_configured(fixture, &graph_run, &runtime)?;
     let output = replay_output_from_graph(fixture, graph_run);
     Ok(output)
+}
+
+fn persist_payment_ledger_projection_if_configured<A>(
+    fixture: &HarnessFixture,
+    graph_run: &GraphRun,
+    runtime: &Runtime<A>,
+) -> Result<(), HarnessReplayError>
+where
+    A: SkillAdapter,
+{
+    if !runtime.options().env.contains_key(RUNX_RECEIPT_DIR_ENV) {
+        return Ok(());
+    }
+    let cwd = std::env::current_dir().map_err(|source| {
+        RuntimeError::io("resolving cwd for payment ledger projection", source)
+    })?;
+    let receipt_path = resolve_receipt_path(ReceiptPathInputs {
+        explicit_dir: None,
+        runtime_config: None,
+        env: &runtime.options().env,
+        cwd: &cwd,
+    });
+    let scenario_id = x402_payment_scenario_id(fixture, graph_run);
+    persist_x402_payment_ledger_projection_event(
+        &receipt_path.path,
+        &format!("gx_{}", graph_run.graph.name),
+        &runtime.options().created_at,
+        &graph_run.receipt,
+        &graph_run.steps,
+        &scenario_id,
+    )
+    .map(|_| ())
+    .map_err(|source| {
+        RuntimeError::ReceiptInvalid {
+            message: source.to_string(),
+        }
+        .into()
+    })
+}
+
+fn x402_payment_scenario_id(fixture: &HarnessFixture, graph_run: &GraphRun) -> String {
+    string_metadata(fixture, "payment_ledger_scenario_id")
+        .or_else(|| scenario_id_from_graph_name(&graph_run.graph.name))
+        .unwrap_or("P1")
+        .to_owned()
+}
+
+fn scenario_id_from_graph_name(graph_name: &str) -> Option<&'static str> {
+    if graph_name.contains("paid-echo") {
+        Some("P1.5")
+    } else if graph_name.contains("cap-exceeded") {
+        Some("P1.3")
+    } else if graph_name.contains("ambiguous-bounds") {
+        Some("P1.4")
+    } else if graph_name.contains("proofless-rail") {
+        Some("P1.12")
+    } else {
+        None
+    }
 }
 
 struct FixtureHost<'a> {

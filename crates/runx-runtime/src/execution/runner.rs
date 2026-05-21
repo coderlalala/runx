@@ -19,6 +19,7 @@ use crate::RuntimeError;
 use crate::adapter::{SkillAdapter, SkillOutput};
 use crate::host::{Host, NoopHost};
 use crate::journal::ExecutionJournal;
+use crate::receipts::paths::{RUNX_CWD_ENV, RUNX_PROJECT_DIR_ENV, RUNX_RECEIPT_DIR_ENV};
 use crate::receipts::{graph_receipt, graph_receipt_with_disposition};
 
 mod authority;
@@ -45,7 +46,14 @@ impl Default for RuntimeOptions {
 }
 
 fn safe_default_env() -> BTreeMap<String, String> {
-    let allowed = ["PATH", "SystemRoot", "PATHEXT"];
+    let allowed = [
+        "PATH",
+        "SystemRoot",
+        "PATHEXT",
+        RUNX_RECEIPT_DIR_ENV,
+        RUNX_PROJECT_DIR_ENV,
+        RUNX_CWD_ENV,
+    ];
     allowed
         .into_iter()
         .filter_map(|key| std::env::var(key).ok().map(|value| (key.to_owned(), value)))
@@ -100,6 +108,10 @@ where
 {
     pub fn new(adapter: A, options: RuntimeOptions) -> Self {
         Self { adapter, options }
+    }
+
+    pub(crate) fn options(&self) -> &RuntimeOptions {
+        &self.options
     }
 
     pub fn run_graph_file(&self, graph_path: &Path) -> Result<GraphRun, RuntimeError> {
