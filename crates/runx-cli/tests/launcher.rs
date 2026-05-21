@@ -27,9 +27,10 @@ fn top_level_help_and_version_are_native() {
         &help,
         "runx skill <skill-ref|skill-dir|SKILL.md> [--input k=v] [--receipt-dir dir] [--run-id id] [--answers file] [--json]",
     );
-    assert_help_line(
-        &help,
-        "runx harness <fixture.yaml|skill-dir|SKILL.md> [--json]",
+    assert_help_line(&help, "runx harness <fixture.yaml> [--json]");
+    assert!(
+        !help.contains("runx harness <fixture.yaml|skill-dir|SKILL.md>"),
+        "native help must not advertise harness target forms that only the old TypeScript path handled"
     );
 }
 

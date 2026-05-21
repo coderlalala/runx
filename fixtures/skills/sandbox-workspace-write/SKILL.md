@@ -3,10 +3,9 @@ name: sandbox-workspace-write
 description: Fixture that writes to an explicitly declared output path.
 source:
   type: cli-tool
-  command: node
+  command: sh
   args:
-    - -e
-    - "require('node:fs').writeFileSync(process.env.RUNX_INPUT_OUTPUT_PATH, 'sandbox-ok'); process.stdout.write('sandbox-ok')"
+    - ./run.sh
   timeout_seconds: 10
   sandbox:
     profile: workspace-write

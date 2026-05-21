@@ -25,6 +25,7 @@ pub mod scaffold;
 pub mod tool_catalogs;
 
 pub use execution::harness;
+pub use execution::orchestrator;
 pub use execution::runner;
 pub use execution::skill_run;
 pub use execution::target_runner;
@@ -73,6 +74,10 @@ pub use list::{
     RunxListItem, RunxListItemKind, RunxListOptions, RunxListRequestedKind, RunxListStatus,
     list_authoring_primitives,
 };
+pub use orchestrator::{
+    GraphRunRequest, HarnessRunRequest, LocalOrchestrator, OrchestratorError, RunContinuation,
+    RunRequest, RunResult, RunStatus, SkillRunRequest,
+};
 pub use receipts::paths::{
     INIT_CWD_ENV, RUNTIME_RECEIPTS_DIR_CONFIG_KEY, RUNX_CWD_ENV, RUNX_PROJECT_DIR_ENV,
     RUNX_RECEIPT_DIR_ENV, ReceiptPathInputs, ReceiptPathSource, ReceiptStoreLabel,
@@ -94,7 +99,6 @@ pub use scaffold::{
     InitAction, InitGeneratedValues, RunxInitOptions, RunxInitResult, RunxNewOptions,
     RunxNewResult, ScaffoldError, runx_init, sanitize_runx_package_name, scaffold_runx_package,
 };
-pub use skill_run::{SkillRunRequest, execute_skill_run};
 pub use tool_catalogs::{
     ToolBuildOptions, ToolCatalogError, ToolInspectOptions, ToolSearchOptions, build_tool_catalogs,
     inspect_tool, search_tools,

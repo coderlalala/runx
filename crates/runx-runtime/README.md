@@ -1,10 +1,11 @@
 # runx-runtime
 
-Native Rust runtime skeleton for governed runx execution.
+Native Rust runtime for governed runx execution.
 
-This crate owns impure execution boundaries: filesystem reads, subprocess
-execution, sandbox preparation, caller reporting, and post-cutover harness
-receipt emission. Pure parser, core, contract, and receipt crates remain
+This crate owns the canonical local orchestration path for Rust-backed runx:
+skill execution, graph execution, harness replay, caller reporting, sandbox
+preparation, receipts, history projection, adapters, and payment/authority
+runtime policy. Pure parser, core, contract, and receipt crates remain
 upstream.
 
 Current slice:
@@ -14,6 +15,8 @@ Current slice:
 - runs `cli-tool` skills behind the `cli-tool` feature
 - emits harness receipts and validates the parent receipt tree with
   `runx-receipts`
+- exposes native skill, doctor, list, history, MCP, registry, config, policy,
+  tool, and dev command support through `runx-cli`
 
 Adapter families remain feature gated:
 
@@ -23,14 +26,11 @@ Adapter families remain feature gated:
 - `agent`
 - `catalog`
 
-The Cargo CLI launcher still delegates to the npm CLI until the later
-launcher-cutover spec wires this runtime into `runx-cli`.
-
 ## Doctor
 
-The native Rust doctor API is programmatic-only. `runx doctor` still routes
-through the npm TypeScript CLI until a dedicated CLI cutover wires the command
-surface, human renderer, and repair behavior to Rust.
+The native Rust doctor API is wired into `runx-cli` for the read-only
+diagnostic surface. It must not shell out to npm or TypeScript for canonical
+local behavior.
 
 This crate currently ports the read-only fixture-backed diagnostics:
 

@@ -11,6 +11,7 @@ use runx_cli::launcher::{LauncherAction, help_text};
 use runx_runtime::connect::{ConnectGrantStatus, ConnectReadyStatus, ConnectRevokeStatus};
 use runx_runtime::{
     HttpConnectGrant, HttpConnectListResponse, HttpConnectReadyResponse, HttpConnectRevokeResponse,
+    LocalOrchestrator,
 };
 
 fn main() -> ExitCode {
@@ -354,8 +355,9 @@ fn run_native_config(plan: runx_cli::config::ConfigPlan) -> ExitCode {
 }
 
 fn run_native_harness(fixture_path: PathBuf) -> ExitCode {
-    match runx_runtime::run_harness_fixture(&fixture_path) {
-        Ok(output) => match serde_json::to_string_pretty(&output.receipt) {
+    let request = runx_runtime::HarnessRunRequest { fixture_path };
+    match LocalOrchestrator.run_harness(&request) {
+        Ok(output) => match serde_json::to_string_pretty(&output.output) {
             Ok(json) => write_stdout_line(&json),
             Err(error) => {
                 let _ignored = write_stderr_line(&format!(
@@ -367,7 +369,7 @@ fn run_native_harness(fixture_path: PathBuf) -> ExitCode {
         Err(error) => {
             let _ignored = write_stderr_line(&format!(
                 "runx: native harness replay failed for {}: {error}",
-                fixture_path.display()
+                request.fixture_path.display()
             ));
             ExitCode::from(1)
         }

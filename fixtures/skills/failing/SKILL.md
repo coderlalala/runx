@@ -3,10 +3,9 @@ name: failing
 description: Deterministically fail through the cli-tool adapter.
 source:
   type: cli-tool
-  command: node
+  command: sh
   args:
-    - -e
-    - "process.stderr.write('fixture failure'); process.exit(1)"
+    - ./run.sh
   timeout_seconds: 10
 inputs: {}
 ---

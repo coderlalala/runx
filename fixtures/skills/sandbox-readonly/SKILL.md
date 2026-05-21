@@ -3,10 +3,9 @@ name: sandbox-readonly
 description: Fixture that declares an invalid write under a readonly sandbox.
 source:
   type: cli-tool
-  command: node
+  command: sh
   args:
-    - -e
-    - "require('node:fs').writeFileSync(process.env.RUNX_INPUT_OUTPUT_PATH, 'should-not-run')"
+    - ./run.sh
   timeout_seconds: 10
   sandbox:
     profile: readonly

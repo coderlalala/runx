@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use runx_contracts::JsonValue;
-use runx_runtime::{SkillRunRequest, execute_skill_run};
+use runx_runtime::{LocalOrchestrator, SkillRunRequest};
 
 #[derive(Debug, PartialEq)]
 pub struct SkillPlan {
@@ -149,10 +149,10 @@ pub fn run_native_skill(plan: SkillPlan) -> ExitCode {
         env: env::vars().collect(),
         cwd: env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     };
-    match execute_skill_run(&request) {
-        Ok(output) => {
-            let exit_code = skill_result_exit_code(&output);
-            write_json_with_exit(&output, exit_code)
+    match LocalOrchestrator.run_skill(&request) {
+        Ok(result) => {
+            let exit_code = skill_result_exit_code(&result.output);
+            write_json_with_exit(&result.output, exit_code)
         }
         Err(error) => {
             let _ignored = writeln!(io::stderr(), "runx: {error}");

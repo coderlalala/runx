@@ -11,18 +11,23 @@ can reference them rather than rederive them.
 
 ## 1. Position
 
-The Rust kernel is conformance evidence for the TypeScript trusted kernel
-until an explicit cutover spec changes a consumer. TypeScript remains
-authoritative for parser, state-machine, policy, executor contracts, receipts,
-and runtime-local behavior. Rust crates exist to:
+The Rust kernel started as conformance evidence for the TypeScript trusted
+kernel, but the local runtime cutover is now underway. For local execution,
+Rust is the canonical owner once a command is advertised by the native CLI.
+TypeScript remains a client, package, product UX, docs, and compatibility-test
+surface unless a separate spec gives it ownership of a cloud or authoring
+boundary. Rust crates exist to:
 
-- Prove behavioral parity through a shared fixture suite.
+- Prove behavioral parity through a shared fixture suite while a domain is
+  still in the dual-tree window.
 - Make TypeScript kernel drift explicit (intentional fixture refresh required).
-- Establish a runway for future Rust-backed consumers (CLI, embedded runtime,
-  WASM preview) without committing to any cutover yet.
+- Provide the native local CLI/runtime path for skill, graph, harness, receipt,
+  history, policy, authority, payment, and adapter orchestration.
 
-Rust is not a second source of truth. If Rust and TypeScript disagree on a
-fixture, the bug is on the Rust side until a cutover spec says otherwise.
+Rust is not a second source of truth for cut-over surfaces; it is the source of
+truth. If Rust and TypeScript disagree on a fixture before a surface cuts over,
+the active cutover spec decides whether the fixture is still a TypeScript
+oracle or a Rust contract fixture.
 
 ## 2. Pure kernel scope
 
@@ -102,7 +107,8 @@ runx-cli          binary: argument parsing, presentation, exit codes
                     includes: skill authoring subcommands until a separate
                               authoring library use case exists
                     deps: runx-runtime (long-term)
-                    current: Node.js launcher shim only
+                    current: native local command surface for advertised Rust
+                             commands; npm package is selector/client wrapper
 ```
 
 Pure crates (`runx-contracts`, `runx-core`, `runx-parser`, `runx-receipts`,
@@ -429,25 +435,29 @@ state, and the cost in section 12 applies.
 
 ## 13. CLI cutover position
 
-`crates/runx-cli` is currently a Node.js launcher shim
-([oss/crates/runx-cli/src/main.rs](../crates/runx-cli/src/main.rs)). It
-remains that way until at least:
+`crates/runx-cli` is now the native local command surface for the Rust-backed
+commands it advertises. Help text is a contract: if a form appears in
+`runx --help`, it must either execute through Rust or fail closed before any
+hidden TypeScript fallback.
+
+The npm `@runxhq/cli` package remains a platform-aware launcher/client wrapper,
+but local execution semantics move through `runx-runtime`, not through
+`@runxhq/runtime-local`.
+
+New native command forms still require parity evidence:
 
 - `fixtures/cli-parity` exists and covers every current command, subcommand,
   flag, exit code, JSON output shape, human-output promise, receipt behavior,
   sandbox metadata path, adapter path, and documented workflow.
 - `runx-core`, `runx-parser`, and `runx-receipts` exist and pass parity.
 - A `runx-runtime` crate exists with at least one impure adapter ported.
-- A separate `runx-cli-rust-cutover` spec proposes the move.
-
-Until then, no kernel logic moves into the launcher. The launcher's job is to
-delegate to Node.
+- A command-specific cutover or hardening spec proposes the move.
 
 Kernel parity is not CLI parity. A Rust state-machine or policy port can prove
 that pure decisions match TypeScript, but it does not prove that the executable
-CLI is a drop-in replacement. A future native CLI candidate must run against
-the TypeScript oracle matrix first and pass one-to-one feature parity before
-any npm-to-Rust cutover is allowed.
+CLI is a drop-in replacement. Native CLI candidates must run against the
+fixture matrix and pass one-to-one feature parity before npm wrappers may
+present them as canonical.
 
 The one-to-one CLI matrix belongs in `fixtures/cli-parity/` and is governed by
 the `rust-cli-feature-parity-matrix` spec. The matrix is intentionally broader

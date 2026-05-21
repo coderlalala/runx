@@ -707,10 +707,10 @@
     },
     {
       "id": "harness",
-      "usage": "runx harness <fixture.yaml|skill-dir|SKILL.md>",
+      "usage": "runx harness <fixture.yaml>",
       "aliases": [],
       "requiredPositionals": [
-        "<fixture.yaml|skill-dir|SKILL.md>"
+        "<fixture.yaml>"
       ],
       "flags": [
         "--json"

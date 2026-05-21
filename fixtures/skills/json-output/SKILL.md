@@ -3,10 +3,9 @@ name: json-output
 description: Echo all resolved inputs as a JSON object through the cli-tool adapter.
 source:
   type: cli-tool
-  command: node
+  command: sh
   args:
-    - -e
-    - "process.stdout.write(JSON.stringify(JSON.parse(process.env.RUNX_INPUTS_JSON ?? '{}')))"
+    - ./run.sh
   timeout_seconds: 10
 inputs: {}
 ---

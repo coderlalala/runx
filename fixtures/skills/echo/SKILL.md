@@ -3,10 +3,9 @@ name: echo
 description: Echo a message through the cli-tool adapter.
 source:
   type: cli-tool
-  command: node
+  command: sh
   args:
-    - -e
-    - "process.stdout.write(process.env.RUNX_INPUT_MESSAGE ?? '')"
+    - ./run.sh
   timeout_seconds: 10
   sandbox:
     profile: readonly

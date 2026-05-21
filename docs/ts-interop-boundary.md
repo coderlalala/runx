@@ -6,6 +6,11 @@ packages during the dual-tree window.
 
 ## Current boundary after takeover
 
+Rust is canonical for local skill, graph, harness, receipt, history, policy,
+authority, payment, and adapter orchestration. TypeScript remains a client,
+packaging, product UX, docs, and compatibility-test surface unless a separate
+spec gives it ownership of a non-local service boundary.
+
 Three crossings exist between the surviving TypeScript surface and the Rust
 runtime. Each crossing has one contract surface that owns the wire shape.
 
@@ -37,7 +42,7 @@ maintenance. Sunset means deletion only through the named sunset spec.
 | `@runxhq/create-skill` | Stays as a thin npm bootstrapper that wraps `runx new` through the CLI. |
 | `@runxhq/host-adapters` | Stays as thin host response adapters over the runx host protocol, retargeted to `@runxhq/contracts` types. |
 | `@runxhq/langchain` | Stays as an optional LangChain bridge that shells the `runx` CLI for governed skill and tool invocation. |
-| `@runxhq/runtime-local` | Sunset with `rust-ts-sunset-runtime-local`; runner, sandbox, harness, MCP, SDK caller, and host-protocol execution move to Rust. |
+| `@runxhq/runtime-local` | Sunset with `rust-ts-sunset-runtime-local`; runner, sandbox, harness, MCP, SDK caller, and host-protocol execution move to Rust. No new trusted local orchestration starts here. |
 | `runx-py` | Stays as a thin Python client over `runx` CLI JSON output. |
 
 Cloud packages remain TypeScript. The Rust runtime consumes cloud through the

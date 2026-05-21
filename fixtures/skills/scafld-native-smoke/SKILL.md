@@ -3,9 +3,9 @@ name: scafld-native-smoke
 description: Prove the hosted scafld binary through the native v2 lifecycle.
 source:
   type: cli-tool
-  command: node
+  command: python3
   args:
-    - ./run.mjs
+    - ./run.py
   timeout_seconds: 60
   sandbox:
     profile: readonly

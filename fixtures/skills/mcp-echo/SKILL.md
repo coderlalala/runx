@@ -4,11 +4,9 @@ description: Echo a message through a local MCP stdio fixture server.
 source:
   type: mcp
   server:
-    command: node
+    command: python3
     args:
-      - --import
-      - tsx
-      - packages/runtime-local/src/harness/mcp-fixture.ts
+      - fixtures/runtime/adapters/mcp/stdio-server.py
     cwd: ../../..
   tool: echo
   arguments:

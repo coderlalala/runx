@@ -1,7 +1,7 @@
 {
   "name": "@runxhq/runtime-local",
   "version": "0.1.2",
-  "description": "Runx local runtime: orchestration, harness execution, SDK host bridge, local receipts, and local process sandboxing.",
+  "description": "Sunset TypeScript compatibility surface for local runtime wrappers while canonical local orchestration moves to Rust.",
   "private": false,
   "license": "MIT",
   "type": "module",

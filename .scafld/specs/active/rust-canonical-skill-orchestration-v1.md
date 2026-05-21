@@ -3,7 +3,7 @@ spec_version: '2.0'
 task_id: rust-canonical-skill-orchestration-v1
 created: '2026-05-21T04:35:09Z'
 updated: '2026-05-21T04:35:09Z'
-status: draft
+status: active
 harden_status: not_run
 size: large
 risk_level: very_high
@@ -13,9 +13,9 @@ risk_level: very_high
 
 ## Current State
 
-Status: draft
-Current phase: planning
-Next: harden
+Status: active
+Current phase: phases 0-2 first slice
+Next: inline harness expansion or TypeScript importer reroute
 Reason: Skill orchestration is the critical cutover boundary. Rust now owns
 parts of runtime execution, payment authority, receipts, history, doctor, MCP,
 skill run, and harness replay, but TypeScript still owns or masks too much of
@@ -23,15 +23,15 @@ the local product orchestration through `@runxhq/runtime-local`,
 `@runxhq/adapters`, package dogfood scripts, CLI wrappers, composer flows, and
 many tests. The standalone Rust CLI must be useful on a machine with no Node,
 pnpm, tsx, or TypeScript packages installed.
-Blockers: current docs and CLI shape conflict. `README.md` still describes
-`@runxhq/runtime-local` as owning local orchestration; `docs/ts-interop-boundary`
-marks runtime-local for sunset; `docs/rust-kernel-architecture` still contains
-older conformance-first language. Rust `runx harness <fixture.yaml>` works for
-native fixtures, but `runx harness <skill-dir>` is advertised and currently not
-implemented. Some current payment fixtures execute `node -e`, so they are not
-standalone Rust CLI proof.
+Blockers: CLI package importer reroute remains open; `packages/cli/src/**`
+still imports `@runxhq/runtime-local` and `@runxhq/adapters` for local
+execution commands. Native inline harness expansion from `skill-dir|SKILL.md`
+is not implemented and must stay out of help until it is Rust-native.
 Allowed follow-up command: `scafld harden rust-canonical-skill-orchestration-v1`
-Latest runner update: none
+Latest runner update: 2026-05-21 - docs boundary repaired, Rust harness help
+made truthful, TS-free native CLI smoke added, canonical Rust orchestrator
+surface introduced, and official `fixtures/skills` Node/tsx dependencies moved
+to checked-in shell or Python fixtures.
 Review gate: not_started
 
 ## Summary

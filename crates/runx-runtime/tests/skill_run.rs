@@ -3,14 +3,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use runx_contracts::JsonValue;
-use runx_runtime::{LocalReceiptStore, RUNX_RECEIPT_DIR_ENV, SkillRunRequest, execute_skill_run};
+use runx_runtime::{
+    LocalOrchestrator, LocalReceiptStore, RUNX_RECEIPT_DIR_ENV, RunResult, SkillRunRequest,
+};
 use tempfile::tempdir;
 
 #[test]
 fn native_skill_run_pauses_with_agent_act_request() -> Result<(), Box<dyn std::error::Error>> {
     let temp = tempdir()?;
     let skill_dir = write_agent_step_skill(temp.path())?;
-    let result = execute_skill_run(&SkillRunRequest {
+    let result = run_skill(SkillRunRequest {
         skill_path: skill_dir,
         receipt_dir: None,
         run_id: None,
@@ -25,7 +27,7 @@ fn native_skill_run_pauses_with_agent_act_request() -> Result<(), Box<dyn std::e
         cwd: temp.path().to_path_buf(),
     })?;
 
-    let output = object(&result, "skill run result")?;
+    let output = object(&result.output, "skill run result")?;
     assert_eq!(string_field(output, "schema"), Some("runx.skill_run.v1"));
     assert_eq!(string_field(output, "status"), Some("needs_agent"));
     assert_eq!(
@@ -80,7 +82,7 @@ fn native_skill_run_resumes_and_seals_harness_receipt() -> Result<(), Box<dyn st
         .to_string(),
     )?;
 
-    let result = execute_skill_run(&SkillRunRequest {
+    let result = run_skill(SkillRunRequest {
         skill_path: skill_dir,
         receipt_dir: Some(receipt_dir.clone()),
         run_id: Some("issue-intake-run".to_owned()),
@@ -90,7 +92,7 @@ fn native_skill_run_resumes_and_seals_harness_receipt() -> Result<(), Box<dyn st
         cwd: temp.path().to_path_buf(),
     })?;
 
-    let output = object(&result, "skill run result")?;
+    let output = object(&result.output, "skill run result")?;
     assert_eq!(string_field(output, "status"), Some("sealed"));
     assert_eq!(string_field(output, "run_id"), Some("issue-intake-run"));
     let closure = object_field(output, "closure").ok_or("missing closure")?;
@@ -142,7 +144,7 @@ fn native_skill_run_preserves_deferred_closure_disposition()
         .to_string(),
     )?;
 
-    let result = execute_skill_run(&SkillRunRequest {
+    let result = run_skill(SkillRunRequest {
         skill_path: skill_dir,
         receipt_dir: Some(receipt_dir.clone()),
         run_id: Some("issue-intake-deferred".to_owned()),
@@ -152,7 +154,7 @@ fn native_skill_run_preserves_deferred_closure_disposition()
         cwd: temp.path().to_path_buf(),
     })?;
 
-    let output = object(&result, "skill run result")?;
+    let output = object(&result.output, "skill run result")?;
     assert_eq!(string_field(output, "status"), Some("sealed"));
     let closure = object_field(output, "closure").ok_or("missing closure")?;
     assert_eq!(string_field(closure, "disposition"), Some("deferred"));
@@ -186,7 +188,7 @@ fn native_skill_run_uses_runtime_receipt_path_resolution() -> Result<(), Box<dyn
         .to_string(),
     )?;
 
-    let result = execute_skill_run(&SkillRunRequest {
+    let result = run_skill(SkillRunRequest {
         skill_path: skill_dir,
         receipt_dir: None,
         run_id: Some("env-receipt-run".to_owned()),
@@ -201,7 +203,7 @@ fn native_skill_run_uses_runtime_receipt_path_resolution() -> Result<(), Box<dyn
         cwd: temp.path().to_path_buf(),
     })?;
 
-    let output = object(&result, "skill run result")?;
+    let output = object(&result.output, "skill run result")?;
     let receipt_id = string_field(output, "receipt_id").ok_or("missing receipt_id")?;
     assert!(env_receipt_dir.join(format!("{receipt_id}.json")).exists());
 
@@ -213,7 +215,7 @@ fn native_skill_run_rejects_partial_continuation_shape() -> Result<(), Box<dyn s
     let temp = tempdir()?;
     let skill_dir = write_agent_step_skill(temp.path())?;
 
-    let run_id_only = match execute_skill_run(&SkillRunRequest {
+    let run_id_only = match run_skill(SkillRunRequest {
         skill_path: skill_dir.clone(),
         receipt_dir: None,
         run_id: Some("issue-intake-run".to_owned()),
@@ -231,7 +233,7 @@ fn native_skill_run_rejects_partial_continuation_shape() -> Result<(), Box<dyn s
             .contains("runx skill --run-id requires --answers")
     );
 
-    let answers_only = match execute_skill_run(&SkillRunRequest {
+    let answers_only = match run_skill(SkillRunRequest {
         skill_path: skill_dir,
         receipt_dir: None,
         run_id: None,
@@ -250,6 +252,12 @@ fn native_skill_run_rejects_partial_continuation_shape() -> Result<(), Box<dyn s
     );
 
     Ok(())
+}
+
+fn run_skill(request: SkillRunRequest) -> Result<RunResult, Box<dyn std::error::Error>> {
+    LocalOrchestrator
+        .run_skill(&request)
+        .map_err(|error| error.into())
 }
 
 fn write_agent_step_skill(root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {

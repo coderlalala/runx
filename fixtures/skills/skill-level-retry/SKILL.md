@@ -3,10 +3,9 @@ name: skill-level-retry
 description: Echo with retry metadata declared on the skill.
 source:
   type: cli-tool
-  command: node
+  command: sh
   args:
-    - -e
-    - "process.stdout.write(process.env.RUNX_INPUT_MESSAGE ?? '')"
+    - ./run.sh
   timeout_seconds: 10
 retry:
   max_attempts: 2

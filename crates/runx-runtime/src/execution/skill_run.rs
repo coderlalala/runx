@@ -16,23 +16,13 @@ use crate::adapter::{InvocationStatus, SkillInvocation, SkillOutput};
 use crate::agent_invocation::{
     AgentActInvocationSourceType, agent_act_invocation_id, agent_act_resolution_request,
 };
+use crate::execution::orchestrator::SkillRunRequest;
 use crate::receipts::paths::{ReceiptPathInputs, resolve_receipt_path};
 use crate::receipts::store::{LocalReceiptStore, ReceiptStoreError};
 use crate::receipts::{StepReceiptWithDisposition, step_receipt_with_disposition};
 
 const SKILL_RUN_SCHEMA: &str = "runx.skill_run.v1";
 const DEFAULT_CREATED_AT: &str = "2026-05-18T00:00:00Z";
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct SkillRunRequest {
-    pub skill_path: PathBuf,
-    pub receipt_dir: Option<PathBuf>,
-    pub run_id: Option<String>,
-    pub answers_path: Option<PathBuf>,
-    pub inputs: BTreeMap<String, JsonValue>,
-    pub env: BTreeMap<String, String>,
-    pub cwd: PathBuf,
-}
 
 #[derive(Debug, Error)]
 pub enum SkillRunError {
@@ -44,7 +34,7 @@ pub enum SkillRunError {
     ReceiptStore(#[from] ReceiptStoreError),
 }
 
-pub fn execute_skill_run(request: &SkillRunRequest) -> Result<JsonValue, SkillRunError> {
+pub(crate) fn execute_skill_run(request: &SkillRunRequest) -> Result<JsonValue, SkillRunError> {
     let skill_dir = resolve_skill_dir(&request.skill_path)?;
     let manifest = load_runner_manifest(&skill_dir)?;
     let runner = selected_runner(&manifest)?;

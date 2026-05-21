@@ -7,7 +7,7 @@ The package manifests are authoritative; regenerate this page with `pnpm docs:ap
 
 ## @runxhq/adapters
 
-Runx concrete runtime adapters.
+Sunset TypeScript compatibility adapters while trusted local adapter execution moves to runx-runtime.
 
 Version: `0.1.5`
 
@@ -52,7 +52,7 @@ Version: `0.2.5`
 
 ## @runxhq/core
 
-Runx trusted kernel domains: parser, state machine, policy, executor contracts, registry, knowledge, config, and artifacts.
+Runx trusted kernel domains: parser, state machine, policy, registry, knowledge, config, and artifacts.
 
 Kernel parity fixtures under `fixtures/kernel/` provide conformance evidence for the stable `@runxhq/core/state-machine` and `@runxhq/core/policy` exports during the Rust port.
 
@@ -63,7 +63,6 @@ Version: `0.1.6`
 | `@runxhq/core` | `./dist/index.d.ts` | `./dist/index.js` |
 | `@runxhq/core/artifacts` | `./dist/src/artifacts/index.d.ts` | `./dist/src/artifacts/index.js` |
 | `@runxhq/core/config` | `./dist/src/config/index.d.ts` | `./dist/src/config/index.js` |
-| `@runxhq/core/executor` | `./dist/src/executor/index.d.ts` | `./dist/src/executor/index.js` |
 | `@runxhq/core/knowledge` | `./dist/src/knowledge/index.d.ts` | `./dist/src/knowledge/index.js` |
 | `@runxhq/core/marketplaces` | `./dist/src/marketplaces/index.d.ts` | `./dist/src/marketplaces/index.js` |
 | `@runxhq/core/parser` | `./dist/src/parser/index.d.ts` | `./dist/src/parser/index.js` |
@@ -104,7 +103,7 @@ Version: `0.1.2`
 
 ## @runxhq/runtime-local
 
-Runx local runtime: orchestration, harness execution, SDK host bridge, local receipts, and local process sandboxing.
+Sunset TypeScript compatibility surface for local runtime wrappers while canonical local orchestration moves to Rust.
 
 Version: `0.1.2`
 

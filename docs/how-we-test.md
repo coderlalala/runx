@@ -11,8 +11,8 @@ Use this while editing core runtime, harness, parser, policy, or nearby tests:
 pnpm test:fast
 ```
 
-`test:fast` uses `vitest.fast.config.ts`. It includes package tests plus the
-runtime-local tests that catch common harness and receipt regressions.
+`test:fast` uses `vitest.fast.config.ts`. It includes package tests plus
+compatibility coverage for TypeScript wrapper surfaces.
 
 For one file:
 
@@ -62,9 +62,9 @@ test or harness so the docs fail loudly when the runtime shape changes.
 ## Adding Tests
 
 Use package-local tests for package internals and `tests/` for cross-package
-behavior. When a test needs the default local skill adapters, import
-`createDefaultSkillAdapters()` from `@runxhq/adapters` instead of rebuilding
-adapter wiring inside the test.
+behavior. Trusted local skill, graph, harness, receipt, policy, authority, and
+payment behavior needs a Rust test or a TS-free Rust CLI fixture. TypeScript
+tests may wrap those paths, but they should not be the only proof.
 
 For docs examples, keep the test focused on the public command or runtime path
 the docs promise. The hello-world and hello-graph tests are the reference shape.

@@ -1,7 +1,7 @@
 {
   "name": "@runxhq/adapters",
   "version": "0.1.5",
-  "description": "Runx concrete runtime adapters.",
+  "description": "Sunset TypeScript compatibility adapters while trusted local adapter execution moves to runx-runtime.",
   "private": false,
   "license": "MIT",
   "type": "module",

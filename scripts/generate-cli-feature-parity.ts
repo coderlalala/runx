@@ -76,7 +76,7 @@ const commands: readonly CommandMatrixEntry[] = [
   command("policy.lint", "runx policy lint <policy.json>", [], ["--json"], "none", ["policy", "cli-presentation"], ["policy.lint.validate"]),
   command("new", "runx new <name>", [], ["--directory", "--json"], "filesystem", ["scaffold", "cli-presentation"], ["new.validate"]),
   command("init", "runx init", [], ["-g", "--global", "--prefetch", "--json"], "filesystem", ["scaffold", "official-skills"], ["init.validate"]),
-  command("harness", "runx harness <fixture.yaml|skill-dir|SKILL.md>", [], ["--json"], "local-runtime", ["harness", "receipts", "sandbox"], ["harness.execute"]),
+  command("harness", "runx harness <fixture.yaml>", [], ["--json"], "local-runtime", ["harness", "receipts", "sandbox"], ["harness.execute"]),
   command("list", "runx list [tools|skills|graphs|packets|overlays]", [], ["--ok-only", "--invalid-only", "--json"], "none", ["list", "tool-catalog"], ["list.tools.execute"]),
   command("doctor", "runx doctor [path]", [], ["--fix", "--explain", "--list-diagnostics", "--json"], "filesystem", ["doctor", "cli-presentation"], ["doctor.validate"]),
   command("dev", "runx dev [path]", [], ["--lane", "--record", "--real-agents", "--watch", "--json"], "local-runtime", ["dev", "harness", "receipts"], ["dev.validate"]),

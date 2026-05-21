@@ -27,7 +27,9 @@ For governed code changes, see [docs/issue-to-pr.md](docs/issue-to-pr.md).
 
 - Node.js 20+
 - pnpm 10+
-- No native runtime dependency is required for the CLI path.
+- Rust 1.85+ for native runtime and CLI work.
+- The native Rust CLI path must stay useful without Node, pnpm, tsx, or
+  TypeScript packages installed.
 
 ## Install For Development
 
@@ -98,15 +100,24 @@ domains.
 
 For the generated package export index, see [docs/api-surface.md](docs/api-surface.md).
 
-`@runxhq/runtime-local` is the local runtime package. It owns local
-orchestration, caller interaction, sandbox preparation, receipt-write
-orchestration, harness execution, runtime SDK entrypoints, MCP process-client
-behavior, tool-catalog utility functions, and concrete local catalog adapters.
+`runx-runtime` is the canonical local runtime. It owns local skill, graph,
+harness, receipt, history, policy, authority, payment, MCP, adapter, and
+sandbox orchestration for the native CLI path.
 
-Runtime imports are a hard cut. Use `@runxhq/runtime-local`,
-`@runxhq/runtime-local/harness`, `@runxhq/runtime-local/sdk`,
-`@runxhq/runtime-local/mcp`, or `@runxhq/runtime-local/tool-catalogs` for local
-runtime work. `@runxhq/core` does not publish old runtime subpaths.
+`@runxhq/runtime-local` and `@runxhq/adapters` are sunset TypeScript
+compatibility surfaces. They may wrap or test Rust behavior during the cutover,
+but they must not become the only implementation of trusted local execution.
+New local orchestration work belongs in Rust first.
+
+Command-surface ownership:
+
+| Surface | Canonical owner | TypeScript role |
+| --- | --- | --- |
+| `runx skill` local execution | `runx-runtime::execution` via `runx-cli` | npm launcher/client wrapper |
+| `runx harness <fixture.yaml>` | Rust harness replay | compatibility tests and wrappers |
+| receipts and history | Rust receipt store and journal | display/client views |
+| policy, authority, payment, x402 | Rust core/runtime policy | published type mirrors and product UX |
+| marketplace and docs tooling | TypeScript/scafld until separately cut over | canonical for authoring UX |
 
 ### Local Sandbox Enforcement
 
@@ -293,16 +304,15 @@ systems can consume governed lineage instead of raw prompt logs.
 
 ## Harness
 
-`runx harness` supports both existing standalone fixture YAML files and inline
-harness cases declared in the execution profile:
+`runx harness` currently supports standalone fixture YAML files in the native
+Rust CLI:
 
 ```bash
 runx harness ./fixtures/harness/echo-skill.yaml --json
-runx harness ./skills/evolve --json
 ```
 
-Inline harness keeps representative cases beside the skill package. Standalone
-fixture YAML remains supported for larger shared or cross-package scenarios.
+Do not advertise `runx harness <skill-dir|SKILL.md>` until the Rust CLI expands
+inline `X.yaml` harness cases natively.
 
 ## Doctor And Dogfood
 
@@ -312,9 +322,9 @@ For the core first-party skill lane, run:
 pnpm dogfood:core-skills
 ```
 
-This rebuilds the workspace packages, runs `runx doctor --json`, and proves the
-official skills reach a clean fresh-caller boundary with the current adapter
-bundle.
+This remains a TypeScript wrapper lane. The native Rust proof for local
+orchestration is the Rust CLI/runtime test and fixture suite; wrapper dogfood is
+useful only after the same behavior is proven without Node, pnpm, or tsx.
 
 For the default structural verification lane during refactors, run:
 

@@ -52,7 +52,7 @@ export function writeUsage(stream: Writable, env: NodeJS.ProcessEnv = process.en
       "  runx policy inspect|lint <policy.json> [--json]",
       "  runx new <name> [--directory dir] [--json]",
       "  runx init [-g|--global] [--prefetch official] [--json]",
-      "  runx harness <fixture.yaml|skill-dir|SKILL.md> [--json]",
+      "  runx harness <fixture.yaml> [--json]",
       "  runx list [tools|skills|graphs|packets|overlays] [--ok-only|--invalid-only] [--json]",
       "  runx doctor [path] [--fix] [--explain id|--list-diagnostics] [--json]",
       "  runx dev [path] [--lane deterministic|agent|repo-integration|all] [--record] [--json]",
