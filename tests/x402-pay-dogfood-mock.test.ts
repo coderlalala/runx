@@ -7,7 +7,12 @@ import { describe, expect, it } from "vitest";
 
 import { runCli } from "../packages/cli/src/index.js";
 
-const mockScenarioPunchlist = ".scafld/specs/drafts/x402-pay-phase1-mock-scenario-punchlist.md";
+const mockScenarioPunchlistCandidates = [
+  ".scafld/specs/active/x402-pay-phase1-mock-scenario-punchlist.md",
+  ".scafld/specs/approved/x402-pay-phase1-mock-scenario-punchlist.md",
+  ".scafld/specs/drafts/x402-pay-phase1-mock-scenario-punchlist.md",
+  ".scafld/specs/archive/2026-05/x402-pay-phase1-mock-scenario-punchlist.md",
+] as const;
 const paymentGraphFixture = "fixtures/harness/x402-pay-approval.yaml";
 const deniedPaymentGraphFixture = "fixtures/harness/x402-pay-approval-denied.yaml";
 const mockRailSessionMaterialRef = "rail-session-material:mock:payment-execution-001";
@@ -121,7 +126,7 @@ describe("x402-pay Phase 1 mock dogfood fixtures", () => {
   }, 30_000);
 
   it("keeps every Phase 1 mock eventuality either asserted or explicitly punch-listed", async () => {
-    const punchlist = await readFile(mockScenarioPunchlist, "utf8");
+    const punchlist = await readFile(resolvePunchlistPath(), "utf8");
     const allScenarioIds = Array.from({ length: 17 }, (_, index) => `P1.${index + 1}`);
     const missing = allScenarioIds.filter(
       (scenarioId) => !coveredScenarios.has(scenarioId) && !punchlist.includes(`| ${scenarioId} |`),
@@ -136,6 +141,14 @@ describe("x402-pay Phase 1 mock dogfood fixtures", () => {
     }
   });
 });
+
+function resolvePunchlistPath(): string {
+  const path = mockScenarioPunchlistCandidates.find((candidate) => existsSync(candidate));
+  if (!path) {
+    throw new Error("missing x402-pay Phase 1 mock scenario punch-list spec");
+  }
+  return path;
+}
 
 function paymentDogfoodEnv(): NodeJS.ProcessEnv {
   const configured = process.env.RUNX_KERNEL_EVAL_BIN;

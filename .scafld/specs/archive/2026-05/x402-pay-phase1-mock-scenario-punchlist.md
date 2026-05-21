@@ -2,8 +2,8 @@
 spec_version: '2.0'
 task_id: x402-pay-phase1-mock-scenario-punchlist
 created: '2026-05-21T00:46:25Z'
-updated: '2026-05-21T07:47:10Z'
-status: draft
+updated: '2026-05-21T09:46:38Z'
+status: completed
 harden_status: not_run
 size: small
 risk_level: low
@@ -41,3 +41,28 @@ families, not `x402-pay` aliases and not Phase 1 executable payment surfaces.
 | P1.13 | Open | Current reserve fixture is single-run and single-threaded. | Concurrent reserves under one policy use atomic budget arithmetic. | Missing policy budget store and concurrent CLI/harness driver. | Add budget store fixture and concurrent reserve test. |
 | P1.14 | Open | Current graph uses matching quote/reserve/spend bounds. | Spend above reserved bounds is rejected before mock execution. | Missing quote-drift graph fixture wired into core authority comparison at CLI level. | Add drifted child authority fixture once P1.8 core-backed harness path exists. |
 | P1.17 | Open | The graph ledger records run events and receipt links, not payment accrual/refusal projections. | Ledger projection distinguishes P1.1 accrual from P1.3/P1.4 refused entries. | Missing payment-specific ledger projection file and refusal scenarios. | Add payment ledger projection after refusal fixtures exist. |
+
+## Current State
+
+Status: completed
+Current phase: final
+Next: done
+Reason: task completed
+Blockers: none
+Allowed follow-up command: `none`
+Latest runner update: 2026-05-21T09:46:38Z
+Review gate: pass
+
+## Review
+
+Status: completed
+Verdict: pass
+Mode: verify
+Summary: Human-reviewed override accepted: implemented and validated in commit 2ceb010; x402-pay mock approval fixtures and punch-list coverage assertions passed
+
+Attack log:
+- `review gate`: manual human audit -> clean (implemented and validated in commit 2ceb010; x402-pay mock approval fixtures and punch-list coverage assertions passed)
+
+Findings:
+- none
+

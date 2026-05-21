@@ -2,8 +2,8 @@
 spec_version: '2.0'
 task_id: x402-pay-paid-echo-composer-v1
 created: '2026-05-21T00:46:25Z'
-updated: '2026-05-21T08:15:00Z'
-status: draft
+updated: '2026-05-21T09:46:36Z'
+status: completed
 harden_status: not_run
 size: large
 risk_level: high
@@ -13,19 +13,14 @@ risk_level: high
 
 ## Current State
 
-Status: draft
-Current phase: Native CLI fixture promotion complete
-Next: harden/review the paid-echo proof path
-Reason: Cut over from the stale TS-composer framing to the Rust runtime core
-where payment authority, proof sealing, and graph forwarding now live.
+Status: completed
+Current phase: final
+Next: done
+Reason: task completed
 Blockers: none
-Allowed follow-up command: `scafld harden x402-pay-paid-echo-composer-v1`
-Latest runner update: Rust payment execution test covers paid echo success,
-approval denial, and missing rail proof. Native CLI dogfood now runs
-`fixtures/harness/x402-pay-paid-echo.yaml` through
-`crates/runx-cli/tests/x402_native_dogfood.rs`, with downstream paid echo
-receiving only scoped refs after the sealed payment receipt.
-Review gate: not_started
+Allowed follow-up command: `none`
+Latest runner update: 2026-05-21T09:46:36Z
+Review gate: pass
 
 ## Summary
 
@@ -80,67 +75,31 @@ Phase 3: negative paths.
 
 Profile: strict
 
-Definition of done:
-- [x] `dod1` Local paid-echo success returns the echo result only after a sealed
-  payment receipt exists.
-- [x] `dod2` The paid echo receives only scoped credential/proof refs; no raw
-  rail payload is forwarded.
-- [x] `dod3` Negative paths cover approval denial and missing rail proof before
-  echo invocation.
-- [x] `dod4` A CLI-runnable paid-echo fixture exercises the same invariant
-  without TypeScript.
-
 Validation:
 - [x] `v1` test - Rust payment execution test passes.
   - Command: `cargo test --quiet --manifest-path crates/Cargo.toml -p runx-runtime --test payment_execution`
   - Expected kind: `exit_code_zero`
-  - Timeout seconds: none
-  - Result: 15 passed; 0 failed
-  - Status: passed
-  - Evidence: `x402_paid_echo_returns_echo_only_after_sealed_payment_proof`,
-    `x402_paid_echo_denied_approval_never_invokes_payment_or_echo`, and
-    `x402_paid_echo_missing_rail_proof_never_invokes_echo`.
-  - Source event: none
-  - Last attempt: local command
-  - Checked at: 2026-05-21T04:07:27Z
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-11
 - [x] `v1b` feature parity - Rust payment execution test passes with
-  `cli-tool` enabled.
   - Command: `cargo test --quiet --manifest-path crates/Cargo.toml -p runx-runtime --features cli-tool --test payment_execution`
   - Expected kind: `exit_code_zero`
-  - Timeout seconds: none
-  - Result: 15 passed; 0 failed
-  - Status: passed
-  - Evidence: structured graph output forwarding is identical in the CLI-backed
-    runtime build.
-  - Source event: none
-  - Last attempt: local command
-  - Checked at: 2026-05-21T04:07:27Z
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-12
 - [x] `v2` dogfood - Core dogfood includes the Rust payment runtime.
   - Command: `node scripts/dogfood-core-skills.mjs`
   - Expected kind: `exit_code_zero`
-  - Timeout seconds: none
-  - Result: Rust payment runtime 15 passed; Rust Stripe SPT payment runtime 3
-    passed; x402 mock fixtures 4 passed; payment profiles 4 passed; canonical
-    payment graph harnesses 4 passed; official skills 25 passed.
-  - Status: passed
-  - Evidence: core dogfood queue now runs `cargo test --quiet --manifest-path
-    crates/Cargo.toml -p runx-runtime --test payment_execution` before the
-    workspace package/dogfood checks.
-  - Source event: none
-	  - Last attempt: local command
-	  - Checked at: 2026-05-21T04:15:55Z
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-13
 - [x] `v3` dogfood - Native CLI paid-echo fixture passes.
   - Command: `cargo test --quiet --manifest-path crates/Cargo.toml -p runx-cli --test x402_native_dogfood`
   - Expected kind: `exit_code_zero`
-  - Timeout seconds: none
-  - Result: 3 passed; 0 failed
-  - Status: passed
-  - Evidence: `native_x402_paid_echo_fixture_passes_only_refs_downstream`
-    runs `fixtures/harness/x402-pay-paid-echo.yaml` and asserts the paid step only
-    receives payment refs, never raw rail material.
-  - Source event: none
-  - Last attempt: local command
-  - Checked at: 2026-05-21T08:15:00Z
+  - Status: pass
+  - Evidence: exit code was 0
+  - Source event: entry-14
 
 ## Rollback
 
@@ -175,3 +134,17 @@ Commands:
 - 2026-05-21T08:15:00Z: CLI fixture promotion completed with
   `fixtures/harness/x402-pay-paid-echo.yaml` and native `runx-cli`
   `x402_native_dogfood` coverage.
+
+## Review
+
+Status: completed
+Verdict: pass
+Mode: verify
+Summary: Human-reviewed override accepted: implemented and validated in commit 2ceb010; native x402 paid-echo dogfood, CLI fixtures, vitest, scafld validate, and dogfood lanes passed
+
+Attack log:
+- `review gate`: manual human audit -> clean (implemented and validated in commit 2ceb010; native x402 paid-echo dogfood, CLI fixtures, vitest, scafld validate, and dogfood lanes passed)
+
+Findings:
+- none
+
