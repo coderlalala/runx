@@ -43,9 +43,10 @@ movement.
 - Current implemented payment skill directories are consumer-side:
   `payment-execute`, `payment-quote`, `payment-reserve`,
   `payment-rail-mock`, `payment-fulfill-rail`, and `payment-recover`.
-- There are no concrete `x402-refund`, `stripe-refund`, `mpp-refund`,
-  `mock-refund`, or `dispute-respond` skill directories yet. This spec
-  creates those refund-side packages if accepted.
+- There are no concrete `stripe-refund`, `mpp-refund`, `mock-refund`, or
+  `dispute-respond` skill directories yet. This spec creates those refund-side
+  packages if accepted. It does not create a public x402-specific refund skill;
+  x402 remains canonicalized through `x402-pay`.
 - Current native CLI entrypoints are `runx skill`, `runx harness`, and
   `runx history`. No refund-specific native CLI surface is assumed.
 - `payment-fulfill-rail` uses rail ids `mock`, `x402`, `mpp`, and
@@ -72,7 +73,8 @@ In scope for this v1:
 - Add `skills/mock-refund/SKILL.md` and `skills/mock-refund/X.yaml`.
 - Add `skills/stripe-refund/SKILL.md` and `skills/stripe-refund/X.yaml`.
 - Add `skills/mpp-refund/SKILL.md` and `skills/mpp-refund/X.yaml`.
-- Add `skills/x402-refund/SKILL.md` and `skills/x402-refund/X.yaml`.
+- Do not add any public x402-specific refund skill directory, registry lock
+  entry, or runtime alias.
 - Add `skills/dispute-respond/SKILL.md` and
   `skills/dispute-respond/X.yaml`.
 - Update `tests/payment-skill-profile-validation.test.ts` only as needed so
@@ -140,11 +142,11 @@ The refund profiles must not reference new ids such as
    profiles. These profiles may rely on profile payload fields for original
    receipt links, refundable bounds, recovery closure states, and dispute posture.
 2. Scaffold settlement marquees after charge approval:
-   create `mock-refund`, `stripe-refund`, `mpp-refund`, and `x402-refund`
-   only after `payment-charge-skills-v1` is approved. Graph profiles must show
-   quote -> reserve -> optional approval -> settlement while carrying the
-   original receipt link at every stage. `x402-refund` stays static profile
-   metadata; no dynamic dispatch is introduced.
+   create `mock-refund`, `stripe-refund`, and `mpp-refund` only after
+   `payment-charge-skills-v1` is approved. Graph profiles must show quote ->
+   reserve -> optional approval -> settlement while carrying the original
+   receipt link at every stage. The x402 refund flow remains non-public
+   metadata under canonical `x402-pay`; no dynamic dispatch is introduced.
 3. Validate profile coverage:
    update the payment profile validation test to discover the declared refund
    and dispute skill names explicitly and run
@@ -155,12 +157,13 @@ The refund profiles must not reference new ids such as
 
 ## Runtime Boundary
 
-`x402-refund`, `stripe-refund`, `mpp-refund`, and `mock-refund` are graph
-profile contracts in this v1. They may show the desired refund sequence,
-same-family refusal, open-dispute refusal, receipt-before-success invariant,
-and recovery closure states, but they must not claim that `runx` can execute a
-refund rail mutation, repair an ambiguous refund, or enforce refund admission
-at runtime. A later runtime spec must own link-before-quote,
+`stripe-refund`, `mpp-refund`, and `mock-refund` are graph profile contracts in
+this v1. They may show the desired refund sequence, same-family refusal,
+open-dispute refusal, receipt-before-success invariant, and recovery closure
+states, but they must not claim that `runx` can execute a refund rail mutation,
+repair an ambiguous refund, or enforce refund admission at runtime. The x402
+refund flow remains a non-public pattern under canonical `x402-pay`, not a
+skill directory or alias. A later runtime spec must own link-before-quote,
 receipt-before-success for `payment:refund`, same-family enforcement, and
 crash-safe recovery before these profiles become operational behavior.
 
@@ -211,7 +214,7 @@ original receipt.
 continuity. Not exposed in the registry; no SKILL.md, no X.yaml profile, and
 no harness case in this iteration.
 
-`x402-refund`
+`x402 refund flow`
 : The proposed unpinned graph marquee. Same composition as the
 settlement-pinned marquees, but the settlement family is selected from the
 linked original receipt in the future runtime contract rather than baked into
@@ -295,7 +298,7 @@ flow. They are not implemented by this profile-only v1.
 - `crypto-refund`: on-chain refund. Reserved placeholder, not exposed or
   harnessed in this iteration.
 
-`x402-refund` is the proposed unpinned graph profile that documents how the
+`x402 refund flow` is the proposed unpinned graph profile that documents how the
 future runtime should resolve to one of the above based on the linked original
 receipt's settlement family.
 
@@ -306,7 +309,7 @@ receipt's settlement family.
 - `payment-charge-skills-v1` supplies the provider-side charge receipt and
   settlement-family vocabulary this spec references. Phase 2 settlement
   marquee work (`mock-refund`, `stripe-refund`, `mpp-refund`, and
-  `x402-refund`) must not start until `payment-charge-skills-v1` is approved.
+  `x402 refund flow`) must not start until `payment-charge-skills-v1` is approved.
   Phase 1 non-settlement refund/dispute profiles may be drafted before charge
   approval because they carry receipt linkage as profile payload conventions,
   not executable settlement-family behavior.
@@ -338,7 +341,7 @@ receipt's settlement family.
 - Each first-party refund skill except the `crypto-refund` placeholder has
   an `X.yaml` profile with concrete inputs, outputs, artifacts, and harness
   cases.
-- Graph profiles (`x402-refund`, `stripe-refund`, `mpp-refund`,
+- Graph profiles (`x402 refund flow`, `stripe-refund`, `mpp-refund`,
   `mock-refund`) make the authority transition visible: quote -> reserve ->
   optional approval -> settlement, with the link to the original receipt
   visible at every stage.
@@ -356,7 +359,7 @@ receipt's settlement family.
   `skills/refund-quote/`, `skills/refund-reserve/`,
   `skills/refund-recover/`, `skills/mock-refund/`,
   `skills/stripe-refund/`, `skills/mpp-refund/`,
-  `skills/x402-refund/`, `skills/dispute-respond/`,
+  `an explicit no-public-x402-refund decision`, `skills/dispute-respond/`,
   `tests/payment-skill-profile-validation.test.ts`,
   `packages/cli/src/official-skills.lock.json`, and this spec file.
 - `dispute-respond` has a SKILL.md and an X.yaml profile, but no settlement
@@ -430,7 +433,7 @@ Issues:
   - Evidence: The harden packet reports empty `scope`, `phases`, and `acceptance` sections. In the draft, acceptance bullets exist at `.scafld/specs/drafts/payment-refund-skills-v1.md:177`, but there are no explicit target paths or phases for a medium/high-risk task that creates multiple skills and possibly packet/test/runtime support.
   - Recommendation: Add Scope And Touchpoints and Planned Phases with exact future paths, plus an explicit non-goal list for core/runtime behavior if this is skill-profile-only.
   - Question: Which concrete files and directories are in scope for this v1: only `skills/*/SKILL.md` and `skills/*/X.yaml`, or also packet schemas, profile-validation tests, registry fixtures, and core/runtime authority code?
-  - Recommended answer: Keep v1 skill-profile-only plus validation coverage: add `skills/refund-quote`, `skills/refund-reserve`, `skills/refund-recover`, `skills/mock-refund`, `skills/stripe-refund`, `skills/mpp-refund`, `skills/x402-refund`, and `skills/dispute-respond`; do not add `skills/crypto-refund`; update profile validation/packet artifacts only as needed; no core/runtime behavior changes in this spec.
+  - Recommended answer: Keep v1 skill-profile-only plus validation coverage: add `skills/refund-quote`, `skills/refund-reserve`, `skills/refund-recover`, `skills/mock-refund`, `skills/stripe-refund`, `skills/mpp-refund`, `an explicit no-public-x402-refund decision`, and `skills/dispute-respond`; do not add `skills/crypto-refund`; update profile validation/packet artifacts only as needed; no core/runtime behavior changes in this spec.
   - If unanswered: Default to a skill-profile-only v1: create only non-crypto refund/dispute skill directories under `skills/`, add/update only profile validation and packet artifacts needed for those profiles, and explicitly exclude core/runtime enforcement until a follow-up spec.
 - [high/blocks approval] `HARDEN-2` dependency_gap - The draft's own dependencies are not currently satisfied.
   - Status: open
@@ -483,10 +486,10 @@ Issues:
 - [medium/advisory] `HARDEN-8` design_advisory - The unpinned refund graph implies runtime dispatch not shown by current graph profile patterns.
   - Status: open
   - Grounded in: code:skills/payment-execute/X.yaml:212
-  - Evidence: `x402-refund` is described as selecting settlement family from the linked original receipt at runtime at `.scafld/specs/drafts/payment-refund-skills-v1.md:74`. Existing graph examples use static skill references, e.g. `payment-execute` has a static `payment-rail-mock` step at `skills/payment-execute/X.yaml:212`.
+  - Evidence: `x402 refund flow` is described as selecting settlement family from the linked original receipt at runtime at `.scafld/specs/drafts/payment-refund-skills-v1.md:74`. Existing graph examples use static skill references, e.g. `payment-execute` has a static `payment-rail-mock` step at `skills/payment-execute/X.yaml:212`.
   - Recommendation: Avoid hidden dynamic dispatch in this spec unless runtime graph dispatch work is explicitly scoped and tested.
-  - Question: Should `x402-refund` be a static graph profile with explicit mocked family branches, or does this task introduce dynamic settlement-family dispatch in graph execution?
-  - Recommended answer: Make `x402-refund` a static profile that carries the desired dispatch metadata and refuses cross-family examples; dynamic runtime dispatch belongs in a later graph-runtime spec.
+  - Question: Should `x402 refund flow` be a static graph profile with explicit mocked family branches, or does this task introduce dynamic settlement-family dispatch in graph execution?
+  - Recommended answer: Make `x402 refund flow` a static profile that carries the desired dispatch metadata and refuses cross-family examples; dynamic runtime dispatch belongs in a later graph-runtime spec.
   - If unanswered: Default to a static graph profile with explicit transitions/refusals, not dynamic skill loading.
 
 ### round-2
@@ -602,12 +605,12 @@ Summary: Verification passes. The prior workspace-mutation blocker was not repro
 Attack log:
 - `tests/payment-skill-profile-validation.test.ts`: Known blocker verification: raw merchant/provider secret validation -> clean (Read tests/payment-skill-profile-validation.test.ts. The forbidden key pattern includes api_key, access_token, client_secret, merchant_secret, provider_secret, raw_token, credential_material, secret_material, and related raw payment secret names, with direct regression coverage for those names at lines 102-128.)
 - `workspace status`: Known blocker verification: workspace mutation guard -> clean (Ran git status --short before review inspection. It emitted sandbox xcrun cache warnings but no changed-path output, and all subsequent commands were read-only inspections. The prior workspace_mutation blocker was not reproduced.)
-- `skills/{refund-quote,refund-reserve,refund-recover,mock-refund,stripe-refund,mpp-refund,x402-refund,dispute-respond,crypto-refund}`: Scope coverage -> clean (Confirmed all eight in-scope non-crypto refund/dispute skill directories exist with SKILL.md and X.yaml, and skills/crypto-refund is absent.)
+- `skills/{refund-quote,refund-reserve,refund-recover,mock-refund,stripe-refund,mpp-refund,x402 refund flow,dispute-respond,crypto-refund}`: Scope coverage -> clean (Confirmed all eight in-scope non-crypto refund/dispute skill directories exist with SKILL.md and X.yaml, and skills/crypto-refund is absent.)
 - `skills/*refund and skills/dispute-respond`: Packet boundary -> clean (Searched refund/dispute profiles for new runx.payment.refund.* and runx.payment.dispute.* packet IDs. The profiles use only allowed existing packet IDs: runx.payment.quote.v1, runx.payment.reservation.v1, runx.payment.recovery.v1, and runx.payment.rail.v1; dispute-respond uses a profile-local artifact without a packet field.)
 - `skills/*refund and skills/dispute-respond`: Runtime and live-money scope drift -> clean (Searched task files for runtime_refund_enabled: true, mutates_rail: true, receives_rail_secret_material: true, dynamic dispatch markers, and CLI/runtime claims. The inspected profiles remain registry/profile-only and declare runtime_refund_enabled: false where applicable.)
-- `skills/{mock-refund,stripe-refund,mpp-refund,x402-refund}/X.yaml`: Graph receipt-link propagation -> clean (Inspected settlement graph profiles. The quote step receives original_receipt_ref, reserve consumes the quote packet, approval carries reservation/idempotency context, and settlement carries reservation/idempotency/authority context whose harness outputs include original_receipt_ref.)
-- `tests/payment-skill-profile-validation.test.ts`: Validation discovery coverage -> clean (Read explicitGovernedPaymentSkillNames and discovery logic. The set includes dispute-respond, mock-refund, mpp-refund, refund-quote, refund-recover, refund-reserve, stripe-refund, and x402-refund, so the validation test discovers them even when directory names do not include payment.)
-- `packages/cli/src/official-skills.lock.json`: Official skill lock coverage -> clean (Inspected official-skills.lock.json and found entries for all eight refund/dispute skills: dispute-respond, mock-refund, mpp-refund, refund-quote, refund-recover, refund-reserve, stripe-refund, and x402-refund.)
+- `skills/{mock-refund,stripe-refund,mpp-refund,x402 refund flow}/X.yaml`: Graph receipt-link propagation -> clean (Inspected settlement graph profiles. The quote step receives original_receipt_ref, reserve consumes the quote packet, approval carries reservation/idempotency context, and settlement carries reservation/idempotency/authority context whose harness outputs include original_receipt_ref.)
+- `tests/payment-skill-profile-validation.test.ts`: Validation discovery coverage -> clean (Read explicitGovernedPaymentSkillNames and discovery logic. The set includes dispute-respond, mock-refund, mpp-refund, refund-quote, refund-recover, refund-reserve, stripe-refund, and x402 refund flow, so the validation test discovers them even when directory names do not include payment.)
+- `packages/cli/src/official-skills.lock.json`: Official skill lock coverage -> clean (Inspected official-skills.lock.json and found entries for all eight refund/dispute skills: dispute-respond, mock-refund, mpp-refund, refund-quote, refund-recover, refund-reserve, stripe-refund, and x402 refund flow.)
 - `payment-charge-skills-v1`: Dependency timing check -> clean (Checked payment-charge-skills-v1 lifecycle state with scafld status --json. It is in review, meaning it passed approval/build entry; refund Phase 2 did not proceed before charge approval lifecycle state existed.)
 - `pnpm exec vitest run tests/payment-skill-profile-validation.test.ts; node scripts/generate-official-lock.mjs`: Acceptance command rerun -> skipped (Skipped per provider instruction: review mode is read-only and explicitly says not to run build, test, or mutation commands. I used source inspection only.)
 
@@ -622,4 +625,3 @@ Findings:
   - Evidence: tests/payment-skill-profile-validation.test.ts:16 includes common raw merchant/provider secret names in paymentSecretKeyPattern, and lines 102-128 directly assert merchant_secret, stripe_api_key, client_secret, access_token, api_key, provider_secret, raw_token, credential_material, and secret_material are rejected while credential/proof/idempotency/capability references remain allowed.
   - Impact: The prior raw-secret validation gap is repaired and has direct regression coverage.
   - Validation: Read the current validation helper and searched refund/dispute profiles; the only secret-related profile fields found are receives_rail_secret_material: false metadata entries.
-

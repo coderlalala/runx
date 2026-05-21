@@ -2,7 +2,7 @@
 spec_version: '2.0'
 task_id: x402-pay-stripe-spt-dogfood-v1
 created: '2026-05-21T00:46:25Z'
-updated: '2026-05-21T05:18:00Z'
+updated: '2026-05-21T08:15:00Z'
 status: draft
 harden_status: not_run
 size: large
@@ -14,24 +14,27 @@ risk_level: high
 ## Current State
 
 Status: draft
-Current phase: Rust runtime proof complete; CLI fixture promotion pending
-Next: CLI-runnable Stripe SPT dogfood fixture, then gated live test-mode script
+Current phase: Offline Rust and native CLI fixture promotion complete
+Next: recovery eventualities, then gated live test-mode script
 Reason: Recut to Rust-first offline Stripe SPT runtime proof before any
 TypeScript wrapper or live test-mode dogfood.
 Blockers: none
 Allowed follow-up command: `scafld harden x402-pay-stripe-spt-dogfood-v1`
 Latest runner update: Rust runtime now proves Stripe SPT happy path, terminal
-decline, and timeout/idempotency preservation. The core dogfood wrapper now
-runs native x402 mock CLI proof before TS wrapper coverage; Stripe SPT itself
-still needs CLI fixture promotion before live test-mode work.
+decline, and timeout/idempotency preservation. Native CLI dogfood now runs
+`fixtures/harness/stripe-spt-payment.yaml` through
+`crates/runx-cli/tests/x402_native_dogfood.rs`; live test-mode work remains
+gated and separate.
 Review gate: not_started
 
 ## Summary
 
-Dogfood `stripe-pay` and its `pay-fulfill-rail` `stripe-spt` rail id through
-the native Rust runtime first. The current slice is offline and deterministic:
-success with a scoped Stripe SPT proof, terminal decline, and timeout preserving
-the reservation idempotency key.
+Dogfood the canonical `x402-pay` path with the `stripe-spt` rail profile
+through the native Rust runtime first. The current slice is offline and
+deterministic: success with a scoped Stripe SPT proof, terminal decline, and
+timeout preserving the reservation idempotency key. Existing `stripe-pay`
+profile files are evidence carriers for this rail family, not aliases for a
+native command or an alternate x402 surface.
 
 Live Stripe test-mode execution remains a later gated layer. It must refuse
 live keys and must not become the source of truth for payment authority,
@@ -55,6 +58,7 @@ Out of scope:
 - Persisting real card data, API keys, webhook secrets, or raw credentials.
 - Additional payment skill renames or alias compatibility paths.
 - Refund, reversal, and dispute flows.
+- `x402-charge`, `x402-refund`, or provider-specific charge/refund aliases.
 - Native `runx x402-pay`, `runx receipts`, or `runx ledger` commands.
 - TypeScript dogfood files as the primary proof path. They can wrap the Rust
   proof later, but the core invariant is native.
@@ -81,6 +85,8 @@ Definition of done:
   decline from `x402-pay-dogfood-v1`.
 - [x] `dod2` Offline proofs use provider-shaped references only and never commit
   secret material.
+- [x] `dod2b` A CLI-runnable Stripe SPT fixture exercises the offline happy path
+  without TypeScript.
 - [ ] `dod3` Recovery uses idempotency-preserving queries and never issues a
   second spend with a new key for P2.3, P2.4, P2.6, and P2.7.
 
@@ -132,8 +138,19 @@ Validation:
   - Evidence: If env is absent, this validation is intentionally incomplete;
     skip is not a pass.
   - Source event: none
-  - Last attempt: none
-  - Checked at: none
+	  - Last attempt: none
+	  - Checked at: none
+- [x] `v4` dogfood - Native CLI Stripe SPT fixture passes.
+  - Command: `cargo test --quiet --manifest-path crates/Cargo.toml -p runx-cli --test x402_native_dogfood`
+  - Expected kind: `exit_code_zero`
+  - Timeout seconds: none
+  - Result: 3 passed; 0 failed
+  - Status: passed
+  - Evidence: `native_x402_stripe_spt_happy_path_runs_without_typescript`
+    runs `fixtures/harness/stripe-spt-payment.yaml` through the native CLI.
+  - Source event: none
+  - Last attempt: local command
+  - Checked at: 2026-05-21T08:15:00Z
 
 ## Rollback
 
@@ -158,3 +175,9 @@ Commands:
 - 2026-05-21T05:18:00Z: Boundary recut kept the Stripe SPT proof Rust-first and
   identified CLI fixture promotion as the next required layer before any
   TypeScript wrapper or live test-mode script can count as dogfood evidence.
+- 2026-05-21T07:47:10Z: Naming boundary clarified: Stripe SPT is a rail
+  profile under canonical `x402-pay`; charge/refund names are not x402-pay
+  aliases.
+- 2026-05-21T08:15:00Z: CLI fixture promotion completed with
+  `fixtures/harness/stripe-spt-payment.yaml` and native `runx-cli`
+  `x402_native_dogfood` coverage.

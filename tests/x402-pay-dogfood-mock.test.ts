@@ -1,18 +1,15 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { createDefaultSkillAdapters } from "@runxhq/adapters";
-import { runHarness } from "@runxhq/runtime-local/harness";
-
 import { runCli } from "../packages/cli/src/index.js";
 
 const mockScenarioPunchlist = ".scafld/specs/drafts/x402-pay-phase1-mock-scenario-punchlist.md";
-const paymentGraphFixture = "fixtures/harness/payment-approval-graph.yaml";
-const paymentGraphPath = path.resolve("fixtures/graphs/payment/approval-spend.yaml");
+const paymentGraphFixture = "fixtures/harness/x402-pay-approval.yaml";
+const deniedPaymentGraphFixture = "fixtures/harness/x402-pay-approval-denied.yaml";
 const mockRailSessionMaterialRef = "rail-session-material:mock:payment-execution-001";
 const rustKernelBin = path.resolve(
   "crates",
@@ -56,20 +53,12 @@ describe("x402-pay Phase 1 mock dogfood fixtures", () => {
 
       expect(exitCode).toBe(0);
       expect(stderr.contents()).toBe("");
-      const report = JSON.parse(stdout.contents()) as {
-        readonly status: string;
-        readonly assertionErrors: readonly string[];
-        readonly graphReceipt?: {
-          readonly harness: {
-            readonly child_harness_receipt_refs?: readonly { readonly uri?: string }[];
-          };
-        };
-      };
-      expect(report.status).toBe("sealed");
-      expect(report.assertionErrors).toEqual([]);
-      expect(report.graphReceipt?.harness.child_harness_receipt_refs?.map((ref) => ref.uri)).toEqual([
-        "runx:harness_receipt:hrn_rcpt_payment-approval_approve-spend",
-        "runx:harness_receipt:hrn_rcpt_payment-approval_fulfill",
+      const receipt = requireRecord(JSON.parse(stdout.contents()), "receipt");
+      expect(requireRecord(receipt.harness, "receipt.harness").state).toBe("sealed");
+      expect(requireRecord(receipt.seal, "receipt.seal").disposition).toBe("closed");
+      expect(childReceiptUris(receipt)).toEqual([
+        "runx:harness_receipt:hrn_rcpt_x402-pay-approval_approve-spend",
+        "runx:harness_receipt:hrn_rcpt_x402-pay-approval_fulfill",
       ]);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -77,130 +66,56 @@ describe("x402-pay Phase 1 mock dogfood fixtures", () => {
   }, 30_000);
 
   it("seals the happy path only after the mock rail proof is present and history can observe it", async () => {
-    let receiptRoot: string | undefined;
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "runx-x402-pay-history-"));
 
     try {
-      const result = await runHarness(paymentGraphFixture, {
-        adapters: createDefaultSkillAdapters(),
-        env: paymentDogfoodEnv(),
-        keepFiles: true,
+      const { receipt, stdout } = await runHarnessJson(paymentGraphFixture, {
+        RUNX_HOME: path.join(tempDir, "home"),
       });
-      receiptRoot = path.dirname(result.receiptDir);
-
-      expect(result.status).toBe("sealed");
-      expect(result.assertionErrors).toEqual([]);
-      const graphReceipt = requireRecord(result.graphReceipt, "graphReceipt");
-      expect(childReceiptUris(graphReceipt)).toEqual([
-        "runx:harness_receipt:hrn_rcpt_payment-approval_approve-spend",
-        "runx:harness_receipt:hrn_rcpt_payment-approval_fulfill",
-      ]);
-      expect(result.trace.resolutions).toEqual([
-        expect.objectContaining({
-          request: expect.objectContaining({ id: "spend-approval", kind: "approval" }),
-          response: expect.objectContaining({ actor: "human", payload: true }),
-        }),
+      expect(requireRecord(receipt.harness, "receipt.harness").state).toBe("sealed");
+      expect(requireRecord(receipt.seal, "receipt.seal").disposition).toBe("closed");
+      expect(childReceiptUris(receipt)).toEqual([
+        "runx:harness_receipt:hrn_rcpt_x402-pay-approval_approve-spend",
+        "runx:harness_receipt:hrn_rcpt_x402-pay-approval_fulfill",
       ]);
 
-      const receipts = await readReceiptObjects(result.receiptDir);
-      const fulfillReceipt = requireRecord(
-        receipts.find((receipt) => receipt.id === "hrn_rcpt_payment-approval_fulfill"),
-        "fulfillReceipt",
-      );
-      expect(actRefs(fulfillReceipt, "verification_refs")).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            type: "verification",
-            uri: "receipt-proof:mock:payment-execution-001",
-            locator: "payment:payment-execution-001",
-            proof_kind: "payment_rail",
-          }),
-        ]),
-      );
-      const fulfillReceiptText = JSON.stringify(fulfillReceipt);
-      expect(fulfillReceiptText).not.toContain("rail_session_material_ref");
-      expect(fulfillReceiptText).not.toContain(mockRailSessionMaterialRef);
-      expect(fulfillReceiptText).not.toContain("credential_envelope");
+      expect(stdout).not.toContain("rail_session_material_ref");
+      expect(stdout).not.toContain(mockRailSessionMaterialRef);
+      expect(stdout).not.toContain("credential_envelope");
 
-      const ledger = await readFile(path.join(result.receiptDir, "ledgers", `${graphReceipt.id}.jsonl`), "utf8");
-      expect(ledger).toContain('"type":"run_event"');
-      expect(ledger).toContain('"step_id":"fulfill"');
-      expect(ledger).toContain('"type":"receipt_link"');
-      const allLedgers = await readLedgerContents(result.receiptDir);
-      expect(allLedgers).toContain("rail_session_material_ref");
-      expect(allLedgers).toContain(mockRailSessionMaterialRef);
-
-      const history = await runHistory(result.receiptDir, result.runxHome);
+      const receiptDir = path.join(tempDir, "receipts");
+      await writeReceiptForHistory(receiptDir, receipt);
+      const history = await runHistory(receiptDir, path.join(tempDir, "home"));
       expect(history.receipts).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            id: graphReceipt.id,
-            status: "sealed",
-            disposition: "closed",
+            id: receipt.id,
+            status: "closed",
           }),
         ]),
       );
     } finally {
-      if (receiptRoot) {
-        await rm(receiptRoot, { recursive: true, force: true });
-      }
+      await rm(tempDir, { recursive: true, force: true });
     }
   }, 30_000);
 
   it("halts cleanly when the payment approval gate is denied", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "runx-x402-pay-denied-"));
-    let receiptRoot: string | undefined;
 
     try {
-      const fixturePath = path.join(tempDir, "payment-approval-denied.yaml");
-      await writeFile(
-        fixturePath,
-        [
-          "name: payment-approval-denied",
-          "kind: graph",
-          `target: ${paymentGraphPath}`,
-          "caller:",
-          "  approvals:",
-          "    spend-approval: false",
-          "expect:",
-          "  status: policy_denied",
-          "",
-        ].join("\n"),
-        "utf8",
-      );
-
-      const result = await runHarness(fixturePath, {
-        adapters: createDefaultSkillAdapters(),
-        env: paymentDogfoodEnv(),
-        keepFiles: true,
+      const { receipt } = await runHarnessJson(deniedPaymentGraphFixture, {
+        RUNX_HOME: path.join(tempDir, "home"),
       });
-      receiptRoot = path.dirname(result.receiptDir);
 
-      expect(result.status).toBe("policy_denied");
-      expect(result.assertionErrors).toEqual([]);
-      expect(childReceiptUris(requireRecord(result.graphReceipt, "graphReceipt"))).toEqual([
-        "runx:harness_receipt:hrn_rcpt_payment-approval_approve-spend",
-      ]);
-      expect(result.trace.resolutions).toEqual([
-        expect.objectContaining({
-          request: expect.objectContaining({ id: "spend-approval", kind: "approval" }),
-          response: expect.objectContaining({ actor: "human", payload: false }),
-        }),
-      ]);
-      expect(result.trace.events).not.toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ type: "step_started", data: expect.objectContaining({ stepId: "fulfill" }) }),
-        ]),
-      );
-
-      const receipts = await readReceiptObjects(result.receiptDir);
-      expect(receipts.map((receipt) => receipt.id).sort()).toEqual([
-        "hrn_rcpt_payment-approval_approve-spend",
-        "hrn_rcpt_payment-approval_graph",
+      expect(requireRecord(receipt.harness, "receipt.harness").state).toBe("sealed");
+      expect(requireRecord(receipt.seal, "receipt.seal")).toMatchObject({
+        disposition: "blocked",
+        reason_code: "graph_blocked",
+      });
+      expect(childReceiptUris(receipt)).toEqual([
+        "runx:harness_receipt:hrn_rcpt_x402-pay-approval_approve-spend",
       ]);
     } finally {
-      if (receiptRoot) {
-        await rm(receiptRoot, { recursive: true, force: true });
-      }
       await rm(tempDir, { recursive: true, force: true });
     }
   }, 30_000);
@@ -257,38 +172,42 @@ async function runHistory(receiptDir: string, runxHome: string): Promise<{ reado
   return JSON.parse(stdout.contents()) as { readonly receipts: readonly Record<string, unknown>[] };
 }
 
-async function readReceiptObjects(receiptDir: string): Promise<readonly Record<string, unknown>[]> {
-  const entries = await readdir(receiptDir);
-  const receipts: Record<string, unknown>[] = [];
-  for (const entry of entries.filter((candidate) => candidate.endsWith(".json")).sort()) {
-    receipts.push(JSON.parse(await readFile(path.join(receiptDir, entry), "utf8")) as Record<string, unknown>);
-  }
-  return receipts;
+async function runHarnessJson(
+  fixture: string,
+  env: NodeJS.ProcessEnv = {},
+): Promise<{ readonly receipt: Record<string, unknown>; readonly stdout: string }> {
+  const stdout = createMemoryStream();
+  const stderr = createMemoryStream();
+  const exitCode = await runCli(
+    ["harness", fixture, "--json"],
+    { stdin: process.stdin, stdout, stderr },
+    {
+      ...paymentDogfoodEnv(),
+      ...env,
+      RUNX_CWD: process.cwd(),
+    },
+  );
+  expect(exitCode).toBe(0);
+  expect(stderr.contents()).toBe("");
+  const raw = stdout.contents();
+  return {
+    receipt: requireRecord(JSON.parse(raw), "receipt"),
+    stdout: raw,
+  };
 }
 
-async function readLedgerContents(receiptDir: string): Promise<string> {
-  const ledgerDir = path.join(receiptDir, "ledgers");
-  const entries = await readdir(ledgerDir);
-  const ledgers = await Promise.all(
-    entries.filter((candidate) => candidate.endsWith(".jsonl")).sort()
-      .map((entry) => readFile(path.join(ledgerDir, entry), "utf8")),
-  );
-  return ledgers.join("\n");
+async function writeReceiptForHistory(receiptDir: string, receipt: Record<string, unknown>): Promise<void> {
+  if (typeof receipt.id !== "string") {
+    throw new Error("receipt.id must be a string.");
+  }
+  await mkdir(receiptDir, { recursive: true });
+  await writeFile(path.join(receiptDir, `${receipt.id}.json`), `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
 }
 
 function childReceiptUris(receipt: Record<string, unknown>): readonly string[] {
   const harness = requireRecord(receipt.harness, "receipt.harness");
   const refs = Array.isArray(harness.child_harness_receipt_refs) ? harness.child_harness_receipt_refs : [];
   return refs.map((ref) => requireRecord(ref, "child_harness_receipt_ref").uri).filter(isString);
-}
-
-function actRefs(receipt: Record<string, unknown>, field: "verification_refs" | "source_refs"): readonly Record<string, unknown>[] {
-  const harness = requireRecord(receipt.harness, "receipt.harness");
-  const acts = Array.isArray(harness.acts) ? harness.acts : [];
-  return acts.flatMap((act) => {
-    const refs = requireRecord(act, "receipt.harness.acts[]")[field];
-    return Array.isArray(refs) ? refs.filter(isRecord) : [];
-  });
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {

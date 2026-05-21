@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -50,7 +51,7 @@ describe("official skill fetch", () => {
           digest: sourceyLock.digest,
           markdown,
           profile_document: profileDocument,
-          profile_digest: "stub-x-digest",
+          profile_digest: sha256Hex(profileDocument),
           trust_tier: "first_party",
           publisher: {
             id: "runx",
@@ -199,3 +200,7 @@ describe("official skill fetch", () => {
     }
   });
 });
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}

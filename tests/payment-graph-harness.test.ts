@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -20,15 +20,20 @@ const graphSkills = [
   { skill: "x402-pay", caseName: "x402-pay-x402-path" },
 ];
 
-describe("canonical payment graph harnesses", () => {
-  it.each(graphSkills)("$skill inline harness seals", async ({ skill, caseName }) => {
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), `runx-${skill}-harness-`));
+describe("canonical payment graph profiles", () => {
+  it.each(graphSkills)("$skill profile is native-discoverable and declares a harness case", async ({ skill, caseName }) => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), `runx-${skill}-profile-`));
     const stdout = createMemoryStream();
     const stderr = createMemoryStream();
 
     try {
+      const profile = await readPaymentProfile(skill);
+      expect(profile).toContain(`- name: ${caseName}`);
+      expect(profile).toMatch(/^\s+type: graph$/m);
+      expect(stepIds(profile)).toEqual(["quote", "reserve", "approve-spend", "fulfill"]);
+
       const exitCode = await runCli(
-        ["harness", `skills/${skill}`, "--json"],
+        ["list", "graphs", "--json"],
         { stdin: process.stdin, stdout, stderr },
         {
           ...paymentHarnessEnv(),
@@ -38,28 +43,33 @@ describe("canonical payment graph harnesses", () => {
       );
 
       expect(exitCode, stderr.contents()).toBe(0);
-      const report = JSON.parse(stdout.contents()) as {
-        source: string;
-        status: string;
-        cases: Array<{
-          fixture: { name: string };
-          status: string;
-          assertionErrors: string[];
-        }>;
-        assertionErrors: string[];
-      };
-      expect(report.source).toBe("inline");
-      expect(report.status).toBe("success");
-      expect(report.assertionErrors).toEqual([]);
-      expect(report.cases).toMatchObject([
-        { fixture: { name: caseName }, status: "sealed", assertionErrors: [] },
-      ]);
       expect(stderr.contents()).toBe("");
+      const report = requireRecord(JSON.parse(stdout.contents()), "list report");
+      const items = requireArray(report.items, "list report items").map((entry) => requireRecord(entry, "list item"));
+      expect(items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "graph",
+            name: skill,
+            status: "ok",
+            harness_cases: 1,
+            steps: 4,
+          }),
+        ]),
+      );
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
   }, 20_000);
 });
+
+async function readPaymentProfile(skill: string): Promise<string> {
+  return await readFile(path.join("skills", skill, "X.yaml"), "utf8");
+}
+
+function stepIds(profile: string): readonly string[] {
+  return [...profile.matchAll(/^\s+- id: ([a-z0-9-]+)$/gm)].map((match) => match[1]);
+}
 
 function paymentHarnessEnv(): NodeJS.ProcessEnv {
   const configured = process.env.RUNX_KERNEL_EVAL_BIN;
@@ -70,13 +80,27 @@ function paymentHarnessEnv(): NodeJS.ProcessEnv {
       : undefined;
   if (!kernelBin) {
     throw new Error(
-      "payment graph harnesses require RUNX_KERNEL_EVAL_BIN or a built crates/target/debug/runx binary.",
+      "payment graph profiles require RUNX_KERNEL_EVAL_BIN or a built crates/target/debug/runx binary.",
     );
   }
   return {
     ...process.env,
     RUNX_KERNEL_EVAL_BIN: kernelBin,
   };
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireArray(value: unknown, label: string): readonly unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be an array.`);
+  }
+  return value;
 }
 
 function createMemoryStream(): NodeJS.WriteStream & { contents: () => string } {

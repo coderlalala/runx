@@ -43,9 +43,10 @@ Settlement marquees adapt one protocol or provider family.
 - Current implemented payment skill directories are consumer-side:
   `payment-execute`, `payment-quote`, `payment-reserve`,
   `payment-rail-mock`, `payment-fulfill-rail`, and `payment-recover`.
-- There are no concrete `x402-charge`, `stripe-charge`, `mpp-charge`, or
-  `mock-charge` skill directories yet. This spec creates those provider-side
-  packages if accepted.
+- There are no concrete `stripe-charge`, `mpp-charge`, or `mock-charge` skill
+  directories yet. This spec creates those provider-side packages if accepted.
+  It does not create a public x402-specific charge skill; x402 remains
+  canonicalized through `x402-pay`.
 - Current native CLI entrypoints are `runx skill`, `runx harness`, and
   `runx history`. No charge-specific native CLI surface is assumed.
 - `payment-fulfill-rail` uses rail ids `mock`, `x402`, `mpp`, and
@@ -73,7 +74,8 @@ In scope for this v1:
 - Add `skills/mock-charge/SKILL.md` and `skills/mock-charge/X.yaml`.
 - Add `skills/stripe-charge/SKILL.md` and `skills/stripe-charge/X.yaml`.
 - Add `skills/mpp-charge/SKILL.md` and `skills/mpp-charge/X.yaml`.
-- Add `skills/x402-charge/SKILL.md` and `skills/x402-charge/X.yaml`.
+- Do not add any public x402-specific charge skill directory, registry lock
+  entry, or runtime alias.
 - Update `tests/payment-skill-profile-validation.test.ts` only as needed so
   the explicit charge skill names above are parsed, package-ingested,
   graph-reference checked, and raw merchant secret fields are rejected.
@@ -124,13 +126,15 @@ spec if provider-side charge enforcement needs first-class contract support.
 
 ## Runtime Boundary
 
-`x402-charge`, `stripe-charge`, `mpp-charge`, and `mock-charge` are graph
-profile contracts in this v1. They may show the desired charge sequence and the
+`stripe-charge`, `mpp-charge`, and `mock-charge` are graph profile contracts in
+this v1. They may show the desired charge sequence and the
 receipt-before-forward invariant, but they must not claim that `runx` can
 execute a paid provider call, forward the upstream operation, or repair a
-sealed-charge/no-forward split state. A later runtime spec must own
-price-before-challenge, verify-before-seal, receipt-before-forward, and
-provider-side recovery before those profiles become operational behavior.
+sealed-charge/no-forward split state. The x402 provider-charge flow remains a
+non-public pattern under canonical `x402-pay`, not a skill directory or alias.
+A later runtime spec must own price-before-challenge, verify-before-seal,
+receipt-before-forward, and provider-side recovery before those profiles become
+operational behavior.
 
 ## Skill Set
 
@@ -163,12 +167,13 @@ executes.
 naming continuity. Not exposed in the registry; no SKILL.md, no X.yaml
 profile, and no harness case in this iteration.
 
-`x402-charge`
-: The proposed unpinned graph marquee. Same composition as the
+`x402 provider-charge flow`
+: Non-public flow pattern. Same composition as the
 settlement-pinned marquees, but the verifier is selected from the inbound
 credential family and provider policy in the future runtime contract. In this
-v1 it is a static profile that makes the intended "tool-provider charges
-agent" authority sequence visible without claiming executable forwarding.
+v1 it makes the intended "tool-provider charges agent" authority sequence
+visible without adding a public skill package or claiming executable
+forwarding.
 
 ## Spine Mapping
 
@@ -221,7 +226,7 @@ charge flow. They are not implemented by this profile-only v1.
 - `crypto-charge`: on-chain credential verification. Reserved placeholder,
   not exposed or harnessed in this iteration.
 
-`x402-charge` is the proposed unpinned graph profile that records how the
+`x402 charge flow` is the proposed unpinned graph profile that records how the
 future runtime should select one of the above from the inbound credential and
 provider policy.
 
@@ -257,7 +262,7 @@ receipt proof refs.
 - Each first-party charge skill except the `crypto-charge` placeholder has
   an `X.yaml` profile with concrete inputs, outputs, artifacts, and harness
   cases.
-- Graph profiles (`x402-charge`, `stripe-charge`, `mpp-charge`,
+- Graph profiles (`x402 charge flow`, `stripe-charge`, `mpp-charge`,
   `mock-charge`) make the authority transition visible:
   price -> challenge -> verify -> seal -> forward.
 - Settlement profiles declare charge authority metadata under `runx` and
@@ -326,16 +331,16 @@ Checks:
 - design challenge
   - Grounded in: code:.scafld/specs/drafts/payment-charge-skills-v1.md:65
   - Result: failed
-  - Evidence: The draft calls this a skill-only v1 and says no runtime/CLI charge behavior is claimed, but `x402-charge` is described as returning a forwarded result from one client call. Current core exposes payment authority primitives, not a distinct charge authority model.
+  - Evidence: The draft calls this a skill-only v1 and says no runtime/CLI charge behavior is claimed, but `x402 charge flow` is described as returning a forwarded result from one client call. Current core exposes payment authority primitives, not a distinct charge authority model.
 
 Issues:
 - [high/blocks approval] `HARDEN-1` scope_gap - The draft is not executable because it does not define the files and code surfaces the builder may touch.
   - Status: open
   - Grounded in: spec_gap:scope
-  - Evidence: The draft lacks concrete scope/touchpoints and phases. It does not list target paths like `skills/charge-price/SKILL.md`, `skills/x402-charge/X.yaml`, packet schema paths, or tests to edit, despite acceptance requiring multiple new skill packages and profile parsing.
+  - Evidence: The draft lacks concrete scope/touchpoints and phases. It does not list target paths like `skills/charge-price/SKILL.md`, `an explicit no-public-x402-charge decision`, packet schema paths, or tests to edit, despite acceptance requiring multiple new skill packages and profile parsing.
   - Recommendation: Add a Scope And Touchpoints section with exact future paths and an explicit non-goal list for core/runtime changes.
   - Question: Which concrete files and directories are in scope for this v1: only `skills/*/SKILL.md` and `skills/*/X.yaml`, or also packet schemas, registry fixtures, parser tests, and core authority code?
-  - Recommended answer: Keep v1 skill-profile-only plus validation coverage: create `skills/charge-price`, `skills/charge-challenge`, `skills/charge-verify`, `skills/mock-charge`, `skills/stripe-charge`, `skills/mpp-charge`, and `skills/x402-charge`; do not add `skills/crypto-charge`; update profile validation so these are parsed and secret-scanned.
+  - Recommended answer: Keep v1 skill-profile-only plus validation coverage: create `skills/charge-price`, `skills/charge-challenge`, `skills/charge-verify`, `skills/mock-charge`, `skills/stripe-charge`, `skills/mpp-charge`, and `an explicit no-public-x402-charge decision`; do not add `skills/crypto-charge`; update profile validation so these are parsed and secret-scanned.
   - If unanswered: Default to a skill-profile-only scope: add SKILL.md and X.yaml files under `skills/` for all non-crypto charge skills; update only profile validation/tests needed to cover them; no runtime/core behavior changes unless explicitly declared in a follow-up spec.
 - [critical/blocks approval] `HARDEN-2` contract_gap - The spec relies on charge authority terms that current contracts do not expose.
   - Status: open
@@ -348,15 +353,15 @@ Issues:
 - [high/blocks approval] `HARDEN-3` invariant_conflict - The draft mixes skill-profile deliverables with runtime behavior claims.
   - Status: open
   - Grounded in: code:.scafld/specs/drafts/payment-charge-skills-v1.md:65
-  - Evidence: The draft says `x402-charge` is a one-call surface that returns either a sealed charge receipt plus forwarded result or refusal, but acceptance later says no runtime or CLI charge behavior is claimed until runtime harness enforcement exists.
+  - Evidence: The draft says `x402 charge flow` is a one-call surface that returns either a sealed charge receipt plus forwarded result or refusal, but acceptance later says no runtime or CLI charge behavior is claimed until runtime harness enforcement exists.
   - Recommendation: Make the product goal explicit and remove contradictory runtime claims from either the skill description or acceptance criteria.
   - Question: Should v1 actually implement forwarding behavior, or only document/profile the governed graph shape for future runtime enforcement?
-  - Recommended answer: V1 is a registry/tooling legibility release only. It creates human-readable skills and X.yaml graph profiles that make the future charge flow visible, but it does not make `runx x402-charge` executable or forward upstream tool calls.
-  - If unanswered: Default to describing `x402-charge` as a graph profile contract only; it may show the intended price/challenge/verify/seal/forward sequence but must not claim executable forwarding behavior in v1.
+  - Recommended answer: V1 is a registry/tooling legibility release only. It creates human-readable skills and X.yaml graph profiles that make the future charge flow visible, but it does not make `a charge-specific x402 runtime command` executable or forward upstream tool calls.
+  - If unanswered: Default to describing `x402 charge flow` as a graph profile contract only; it may show the intended price/challenge/verify/seal/forward sequence but must not claim executable forwarding behavior in v1.
 - [high/blocks approval] `HARDEN-4` acceptance_gap - The current acceptance claim can pass without validating the new charge profiles.
   - Status: open
   - Grounded in: code:tests/payment-skill-profile-validation.test.ts:90
-  - Evidence: Existing profile validation discovers dirs by `entry.name.includes("payment")` or profile text matching `resource_family: payment` / `payment[.:_-]`. New packages named `charge-price`, `x402-charge`, etc. may not be covered if their metadata uses `charge_authority` or avoids payment markers.
+  - Evidence: Existing profile validation discovers dirs by `entry.name.includes("payment")` or profile text matching `resource_family: payment` / `payment[.:_-]`. New packages named `charge-price`, `x402 charge flow`, etc. may not be covered if their metadata uses `charge_authority` or avoids payment markers.
   - Recommendation: Add a concrete acceptance command and require either explicit charge discovery or a shared payment/charge validation helper.
   - Question: What exact validation command proves all new charge X.yaml files are parsed and secret-scanned, and should the existing payment profile test be extended to include charge packages explicitly?
   - Recommended answer: Use `pnpm exec vitest run tests/payment-skill-profile-validation.test.ts` after extending discovery to include the declared charge skill names and charge metadata markers.
@@ -499,14 +504,13 @@ Summary: Verification pass. The prior secret-field validation gap is repaired, t
 
 Attack log:
 - `.scafld/prompts/review.md; .scafld/specs/active/payment-charge-skills-v1.md`: Read review contract and active spec -> clean (Read .scafld/prompts/review.md and .scafld/specs/active/payment-charge-skills-v1.md. Verified the review is read-only/verify mode and that prior blockers were secret-field validation and workspace mutation integrity.)
-- `skills/charge-price; skills/charge-challenge; skills/charge-verify; skills/mock-charge; skills/stripe-charge; skills/mpp-charge; skills/x402-charge; skills/crypto-charge`: Scope and file presence -> clean (Confirmed all seven non-crypto charge packages have SKILL.md and X.yaml, and skills/crypto-charge is absent.)
+- `skills/charge-price; skills/charge-challenge; skills/charge-verify; skills/mock-charge; skills/stripe-charge; skills/mpp-charge; an explicit no-public-x402-charge decision; skills/crypto-charge`: Scope and file presence -> clean (Confirmed all seven non-crypto charge packages have SKILL.md and X.yaml, and skills/crypto-charge is absent.)
 - `tests/payment-skill-profile-validation.test.ts`: Payment profile validation repair -> clean (Read tests/payment-skill-profile-validation.test.ts. The explicit governed payment skill set includes all seven charge skills, and the secret-field pattern/test now covers merchant_secret, stripe_api_key, client_secret, access_token, api_key, provider_secret, raw_token, credential_material, and secret_material while allowing credential/proof/idempotency/capability refs.)
-- `packages/cli/src/official-skills.lock.json; scripts/generate-official-lock.mjs`: Official skills lock freshness -> clean (Confirmed packages/cli/src/official-skills.lock.json contains runx/charge-challenge, runx/charge-price, runx/charge-verify, runx/mock-charge, runx/stripe-charge, runx/mpp-charge, and runx/x402-charge, with no runx/crypto-charge. Ran a read-only Node render of the lock algorithm and it printed lock-ok.)
+- `packages/cli/src/official-skills.lock.json; scripts/generate-official-lock.mjs`: Official skills lock freshness -> clean (Confirmed packages/cli/src/official-skills.lock.json contains runx/charge-challenge, runx/charge-price, runx/charge-verify, runx/mock-charge, runx/stripe-charge, runx/mpp-charge, and no runx x402 charge lock entry, with no runx/crypto-charge. Ran a read-only Node render of the lock algorithm and it printed lock-ok.)
 - `skills/charge-*; skills/*-charge`: Runtime boundary and scope drift -> clean (Searched charge skills for CLI/runtime/contract claims and packet ids. SKILL.md files describe modeled/profile-only forwarding, graph profiles use modeled-forward with runtime_forwarding_enabled: false, and no runx.payment.* packet refs were introduced in charge profiles.)
 - `skills/charge-price/X.yaml; skills/charge-verify/X.yaml; skills/*-charge/X.yaml`: Authority model drift -> clean (Inspected authority examples and runx.payment_authority metadata. Profiles reuse resource_family: payment and payment bounds; no resource_family: charge or charge_authority schema was introduced.)
-- `skills/mock-charge/X.yaml; skills/stripe-charge/X.yaml; skills/mpp-charge/X.yaml; skills/x402-charge/X.yaml; tests/payment-skill-profile-validation.test.ts`: Graph reference regression -> clean (Read the graph runners and validation helper. Graph profiles declare price -> challenge -> verify -> seal -> forward, nested step refs resolve to sibling charge profiles, and transition fields reference declared wrapped artifacts such as seal.charge_seal.data.sealed.)
+- `skills/mock-charge/X.yaml; skills/stripe-charge/X.yaml; skills/mpp-charge/X.yaml; an explicit no-public-x402-charge decision; tests/payment-skill-profile-validation.test.ts`: Graph reference regression -> clean (Read the graph runners and validation helper. Graph profiles declare price -> challenge -> verify -> seal -> forward, nested step refs resolve to sibling charge profiles, and transition fields reference declared wrapped artifacts such as seal.charge_seal.data.sealed.)
 - `pnpm exec vitest run tests/payment-skill-profile-validation.test.ts; node scripts/generate-official-lock.mjs`: Acceptance command rerun -> skipped (Skipped pnpm exec vitest run tests/payment-skill-profile-validation.test.ts and node scripts/generate-official-lock.mjs because the review packet explicitly says review mode is read-only and not to run build, test, or mutation commands. Used source inspection and a read-only lock-render check instead.)
 
 Findings:
 - none
-

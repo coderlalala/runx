@@ -37,6 +37,10 @@ const retiredConsumerPaymentSkillNames = new Set([
   "payment-recover-inspect",
   "payment-reserve",
 ]);
+const forbiddenX402PaymentAliases = new Set([
+  "x402-charge",
+  "x402-refund",
+]);
 const explicitGovernedPaymentSkillNames = new Set([
   "charge-challenge",
   "charge-price",
@@ -51,8 +55,6 @@ const explicitGovernedPaymentSkillNames = new Set([
   "refund-reserve",
   "stripe-charge",
   "stripe-refund",
-  "x402-charge",
-  "x402-refund",
   ...canonicalConsumerPaymentSkillNames,
 ]);
 const expectedChargePacketMetadata = new Map([
@@ -60,7 +62,7 @@ const expectedChargePacketMetadata = new Map([
   ["charge-challenge", { runner: "challenge", output: "charge_challenge_packet", packet: "runx.payment.charge_challenge.v1" }],
   ["charge-verify", { runner: "verify", output: "charge_verification_packet", packet: "runx.payment.charge_verification.v1" }],
 ]);
-const chargeGraphSkillNames = new Set(["mock-charge", "mpp-charge", "stripe-charge", "x402-charge"]);
+const chargeGraphSkillNames = new Set(["mock-charge", "mpp-charge", "stripe-charge"]);
 
 describe("payment skill execution profiles", () => {
   it("uses canonical consumer payment skill names without legacy aliases", async () => {
@@ -72,6 +74,7 @@ describe("payment skill execution profiles", () => {
 
     expect([...canonicalConsumerPaymentSkillNames].filter((name) => !entries.has(name))).toEqual([]);
     expect([...retiredConsumerPaymentSkillNames].filter((name) => entries.has(name))).toEqual([]);
+    expect([...forbiddenX402PaymentAliases].filter((name) => entries.has(name))).toEqual([]);
     expect(entries.has("crypto-pay"), "crypto-pay stays a reserved placeholder, not an exposed skill").toBe(false);
   });
 

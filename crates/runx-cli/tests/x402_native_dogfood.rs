@@ -6,45 +6,120 @@ use serde_json::Value;
 #[test]
 fn native_x402_mock_dogfood_fixtures_run_without_typescript()
 -> Result<(), Box<dyn std::error::Error>> {
-    let approved = run_harness_fixture("fixtures/harness/payment-approval-graph.yaml")?;
+    let approved = run_harness_fixture(
+        "fixtures/harness/x402-pay-approval.yaml",
+        &[
+            "credential_envelope",
+            "rail_session_material",
+            "rail-session-material:mock:payment-execution-001",
+        ],
+    )?;
     assert_eq!(approved["schema"], "runx.harness_receipt.v1");
     assert_eq!(approved["harness"]["state"], "sealed");
     assert_eq!(approved["seal"]["disposition"], "closed");
     assert_eq!(
         child_receipt_uris(&approved),
         vec![
-            "runx:harness_receipt:hrn_rcpt_payment-approval_approve-spend",
-            "runx:harness_receipt:hrn_rcpt_payment-approval_fulfill",
+            "runx:harness_receipt:hrn_rcpt_x402-pay-approval_approve-spend",
+            "runx:harness_receipt:hrn_rcpt_x402-pay-approval_fulfill",
         ]
     );
 
-    let denied = run_harness_fixture("fixtures/harness/payment-approval-denied.yaml")?;
+    let denied = run_harness_fixture(
+        "fixtures/harness/x402-pay-approval-denied.yaml",
+        &[
+            "credential_envelope",
+            "rail_session_material",
+            "rail-session-material:mock:payment-execution-001",
+        ],
+    )?;
     assert_eq!(denied["schema"], "runx.harness_receipt.v1");
     assert_eq!(denied["harness"]["state"], "sealed");
     assert_eq!(denied["seal"]["disposition"], "blocked");
     assert_eq!(denied["seal"]["reason_code"], "graph_blocked");
     assert_eq!(
         child_receipt_uris(&denied),
-        vec!["runx:harness_receipt:hrn_rcpt_payment-approval_approve-spend",]
+        vec!["runx:harness_receipt:hrn_rcpt_x402-pay-approval_approve-spend",]
     );
 
     Ok(())
 }
 
-fn run_harness_fixture(fixture: &str) -> Result<Value, Box<dyn std::error::Error>> {
+#[test]
+fn native_x402_paid_echo_fixture_passes_only_refs_downstream()
+-> Result<(), Box<dyn std::error::Error>> {
+    let receipt = run_harness_fixture(
+        "fixtures/harness/x402-pay-paid-echo.yaml",
+        &[
+            "credential_envelope",
+            "rail_session_material",
+            "rail-session-material:mock:paid-echo-001",
+        ],
+    )?;
+
+    assert_eq!(receipt["schema"], "runx.harness_receipt.v1");
+    assert_eq!(receipt["harness"]["state"], "sealed");
+    assert_eq!(receipt["seal"]["disposition"], "closed");
+    assert_eq!(
+        child_receipt_uris(&receipt),
+        vec![
+            "runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo_quote",
+            "runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo_reserve",
+            "runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo_approve-spend",
+            "runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo_fulfill",
+            "runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo_echo",
+        ]
+    );
+
+    Ok(())
+}
+
+#[test]
+fn native_x402_stripe_spt_happy_path_runs_without_typescript()
+-> Result<(), Box<dyn std::error::Error>> {
+    let receipt = run_harness_fixture(
+        "fixtures/harness/stripe-spt-payment.yaml",
+        &[
+            "credential_envelope",
+            "rail_session_material",
+            "rail-session-material:stripe-spt:demo-search-001",
+            "client_secret",
+            "webhook_secret",
+            "card_number",
+        ],
+    )?;
+
+    assert_eq!(receipt["schema"], "runx.harness_receipt.v1");
+    assert_eq!(receipt["harness"]["state"], "sealed");
+    assert_eq!(receipt["seal"]["disposition"], "closed");
+    assert_eq!(
+        child_receipt_uris(&receipt),
+        vec![
+            "runx:harness_receipt:hrn_rcpt_stripe-spt-payment_quote",
+            "runx:harness_receipt:hrn_rcpt_stripe-spt-payment_reserve",
+            "runx:harness_receipt:hrn_rcpt_stripe-spt-payment_approve-spend",
+            "runx:harness_receipt:hrn_rcpt_stripe-spt-payment_fulfill",
+        ]
+    );
+
+    Ok(())
+}
+
+fn run_harness_fixture(
+    fixture: &str,
+    denied_fragments: &[&str],
+) -> Result<Value, Box<dyn std::error::Error>> {
     let output = native_command()?
         .args(["harness", fixture, "--json"])
         .output()?;
     assert_success(&output)?;
     let stdout = String::from_utf8(output.stdout)?;
-    assert!(
-        !stdout.contains("rail_session_material_ref"),
-        "native CLI receipt output must not expose raw rail session material fields"
-    );
-    assert!(
-        !stdout.contains("rail-session-material:mock:payment-execution-001"),
-        "native CLI receipt output must not expose raw rail session material refs"
-    );
+    for denied in denied_fragments {
+        assert!(
+            !stdout.contains(denied),
+            "native CLI receipt output must not expose raw payment material: {denied}"
+        );
+    }
     Ok(serde_json::from_str(&stdout)?)
 }
 

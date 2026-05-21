@@ -16,6 +16,10 @@ fn loads_active_harness_fixtures_without_retired_receipt_fields() -> Result<(), 
         "fixtures/harness/sequential-graph.yaml",
         "fixtures/harness/payment-approval-graph.yaml",
         "fixtures/harness/payment-approval-denied.yaml",
+        "fixtures/harness/x402-pay-approval.yaml",
+        "fixtures/harness/x402-pay-approval-denied.yaml",
+        "fixtures/harness/x402-pay-paid-echo.yaml",
+        "fixtures/harness/stripe-spt-payment.yaml",
     ] {
         let fixture = load_harness_fixture(fixture_path(path))?;
         let (expected_status, expected_disposition) = if path.ends_with("denied.yaml") {

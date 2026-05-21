@@ -25,8 +25,8 @@ Review gate: pass
 ## Summary
 
 Resolve the 16 `runx.graph.context.schema_missing` warnings emitted by the
-dogfood doctor run for `mock-charge`, `mpp-charge`, `stripe-charge`, and
-`x402-charge`. The repair must make charge graph step outputs legible to the
+dogfood doctor run for `mock-charge`, `mpp-charge`, and `stripe-charge`. The
+repair must make charge graph step outputs legible to the
 doctor without adding runtime charge behavior, live settlement, or new payment
 packet ids unless matching schemas and tests are in scope.
 
@@ -40,7 +40,8 @@ In scope:
 - `skills/mock-charge/X.yaml`
 - `skills/mpp-charge/X.yaml`
 - `skills/stripe-charge/X.yaml`
-- `skills/x402-charge/X.yaml`
+- no public x402-specific charge skill directory, registry lock entry, or
+  runtime alias
 - `dist/packets/payment.charge-price.v1.schema.json`
 - `dist/packets/payment.charge-challenge.v1.schema.json`
 - `dist/packets/payment.charge-verification.v1.schema.json`
@@ -113,7 +114,7 @@ Validation:
 Strategy: per_phase
 
 Commands:
-- `git checkout HEAD -- skills/charge-price/X.yaml skills/charge-challenge/X.yaml skills/charge-verify/X.yaml skills/mock-charge/X.yaml skills/mpp-charge/X.yaml skills/stripe-charge/X.yaml skills/x402-charge/X.yaml packages/cli/src/official-skills.lock.json tests/payment-skill-profile-validation.test.ts scripts/dogfood-core-skills.mjs`
+- `git checkout HEAD -- skills/charge-price/X.yaml skills/charge-challenge/X.yaml skills/charge-verify/X.yaml skills/mock-charge/X.yaml skills/mpp-charge/X.yaml skills/stripe-charge/X.yaml packages/cli/src/official-skills.lock.json tests/payment-skill-profile-validation.test.ts scripts/dogfood-core-skills.mjs`
 - `rm -f dist/packets/payment.charge-price.v1.schema.json dist/packets/payment.charge-challenge.v1.schema.json dist/packets/payment.charge-verification.v1.schema.json dist/packets/payment.charge-seal.v1.schema.json`
 
 ## Harden Rounds
@@ -178,7 +179,7 @@ Verdict: pass
 Mode: discover
 Provider: claude:claude-opus-4-7
 Output: claude.mcp_submit_review
-Summary: In-scope deliverable is correct: the four charge graphs (`mock-`, `mpp-`, `stripe-`, `x402-charge`) and their nested skills (`charge-price`, `charge-challenge`, `charge-verify`) now declare `artifacts.wrap_as` + `artifacts.packet` metadata pointing to four new `dist/packets/payment.charge-*.v1.schema.json` schemas whose `properties` cover every field referenced by the graph `context:` blocks (`requested_payment_authority`, `idempotency`, `settlement_proof`, `receipt_ref`). This addresses all four warning patterns per graph × four graphs = the 16 `runx.graph.context.schema_missing` diagnostics. Lock file regenerates cleanly and the in-scope profile-validation test enforces the new metadata. Two non-blocking observations: (1) several Rust crate files were modified during the task even though the spec explicitly lists "Rust contracts/runtime changes" as out of scope; (2) `tests/x402-pay-dogfood-mock.test.ts` was added even though it is not in the declared touchpoints. Acceptance criteria (v1/v2/v3) are recorded as passed and the construction of the doctor JSON filter is tight enough to catch regressions of the original warnings.
+Summary: In-scope deliverable is correct: the four charge graphs (`mock-`, `mpp-`, `stripe-`, `x402 charge flow`) and their nested skills (`charge-price`, `charge-challenge`, `charge-verify`) now declare `artifacts.wrap_as` + `artifacts.packet` metadata pointing to four new `dist/packets/payment.charge-*.v1.schema.json` schemas whose `properties` cover every field referenced by the graph `context:` blocks (`requested_payment_authority`, `idempotency`, `settlement_proof`, `receipt_ref`). This addresses all four warning patterns per graph × four graphs = the 16 `runx.graph.context.schema_missing` diagnostics. Lock file regenerates cleanly and the in-scope profile-validation test enforces the new metadata. Two non-blocking observations: (1) several Rust crate files were modified during the task even though the spec explicitly lists "Rust contracts/runtime changes" as out of scope; (2) `tests/x402-pay-dogfood-mock.test.ts` was added even though it is not in the declared touchpoints. Acceptance criteria (v1/v2/v3) are recorded as passed and the construction of the doctor JSON filter is tight enough to catch regressions of the original warnings.
 
 Attack log:
 - `dist/packets/payment.charge-*.v1.schema.json`: Verify each new schema declares x-runx-packet-id and covers every property referenced by graph context paths -> clean (charge-price.requested_payment_authority, charge-challenge.idempotency, charge-verification.settlement_proof, charge-seal.{receipt_ref,sealed} all present as schema properties.)
@@ -201,4 +202,3 @@ Findings:
   - Location: `tests/x402-pay-dogfood-mock.test.ts`
   - Evidence: Task changes list 'added tests/x402-pay-dogfood-mock.test.ts (?? 94c878a6...)' as untracked-new. The spec's Scope And Touchpoints (lines 35-51) does not include this file; the only test file in scope is tests/payment-skill-profile-validation.test.ts. The file is, however, referenced by scripts/dogfood-core-skills.mjs (line 37), which is conditionally in scope.
   - Impact: Either the dogfood acceptance command depends on a test file that this task quietly created (in which case the spec scope should have called it out alongside the dogfood script), or the file belongs to another active spec (x402-pay-phase1-mock-scenario-fixtures-v1.md references it) and was pulled in here by accident.
-

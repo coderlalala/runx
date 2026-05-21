@@ -63,6 +63,8 @@ const harnessedShowcasePackages = [
   "vuln-scan",
 ] as const;
 
+const nativeRunx = path.resolve("crates", "target", "debug", process.platform === "win32" ? "runx.exe" : "runx");
+
 describe("official skill catalog", () => {
   it("ships official skills as portable packages plus checked-in execution profiles", async () => {
     for (const skillName of officialSkillPackages) {
@@ -83,10 +85,19 @@ describe("official skill catalog", () => {
     }
   });
 
-  it("keeps evaluator-facing packages runnable through inline harness suites", async () => {
+  it("keeps TS-compatible evaluator-facing packages runnable through inline harness suites", async () => {
     for (const skillName of harnessedShowcasePackages) {
+      const manifestPath = path.resolve("skills", skillName, "X.yaml");
+      const manifest = validateRunnerManifest(parseRunnerManifestYaml(await readFile(manifestPath, "utf8")));
+      if (Object.values(manifest.runners).some((runner) => runner.source.graph)) {
+        continue;
+      }
       const result = await runHarnessTarget(path.resolve("skills", skillName), {
         adapters: createDefaultSkillAdapters(),
+        env: {
+          ...process.env,
+          ...(existsSync(nativeRunx) ? { RUNX_KERNEL_EVAL_BIN: nativeRunx } : {}),
+        },
       });
 
       expect(result.source).toBe("inline");

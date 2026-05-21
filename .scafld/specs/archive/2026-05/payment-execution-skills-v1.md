@@ -2,7 +2,7 @@
 spec_version: '2.0'
 task_id: payment-execution-skills-v1
 created: '2026-05-20T00:00:00Z'
-updated: '2026-05-20T12:55:31Z'
+updated: '2026-05-21T07:47:10Z'
 status: completed
 harden_status: not_run
 size: medium
@@ -16,10 +16,9 @@ risk_level: high
 Status: completed
 Current phase: final
 Next: harden
-Reason: first-party payment skill skeletons and X.yaml profiles now exercise
-the payment authority term through quote, reserve, approval, deterministic mock
-rail fulfillment, and recovery inspection without claiming live runtime payment
-behavior.
+Reason: first-party payment profiles exercise the payment authority term
+through quote, reserve, approval, deterministic mock rail fulfillment, and
+recovery inspection without competing with the Rust runtime as payment truth.
 Allowed follow-up command: `scafld harden payment-execution-skills-v1`
 Latest runner update: 2026-05-20T12:55:31Z
 Review gate: pass
@@ -27,13 +26,18 @@ Review gate: pass
 ## Summary
 
 Payment execution in runx is a governed graph over the existing spine. The
-first-party skills make the flow legible to humans and registry tooling, but
-they do not own payment truth. Core owns the spend decision, reservation,
-idempotency lookup, authority subset proof, recovery path, and receipt-before-
-success invariant. Rail skills run only below that gate with attenuated payment
-authority and a single-use spend capability.
+first-party profiles make the flow legible to humans and registry tooling, but
+they do not own payment truth. The Rust runtime owns the spend decision,
+reservation, idempotency lookup, authority subset proof, recovery path, and
+receipt-before-success invariant. Rail profiles run only below that gate with
+attenuated payment authority and a single-use spend capability.
 
-## Skill Set
+`x402-pay` is the canonical x402 payment surface. Provider charge and refund
+names, where they exist, are profile/flow labels for separate authority
+directions; they are not aliases for `x402-pay`, not native CLI commands, and
+not competing runtime skill names.
+
+## Profile And Flow Set
 
 `pay-quote`
 : Turns a `payment_required` signal, MCP payment challenge, invoice request, or
@@ -52,11 +56,13 @@ settlement state. Must query by idempotency key before any repeat mutation and
 returns a recovered proof, a safe retry recommendation, or an escalation.
 
 `stripe-pay`, `mpp-pay`, `mock-pay`
-: Settlement-pinned graph marquees. Each composes quote, reserve, optional
+: Settlement-pinned graph profiles. Each composes quote, reserve, optional
 approval, and the named settlement family, then hands off to recover on
 ambiguity. Each receives an already-reserved child authority term and a
 single-use spend capability ref. Each returns a settlement proof payload/ref
-suitable for sealing into the child harness receipt.
+suitable for sealing into the child harness receipt. These names are profile
+labels over `x402-pay`-compatible payment authority, not aliases for a native
+CLI command.
 
 `crypto-pay`
 : Reserved placeholder for on-chain settlement. Documented for naming
@@ -64,11 +70,11 @@ continuity so the slot is not reused later. Not exposed in the registry; no
 SKILL.md, no X.yaml profile, and no harness case in this iteration.
 
 `x402-pay`
-: The unpinned graph marquee. Same composition as the settlement-pinned
-marquees, but the settlement family is selected from policy and the inbound
-challenge at runtime. This is the first "seamless agent payments" surface: a
-paid tool call can enter as one request and leave as a sealed payment receipt
-without hiding the governance steps.
+: The canonical unpinned graph profile. Same composition as the
+settlement-pinned profiles, but the settlement family is selected from policy
+and the inbound challenge at runtime. This is the first "seamless agent
+payments" surface: a paid tool call can enter as one request and leave as a
+sealed payment receipt without hiding the governance steps.
 
 ## Spine Mapping
 
@@ -90,39 +96,40 @@ call.
 - Core refuses success until the child harness receipt carries the settlement
 proof.
 
-## Skill-Owned Rules
+## Profile-Owned Rules
 
-- A quote skill may normalize protocol-specific challenge fields and recommend
+- A quote profile may normalize protocol-specific challenge fields and recommend
 payment bounds, but it cannot authorize spend.
-- A reserve skill may present the human-readable decision record, but it cannot
+- A reserve profile may present the human-readable decision record, but it cannot
 mint broader authority than core admits.
-- A settlement marquee may adapt one payment protocol/provider, but it cannot
+- A settlement profile may adapt one payment protocol/provider, but it cannot
 set caps, read raw wallet secrets, or decide approval.
-- A recovery skill may inspect idempotency state and settlement proof refs, but
+- A recovery profile may inspect idempotency state and settlement proof refs, but
 it cannot hide an ambiguous spend as success.
 
 ## Initial Settlement Families
 
-- `mock-pay`: deterministic local settlement for harnesses, demos, and contract
-tests.
-- `stripe-pay`: Stripe session/payment token settlement family.
-- `mpp-pay`: multi-party payment protocol settlement family.
+- `mock-pay`: deterministic local settlement profile for harnesses, demos, and
+  contract tests.
+- `stripe-pay`: Stripe session/payment token settlement profile.
+- `mpp-pay`: multi-party payment protocol settlement profile.
 - `crypto-pay`: on-chain settlement family. Reserved placeholder, not exposed
-or harnessed in this iteration.
+  or harnessed in this iteration.
 
-`x402-pay` is the unpinned graph marquee that selects one of the above at
-runtime from policy and the inbound challenge.
+`x402-pay` is the canonical unpinned graph profile that selects one of the
+above at runtime from policy and the inbound challenge.
 
-These names are first-party skill packages, not hardcoded core concepts. Core
-only sees payment authority terms, idempotency keys, child harnesses, and
-receipt proof refs.
+These names are first-party profile packages, not hardcoded core concepts or
+native command aliases. Core only sees payment authority terms, idempotency
+keys, child harnesses, and receipt proof refs.
 
 ## Acceptance Criteria
 
-- Each first-party payment skill except the `crypto-pay` placeholder has a
-human-readable `SKILL.md`.
-- Each first-party payment skill except the `crypto-pay` placeholder has an
-`X.yaml` profile with concrete inputs, outputs, artifacts, and harness cases.
+- Each first-party payment profile package except the `crypto-pay` placeholder
+  has a human-readable `SKILL.md`.
+- Each first-party payment profile package except the `crypto-pay` placeholder
+  has an `X.yaml` profile with concrete inputs, outputs, artifacts, and
+  harness cases.
 - Graph profiles (`x402-pay`, `stripe-pay`, `mpp-pay`, `mock-pay`) make the
 authority transition visible: quote -> reserve -> optional approval ->
 settlement.
@@ -130,6 +137,9 @@ settlement.
 never declare raw secret inputs.
 - Existing profile parsing validates all new payment X.yaml files.
 - The `crypto-pay` slot is documented but neither installable nor harnessed in
-this iteration.
+  this iteration.
 - No runtime or CLI payment behavior is claimed until the runtime harness owns
-reserve-before-settlement and receipt-before-success enforcement.
+  reserve-before-settlement and receipt-before-success enforcement.
+- No `x402-charge`, `x402-refund`, or provider-specific charge/refund name is
+  accepted as an alias for canonical `x402-pay`; charge/refund remain separate
+  profile families until a future cleanup or runtime spec changes ownership.

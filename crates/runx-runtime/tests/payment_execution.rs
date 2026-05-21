@@ -899,7 +899,7 @@ fn graph_yaml(
 
 fn paid_echo_graph_yaml() -> Result<String, serde_json::Error> {
     serde_json::to_string_pretty(&json!({
-        "name": "x402-paid-echo",
+        "name": "x402-pay-paid-echo",
         "steps": [
             {
                 "id": "quote",
@@ -1168,7 +1168,7 @@ fn paid_echo_reservation_decision() -> Value {
 }
 
 fn paid_echo_child_harness_ref() -> Value {
-    reference("harness", "runx:harness:x402-paid-echo_fulfill")
+    reference("harness", "runx:harness:x402-pay-paid-echo_fulfill")
 }
 
 fn paid_echo_spend_capability_ref() -> Value {

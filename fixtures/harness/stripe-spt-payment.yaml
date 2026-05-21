@@ -1,0 +1,24 @@
+name: stripe-spt-payment
+kind: graph
+target: ../graphs/payment/stripe-spt.yaml
+caller:
+  approvals:
+    stripe-spt.spend.approval: true
+expect:
+  status: sealed
+  receipt:
+    schema: runx.harness_receipt.v1
+    harness_id: hrn_stripe-spt-payment_graph
+    state: sealed
+    disposition: closed
+    reason_code: graph_closed
+    child_receipt_refs:
+      - runx:harness_receipt:hrn_rcpt_stripe-spt-payment_quote
+      - runx:harness_receipt:hrn_rcpt_stripe-spt-payment_reserve
+      - runx:harness_receipt:hrn_rcpt_stripe-spt-payment_approve-spend
+      - runx:harness_receipt:hrn_rcpt_stripe-spt-payment_fulfill
+  steps:
+    - quote
+    - reserve
+    - approve-spend
+    - fulfill

@@ -2,7 +2,7 @@
 spec_version: '2.0'
 task_id: x402-pay-paid-echo-composer-v1
 created: '2026-05-21T00:46:25Z'
-updated: '2026-05-21T05:18:00Z'
+updated: '2026-05-21T08:15:00Z'
 status: draft
 harden_status: not_run
 size: large
@@ -14,16 +14,17 @@ risk_level: high
 ## Current State
 
 Status: draft
-Current phase: Rust runtime proof complete; CLI fixture promotion pending
-Next: CLI-runnable paid-echo dogfood fixture
+Current phase: Native CLI fixture promotion complete
+Next: harden/review the paid-echo proof path
 Reason: Cut over from the stale TS-composer framing to the Rust runtime core
 where payment authority, proof sealing, and graph forwarding now live.
 Blockers: none
 Allowed follow-up command: `scafld harden x402-pay-paid-echo-composer-v1`
 Latest runner update: Rust payment execution test covers paid echo success,
-approval denial, and missing rail proof. The core dogfood wrapper now also runs
-the native x402 mock CLI proof before TS wrapper coverage, but this paid-echo
-spec is not complete until paid-echo itself has a CLI-runnable fixture.
+approval denial, and missing rail proof. Native CLI dogfood now runs
+`fixtures/harness/x402-pay-paid-echo.yaml` through
+`crates/runx-cli/tests/x402_native_dogfood.rs`, with downstream paid echo
+receiving only scoped refs after the sealed payment receipt.
 Review gate: not_started
 
 ## Summary
@@ -33,10 +34,11 @@ and prove the core sequence without a TypeScript composer dependency:
 `payment_required` signal, quote, reserve, approval, mock rail fulfillment,
 typed sealed payment proof, and only then the returned echo result.
 
-This spec intentionally does not add `x402-charge` or `x402-pay` aliases. The
-payment category remains a clean cutover to the scoped x402-pay path; any
-provider-facing charge surface is a later graph/skill layer over the same Rust
-authority invariant.
+This spec intentionally does not add `x402-charge`, `x402-refund`, or any
+alias for `x402-pay`. The payment category remains a clean cutover to the
+scoped `x402-pay` path. Provider-facing charge and refund surfaces remain
+profile/flow families over the same Rust authority invariant, not competing
+runtime skill names in this dogfood.
 
 ## Scope And Touchpoints
 
@@ -58,6 +60,8 @@ Out of scope:
 - TypeScript composer interception. That may be a thin wrapper after the Rust
   invariant is stable, but it is not the core proof.
 - Provider-side charge forwarding.
+- Charge/refund profile cleanup beyond documenting that those names are not
+  canonical x402-pay aliases.
 
 ## Planned Phases
 
@@ -83,6 +87,8 @@ Definition of done:
   rail payload is forwarded.
 - [x] `dod3` Negative paths cover approval denial and missing rail proof before
   echo invocation.
+- [x] `dod4` A CLI-runnable paid-echo fixture exercises the same invariant
+  without TypeScript.
 
 Validation:
 - [x] `v1` test - Rust payment execution test passes.
@@ -121,8 +127,20 @@ Validation:
     crates/Cargo.toml -p runx-runtime --test payment_execution` before the
     workspace package/dogfood checks.
   - Source event: none
+	  - Last attempt: local command
+	  - Checked at: 2026-05-21T04:15:55Z
+- [x] `v3` dogfood - Native CLI paid-echo fixture passes.
+  - Command: `cargo test --quiet --manifest-path crates/Cargo.toml -p runx-cli --test x402_native_dogfood`
+  - Expected kind: `exit_code_zero`
+  - Timeout seconds: none
+  - Result: 3 passed; 0 failed
+  - Status: passed
+  - Evidence: `native_x402_paid_echo_fixture_passes_only_refs_downstream`
+    runs `fixtures/harness/x402-pay-paid-echo.yaml` and asserts the paid step only
+    receives payment refs, never raw rail material.
+  - Source event: none
   - Last attempt: local command
-  - Checked at: 2026-05-21T04:15:55Z
+  - Checked at: 2026-05-21T08:15:00Z
 
 ## Rollback
 
@@ -151,3 +169,9 @@ Commands:
 - 2026-05-21T05:18:00Z: Native x402 mock payment dogfood moved into
   `crates/runx-cli/tests/x402_native_dogfood.rs`; paid-echo remains
   Rust-runtime-proven and still needs CLI fixture promotion.
+- 2026-05-21T07:47:10Z: Naming boundary clarified: `x402-pay` is canonical;
+  charge/refund names are profile flows only and not aliases or competing
+  runtime skills for this cutover.
+- 2026-05-21T08:15:00Z: CLI fixture promotion completed with
+  `fixtures/harness/x402-pay-paid-echo.yaml` and native `runx-cli`
+  `x402_native_dogfood` coverage.

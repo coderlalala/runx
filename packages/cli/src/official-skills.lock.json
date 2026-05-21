@@ -225,18 +225,8 @@
     "digest": "36f3688bf51cf497d6bee4a1272bd7bd283422521c894f9607c65a9f927f38c1"
   },
   {
-    "skill_id": "runx/x402-charge",
-    "version": "sha-e794a92ec2a3",
-    "digest": "d41d36160fe21bdb2e2e2a0e5040d0d01fbf322b3b75a103080cafdc1327dba0"
-  },
-  {
     "skill_id": "runx/x402-pay",
     "version": "sha-27e0b51bec36",
     "digest": "ec9eb388a1e4622f0c98e31a41e6e47628b0657833f00fb552138754c54ba8ce"
-  },
-  {
-    "skill_id": "runx/x402-refund",
-    "version": "sha-b5e38489d2b8",
-    "digest": "afaf0d244b3608a56bc912ff95133c16e1826c5880069a96f6873b82505c5c3b"
   }
 ]

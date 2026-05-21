@@ -1,0 +1,26 @@
+name: x402-pay-paid-echo
+kind: graph
+target: ../graphs/payment/x402-pay-paid-echo.yaml
+caller:
+  approvals:
+    spend-approval: true
+expect:
+  status: sealed
+  receipt:
+    schema: runx.harness_receipt.v1
+    harness_id: hrn_x402-pay-paid-echo_graph
+    state: sealed
+    disposition: closed
+    reason_code: graph_closed
+    child_receipt_refs:
+      - runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo_quote
+      - runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo_reserve
+      - runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo_approve-spend
+      - runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo_fulfill
+      - runx:harness_receipt:hrn_rcpt_x402-pay-paid-echo_echo
+  steps:
+    - quote
+    - reserve
+    - approve-spend
+    - fulfill
+    - echo
