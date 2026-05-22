@@ -11,25 +11,22 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 use runx_contracts::{
-    Act, ActForm, Authority, AuthorityAttenuation, AuthoritySubsetProof, AuthoritySubsetResult,
-    ChangePlan, ChangeRequest, Closure, ClosureDisposition, CriterionBinding, CriterionStatus,
-    Decision, DecisionChoice, DecisionInputs, DecisionJustification, Harness, HarnessEnforcement,
-    HarnessIdempotency, HarnessReceipt, HarnessReceiptSchema, HarnessRevision, HarnessSandbox,
-    HarnessSeal, HarnessState, Intent, JsonNumber, JsonObject, JsonValue, ReceiptIssuer,
-    ReceiptIssuerType, ReceiptVerificationSummary, Reference, ReferenceType, RevisionDetails,
-    SealCriterion, SignatureAlgorithm, SuccessCriterion, TargetRepoRunnerDedupeLookupExecution,
+    ActForm, AuthorityAttenuation, AuthoritySubsetProof, AuthoritySubsetResult, ClosureDisposition,
+    CriterionStatus, JsonNumber, JsonObject, JsonValue, Lineage, RECEIPT_CANONICALIZATION, Receipt,
+    ReceiptAct, ReceiptAuthority, ReceiptCriterion, ReceiptEnforcement, ReceiptIdempotency,
+    ReceiptIssuer, ReceiptIssuerType, ReceiptSchema, ReceiptSubjectKind, Reference, ReferenceType,
+    Seal, SignatureAlgorithm, Subject, TargetRepoRunnerDedupeLookupExecution,
     TargetRepoRunnerDedupeLookupObservation, TargetRepoRunnerDedupeLookupPlan,
     TargetRepoRunnerDedupeResult, TargetRepoRunnerExecutionPlan,
     TargetRepoRunnerExistingPullRequest, TargetRepoRunnerPlan, TargetRepoRunnerPlanError,
     TargetRepoRunnerProvider, TargetRepoRunnerProviderPullRequest,
     TargetRepoRunnerPullRequestDisposition, TargetRepoRunnerPullRequestReceiptPlan,
     TargetRepoRunnerReadinessObservation, TargetRepoRunnerSourcePublicationReceiptPlan,
-    TargetSurface, Verification, VerificationCheck, VerificationStatus,
     apply_target_repo_runner_dedupe_lookup_execution, execute_target_repo_runner_dedupe_lookup,
     plan_target_repo_runner_execution, plan_target_repo_runner_pull_request_receipt,
     plan_target_repo_runner_source_publication_receipt,
 };
-use runx_receipts::{canonical_receipt_body_digest, validate_harness_receipt};
+use runx_receipts::{canonical_receipt_body_digest, validate_receipt};
 
 pub use crate::runtime_http::{
     HostedHttpError as TargetRepoRunnerHttpError, HostedHttpHeader as TargetRepoRunnerHttpHeader,
@@ -70,11 +67,11 @@ pub struct TargetRepoRunnerLiveExecution {
     pub pull_request_request: TargetRepoRunnerPullRequestObservationRequest,
     pub pull_request_observation: TargetRepoRunnerPullRequestObservation,
     pub execution: TargetRepoRunnerFixtureExecution,
-    pub revision_receipt: HarnessReceipt,
+    pub revision_receipt: Receipt,
     pub revision_projection: TargetRepoRunnerRevisionReceiptProjection,
     pub source_publication_request: TargetRepoRunnerSourcePublicationRequest,
     pub source_publication_observation: TargetRepoRunnerSourcePublicationObservation,
-    pub source_publication_receipt: HarnessReceipt,
+    pub source_publication_receipt: Receipt,
     pub source_publication_projection: TargetRepoRunnerSourcePublicationProjection,
 }
 
@@ -827,7 +824,7 @@ pub fn execute_target_repo_runner_with_adapter<A: TargetRepoRunnerAdapter>(
     );
     let source_publication_observation =
         adapter.publish_source_update(&source_publication_request)?;
-    let source_publication_receipt = target_repo_runner_source_publication_harness_receipt(
+    let source_publication_receipt = target_repo_runner_source_publication_receipt_node(
         &source_publication_request,
         &source_publication_observation,
         created_at,
@@ -1082,6 +1079,8 @@ fn target_repo_runner_pull_request_observation_request(
     })
 }
 
+// rust-style-allow: long-function - assembles the pull-request mutation command from the execution
+// plan in one pass so every field of the command is mapped in a single reviewable place.
 fn target_repo_runner_pull_request_mutation_command(
     execution_plan: &TargetRepoRunnerExecutionPlan,
     dedupe_execution: &TargetRepoRunnerDedupeLookupExecution,
@@ -1226,6 +1225,8 @@ fn validate_pull_request_git_readback(
     validate_head_sha(&git_observation.head_sha, "pull_request")
 }
 
+// rust-style-allow: long-function - pull-request readback validation checks all command invariants
+// in one gate; keeping the checks together makes the accept/reject boundary auditable at a glance.
 fn validate_pull_request_readback(
     command: &TargetRepoRunnerPullRequestMutationCommand,
     observation: &TargetRepoRunnerPullRequestObservation,
@@ -1508,7 +1509,7 @@ fn target_repo_runner_revision_receipt(
     execution: &TargetRepoRunnerFixtureExecution,
     runner_observation: Option<&TargetRepoRunnerGovernedRunnerObservation>,
     created_at: &str,
-) -> Result<HarnessReceipt, TargetRepoRunnerRuntimeError> {
+) -> Result<Receipt, TargetRepoRunnerRuntimeError> {
     let pull_request_ref = execution
         .pull_request_receipt
         .pull_request_ref
@@ -1541,8 +1542,6 @@ fn target_repo_runner_revision_receipt(
     let act = revision_act(RevisionActInput {
         act_id,
         criterion_id,
-        created_at,
-        disposition: execution.disposition,
         summary: &summary,
         target_repo_ref: &target_repo_ref,
         source_thread_ref: &execution.pull_request_receipt.source_thread_ref,
@@ -1550,7 +1549,6 @@ fn target_repo_runner_revision_receipt(
         pull_request_ref: &pull_request_ref,
         artifact_refs: &artifact_refs,
         verification_refs: &verification_refs,
-        runner_observation,
     });
     let seal = receipt_seal(ReceiptSealInputs {
         reason_code: &reason_code,
@@ -1567,27 +1565,37 @@ fn target_repo_runner_revision_receipt(
         safe_id(&execution.execution_plan.checkout.target_repo),
         pull_request_id_fragment(&execution.pull_request)
     );
-    let harness = receipt_harness(
-        execution,
-        &receipt_id,
-        act,
-        seal.clone(),
-        created_at,
-        &evidence_refs,
-        &artifact_refs,
-    );
-    let mut receipt = HarnessReceipt {
-        schema: HarnessReceiptSchema::V1,
-        id: receipt_id,
+    let mut receipt = Receipt {
+        schema: ReceiptSchema::V1,
+        id: receipt_id.clone(),
         created_at: created_at.to_owned(),
+        canonicalization: RECEIPT_CANONICALIZATION.to_owned(),
         issuer: local_issuer(),
         signature: runx_contracts::ReceiptSignature {
             alg: SignatureAlgorithm::Ed25519,
             value: "sig:pending".to_owned(),
         },
-        harness,
+        digest: "sha256:pending".to_owned(),
+        idempotency: ReceiptIdempotency {
+            intent_key: stable_hash(&format!(
+                "target-runner:{}:{}",
+                execution.execution_plan.checkout.target_repo, execution.dedupe_execution.key
+            )),
+            trigger_fingerprint: stable_hash(&execution.dedupe_execution.key),
+            content_hash: stable_hash(&receipt_id),
+        },
+        subject: Subject {
+            kind: ReceiptSubjectKind::Skill,
+            reference: Reference::runx(ReferenceType::Harness, "target-runner"),
+            commitments: Vec::new(),
+        },
+        authority: target_runner_authority(execution),
+        acts: vec![act],
         seal,
-        sync_points: Vec::new(),
+        lineage: Some(Lineage {
+            signal_refs: vec![execution.execution_plan.source_thread_ref.clone()],
+            ..Lineage::default()
+        }),
         metadata: Some(revision_receipt_metadata(execution)),
     };
     seal_revision_receipt(&mut receipt)?;
@@ -1596,11 +1604,11 @@ fn target_repo_runner_revision_receipt(
 
 fn target_repo_runner_source_publication_request(
     execution: &TargetRepoRunnerFixtureExecution,
-    revision_receipt: &HarnessReceipt,
+    revision_receipt: &Receipt,
     revision_projection: &TargetRepoRunnerRevisionReceiptProjection,
 ) -> TargetRepoRunnerSourcePublicationRequest {
     let publication = execution.source_publication_receipt.clone();
-    let revision_receipt_ref = Reference::runx(ReferenceType::HarnessReceipt, &revision_receipt.id);
+    let revision_receipt_ref = Reference::runx(ReferenceType::Receipt, &revision_receipt.id);
     let commands = source_publication_commands(&publication, &revision_receipt_ref);
     TargetRepoRunnerSourcePublicationRequest {
         publication,
@@ -1652,11 +1660,11 @@ fn source_publication_body(
 
 // rust-style-allow: long-function because source publication receipt assembly
 // keeps the reply act, criteria, seal, metadata, and signature hash together.
-fn target_repo_runner_source_publication_harness_receipt(
+fn target_repo_runner_source_publication_receipt_node(
     request: &TargetRepoRunnerSourcePublicationRequest,
     observation: &TargetRepoRunnerSourcePublicationObservation,
     created_at: &str,
-) -> Result<HarnessReceipt, TargetRepoRunnerRuntimeError> {
+) -> Result<Receipt, TargetRepoRunnerRuntimeError> {
     validate_source_publication_observation(request, observation)?;
 
     let act_id = "act_target_runner_source_publication";
@@ -1672,58 +1680,28 @@ fn target_repo_runner_source_publication_harness_receipt(
         "Published target pull request {} to the source issue/thread.",
         observation.pull_request_ref.uri
     );
-    let success_criterion = SuccessCriterion {
-        criterion_id: criterion_id.to_owned(),
-        statement: "Target pull request link is published back to the source issue/thread."
-            .to_owned(),
-        required: true,
-    };
-    let act = Act {
-        schema: None,
-        act_id: act_id.to_owned(),
+    // Role refs the projection reconstructs: PR (source role) + thread/issue
+    // (target role) ride on the act's artifact_refs alongside published refs.
+    let mut role_refs = vec![observation.pull_request_ref.clone()];
+    role_refs.extend(target_refs.clone());
+    role_refs.extend(observation.published_refs.clone());
+    let act = ReceiptAct {
+        id: act_id.to_owned(),
         form: ActForm::Reply,
-        intent: Intent {
-            purpose: "Publish the target pull request link back to the original source context."
-                .to_owned(),
-            legitimacy: "Operational policy admitted source-thread publication for this runner."
-                .to_owned(),
-            success_criteria: vec![success_criterion.clone()],
-            constraints: vec![
-                "Public publication must use repo names and URLs, not local checkout paths."
-                    .to_owned(),
-                "Source issue/thread references must match the target-runner plan.".to_owned(),
-            ],
-            derived_from: vec![
-                observation.pull_request_ref.clone(),
-                observation.revision_receipt_ref.clone(),
-            ],
-        },
         summary: summary.clone(),
-        closure: Closure {
-            disposition: ClosureDisposition::Closed,
-            reason_code: "target_runner_source_published".to_owned(),
-            summary: summary.clone(),
-            closed_at: created_at.to_owned(),
-        },
-        criterion_bindings: vec![CriterionBinding {
+        criteria: vec![ReceiptCriterion {
             criterion_id: criterion_id.to_owned(),
             status: CriterionStatus::Verified,
             evidence_refs: evidence_refs.clone(),
             verification_refs: Vec::new(),
             summary: Some(summary.clone()),
         }],
-        source_refs: vec![
-            observation.pull_request_ref.clone(),
-            observation.revision_receipt_ref.clone(),
-        ],
-        target_refs: target_refs.clone(),
-        surface_refs: target_refs.clone(),
-        artifact_refs: observation.published_refs.clone(),
-        verification_refs: Vec::new(),
-        harness_refs: vec![observation.revision_receipt_ref.clone()],
-        revision: None,
-        verification: None,
-        performed_at: created_at.to_owned(),
+        by: None,
+        artifact_refs: role_refs,
+        detail_ref: Some(Reference::runx(
+            ReferenceType::Act,
+            &format!("{act_id}_detail"),
+        )),
     };
     let seal = receipt_seal(ReceiptSealInputs {
         reason_code: "target_runner_source_published",
@@ -1742,27 +1720,39 @@ fn target_repo_runner_source_publication_harness_receipt(
         safe_id(target_repo),
         reference_id_fragment(&observation.pull_request_ref)
     );
-    let harness = source_publication_receipt_harness(
-        request,
-        observation,
-        &receipt_id,
-        act,
-        seal.clone(),
-        created_at,
-        &evidence_refs,
-    );
-    let mut receipt = HarnessReceipt {
-        schema: HarnessReceiptSchema::V1,
-        id: receipt_id,
+    let mut receipt = Receipt {
+        schema: ReceiptSchema::V1,
+        id: receipt_id.clone(),
         created_at: created_at.to_owned(),
+        canonicalization: RECEIPT_CANONICALIZATION.to_owned(),
         issuer: local_issuer(),
         signature: runx_contracts::ReceiptSignature {
             alg: SignatureAlgorithm::Ed25519,
             value: "sig:pending".to_owned(),
         },
-        harness,
+        digest: "sha256:pending".to_owned(),
+        idempotency: ReceiptIdempotency {
+            intent_key: stable_hash(&format!(
+                "target-runner-source-publication:{}:{}",
+                observation.source_thread_ref.uri, observation.pull_request_ref.uri
+            )),
+            trigger_fingerprint: stable_hash(&observation.pull_request_ref.uri),
+            content_hash: stable_hash(&receipt_id),
+        },
+        subject: Subject {
+            kind: ReceiptSubjectKind::Skill,
+            reference: Reference::runx(ReferenceType::Harness, "target-runner-source-publication"),
+            commitments: Vec::new(),
+        },
+        authority: source_publication_authority(request, created_at),
+        acts: vec![act],
         seal,
-        sync_points: Vec::new(),
+        lineage: Some(Lineage {
+            parent: Some(request.revision_receipt_ref.clone()),
+            previous: Some(request.revision_receipt_ref.clone()),
+            signal_refs: vec![observation.source_thread_ref.clone()],
+            ..Lineage::default()
+        }),
         metadata: Some(source_publication_receipt_metadata(request, observation)),
     };
     seal_revision_receipt(&mut receipt)?;
@@ -1772,8 +1762,6 @@ fn target_repo_runner_source_publication_harness_receipt(
 struct RevisionActInput<'a> {
     act_id: &'a str,
     criterion_id: &'a str,
-    created_at: &'a str,
-    disposition: TargetRepoRunnerPullRequestDisposition,
     summary: &'a str,
     target_repo_ref: &'a Reference,
     source_thread_ref: &'a Reference,
@@ -1781,17 +1769,15 @@ struct RevisionActInput<'a> {
     pull_request_ref: &'a Reference,
     artifact_refs: &'a [Reference],
     verification_refs: &'a [Reference],
-    runner_observation: Option<&'a TargetRepoRunnerGovernedRunnerObservation>,
 }
 
-// rust-style-allow: long-function because the act payload binds intent,
-// closure, revision details, and reference roles as one governed shape.
-fn revision_act(input: RevisionActInput<'_>) -> Act {
+// The receipt records result bindings only; the full intent/target/surface refs
+// and the revision body live behind `detail_ref` (an act-receipt). The role refs
+// the projection needs (repo/PR/thread/issue) ride on the act's artifact_refs.
+fn revision_act(input: RevisionActInput<'_>) -> ReceiptAct {
     let RevisionActInput {
         act_id,
         criterion_id,
-        created_at,
-        disposition,
         summary,
         target_repo_ref,
         source_thread_ref,
@@ -1799,361 +1785,93 @@ fn revision_act(input: RevisionActInput<'_>) -> Act {
         pull_request_ref,
         artifact_refs,
         verification_refs,
-        runner_observation,
     } = input;
-    let mut source_refs = vec![source_thread_ref.clone()];
-    if let Some(source_issue_ref) = source_issue_ref {
-        source_refs.push(source_issue_ref.clone());
-    }
     let target_refs = vec![target_repo_ref.clone(), pull_request_ref.clone()];
-    let success_criterion = SuccessCriterion {
-        criterion_id: criterion_id.to_owned(),
-        statement: "Target pull request is ready and linked to the source thread.".to_owned(),
-        required: true,
-    };
-    Act {
-        schema: None,
-        act_id: act_id.to_owned(),
+    let mut role_refs = vec![
+        target_repo_ref.clone(),
+        pull_request_ref.clone(),
+        source_thread_ref.clone(),
+    ];
+    if let Some(source_issue_ref) = source_issue_ref {
+        role_refs.push(source_issue_ref.clone());
+    }
+    role_refs.extend(artifact_refs.iter().cloned());
+    ReceiptAct {
+        id: act_id.to_owned(),
         form: ActForm::Revision,
-        intent: Intent {
-            purpose: "Run the governed target runner and surface the target pull request."
-                .to_owned(),
-            legitimacy: "Operational policy admitted this target repo runner execution.".to_owned(),
-            success_criteria: vec![success_criterion.clone()],
-            constraints: vec![
-                "Dedupe must run before creating a target pull request.".to_owned(),
-                "Public output must not include local checkout paths.".to_owned(),
-            ],
-            derived_from: source_refs.clone(),
-        },
         summary: summary.to_owned(),
-        closure: Closure {
-            disposition: ClosureDisposition::Closed,
-            reason_code: format!("target_runner_pr_{}", disposition_name(disposition)),
-            summary: summary.to_owned(),
-            closed_at: created_at.to_owned(),
-        },
-        criterion_bindings: vec![CriterionBinding {
+        criteria: vec![ReceiptCriterion {
             criterion_id: criterion_id.to_owned(),
             status: CriterionStatus::Verified,
-            evidence_refs: target_refs.clone(),
+            evidence_refs: target_refs,
             verification_refs: verification_refs.to_vec(),
             summary: Some(summary.to_owned()),
         }],
-        source_refs,
-        target_refs: target_refs.clone(),
-        surface_refs: target_refs.clone(),
-        artifact_refs: artifact_refs.to_vec(),
-        verification_refs: verification_refs.to_vec(),
-        harness_refs: Vec::new(),
-        revision: Some(revision_details(
-            disposition,
-            &success_criterion,
-            target_repo_ref,
-            pull_request_ref,
-            runner_observation,
-            verification_refs,
-            created_at,
+        by: None,
+        artifact_refs: role_refs,
+        detail_ref: Some(Reference::runx(
+            ReferenceType::Act,
+            &format!("{act_id}_detail"),
         )),
-        verification: None,
-        performed_at: created_at.to_owned(),
     }
 }
 
-// rust-style-allow: long-function because revision details preserve target
-// surfaces, output bindings, and runner observations without lossy helpers.
-fn revision_details(
-    disposition: TargetRepoRunnerPullRequestDisposition,
-    success_criterion: &SuccessCriterion,
-    target_repo_ref: &Reference,
-    pull_request_ref: &Reference,
-    runner_observation: Option<&TargetRepoRunnerGovernedRunnerObservation>,
-    verification_refs: &[Reference],
-    created_at: &str,
-) -> RevisionDetails {
-    let target_surfaces = vec![
-        TargetSurface {
-            surface_ref: target_repo_ref.clone(),
-            mutating: true,
-            rationale: Some("Target runner is authorized for this repository.".to_owned()),
+fn target_runner_authority(execution: &TargetRepoRunnerFixtureExecution) -> ReceiptAuthority {
+    ReceiptAuthority {
+        actor_ref: Reference::runx(ReferenceType::Principal, "target_runner"),
+        authority_proof_refs: Vec::new(),
+        grant_refs: Vec::new(),
+        scope_refs: Vec::new(),
+        terms: Vec::new(),
+        attenuation: AuthorityAttenuation {
+            parent_authority_ref: None,
+            subset_proof: None,
         },
-        TargetSurface {
-            surface_ref: pull_request_ref.clone(),
-            mutating: true,
-            rationale: Some(format!(
-                "Pull request path was {} for the dedupe key.",
-                disposition_name(disposition)
-            )),
-        },
-    ];
-    RevisionDetails {
-        change_request: ChangeRequest {
-            request_id: format!("change_target_runner_pr_{}", disposition_name(disposition)),
-            summary: "Prepare the target pull request for human review.".to_owned(),
-            target_surfaces: target_surfaces.clone(),
-            success_criteria: vec![success_criterion.clone()],
-        },
-        change_plan: ChangePlan {
-            plan_id: "plan_target_runner_pr".to_owned(),
-            summary: "Use provider dedupe, run the governed target runner when needed, and record the target pull request.".to_owned(),
-            steps: vec![
-                "Check out and verify the target repo readiness.".to_owned(),
-                "Look up provider pull requests for the dedupe key.".to_owned(),
-                "Create or reuse the target pull request observation.".to_owned(),
-            ],
-            risks: Vec::new(),
-        },
-        target_surfaces,
-        invariants: vec![
-            "No mutation occurs before scafld readiness is observed.".to_owned(),
-            "Dedupe is authoritative for create versus reuse.".to_owned(),
-        ],
-        verification: Some(Verification {
-            schema: None,
-            verification_id: Some("ver_target_runner_pr_ready".to_owned()),
-            status: VerificationStatus::Passed,
-            checks: vec![VerificationCheck {
-                check_id: "check_target_runner_pr_ready".to_owned(),
-                criterion_ids: vec![success_criterion.criterion_id.clone()],
-                status: VerificationStatus::Passed,
-                summary: Some(runner_observation.map_or_else(
-                    || "Existing pull request was reused.".to_owned(),
-                    |observation| observation.summary.clone(),
-                )),
-                checked_refs: vec![target_repo_ref.clone(), pull_request_ref.clone()],
-                evidence_refs: verification_refs.to_vec(),
-                verified_at: Some(created_at.to_owned()),
-            }],
-            verified_at: Some(created_at.to_owned()),
-            evidence_refs: verification_refs.to_vec(),
-        }),
-        handoff_refs: Vec::new(),
-        revision_refs: runner_observation.map_or_else(
-            || vec![pull_request_ref.clone()],
-            |observation| {
-                let mut refs = observation.revision_refs.clone();
-                if !refs.iter().any(|reference| reference.uri == pull_request_ref.uri) {
-                    refs.push(pull_request_ref.clone());
-                }
-                refs
-            },
-        ),
-    }
-}
-
-// rust-style-allow: long-function because the harness payload is the sealed
-// authority boundary that must visibly contain decision, act, and enforcement.
-fn receipt_harness(
-    execution: &TargetRepoRunnerFixtureExecution,
-    receipt_id: &str,
-    act: Act,
-    seal: HarnessSeal,
-    created_at: &str,
-    evidence_refs: &[Reference],
-    artifact_refs: &[Reference],
-) -> Harness {
-    let decision_id = "dec_target_runner_pr";
-    Harness {
-        schema: None,
-        harness_id: format!(
-            "hrn_target_runner_{}",
-            safe_id(&execution.execution_plan.checkout.target_repo)
-        ),
-        parent_harness_ref: None,
-        state: HarnessState::Sealed,
-        host_ref: Reference::runx(ReferenceType::Host, "target_runner_adapter"),
-        harness_ref: Reference::runx(ReferenceType::Harness, "target-runner"),
-        authority: Authority {
-            schema: None,
-            actor_ref: Reference::runx(ReferenceType::Principal, "target_runner"),
-            authority_proof_refs: Vec::new(),
-            grant_refs: Vec::new(),
-            scope_refs: Vec::new(),
-            policy_refs: Vec::new(),
-            terms: Vec::new(),
-            attenuation: AuthorityAttenuation {
-                parent_authority_ref: None,
-                subset_proof: None,
-            },
-            mandate_ref: None,
-        },
-        enforcement: HarnessEnforcement {
-            harness_ref: None,
-            version: "target-runner-adapter.v1".to_owned(),
-            enforcement_profile_hash: stable_hash(&format!(
+        mandate_ref: None,
+        enforcement: ReceiptEnforcement {
+            profile_hash: stable_hash(&format!(
                 "target-runner:{}",
                 execution.execution_plan.checkout.target_repo
             )),
-            enforcer_ref: None,
-            sandbox: HarnessSandbox {
-                profile: "target-runner-adapter".to_owned(),
-                cwd_policy: "target-checkout-hidden".to_owned(),
-                network: "adapter-declared".to_owned(),
-                filesystem: "target-repo-scoped".to_owned(),
-            },
             redaction_refs: Vec::new(),
-            stdout_hash: None,
-            stderr_hash: None,
-            setup_receipt_refs: Vec::new(),
-            teardown_receipt_refs: Vec::new(),
+            setup_refs: Vec::new(),
+            teardown_refs: Vec::new(),
         },
-        idempotency: HarnessIdempotency {
-            intent_key: stable_hash(&format!(
-                "target-runner:{}:{}",
-                execution.execution_plan.checkout.target_repo, execution.dedupe_execution.key
-            )),
-            trigger_fingerprint: stable_hash(&execution.dedupe_execution.key),
-            content_hash: stable_hash(receipt_id),
-        },
-        revision: HarnessRevision {
-            sequence: 1,
-            previous_ref: None,
-        },
-        signal_refs: vec![execution.execution_plan.source_thread_ref.clone()],
-        decisions: vec![Decision {
-            decision_id: decision_id.to_owned(),
-            choice: DecisionChoice::Close,
-            inputs: DecisionInputs {
-                signal_refs: vec![execution.execution_plan.source_thread_ref.clone()],
-                target_ref: Some(execution.execution_plan.target_repo_ref.clone()),
-                opportunity_refs: Vec::new(),
-                selection_ref: None,
-            },
-            proposed_intent: act.intent.clone(),
-            selected_act_id: Some(act.act_id.clone()),
-            selected_harness_ref: None,
-            justification: DecisionJustification {
-                summary: "Selected the policy-admitted target runner path.".to_owned(),
-                evidence_refs: evidence_refs.to_vec(),
-            },
-            closure: Some(Closure {
-                disposition: ClosureDisposition::Closed,
-                reason_code: "target_runner_decision_closed".to_owned(),
-                summary: "Target pull request path was recorded.".to_owned(),
-                closed_at: created_at.to_owned(),
-            }),
-            artifact_refs: artifact_refs.to_vec(),
-        }],
-        acts: vec![act],
-        child_harness_receipt_refs: Vec::new(),
-        artifact_refs: artifact_refs.to_vec(),
-        seal: Some(seal),
     }
 }
 
-// rust-style-allow: long-function because this sealed child harness records
-// authority attenuation, enforcement, decision, and reply act in one boundary.
-fn source_publication_receipt_harness(
+fn source_publication_authority(
     request: &TargetRepoRunnerSourcePublicationRequest,
-    observation: &TargetRepoRunnerSourcePublicationObservation,
-    receipt_id: &str,
-    act: Act,
-    seal: HarnessSeal,
     created_at: &str,
-    evidence_refs: &[Reference],
-) -> Harness {
-    let decision_id = "dec_target_runner_source_publication";
+) -> ReceiptAuthority {
     let target_repo =
         metadata_path_string(&request.publication.metadata, &["target_repo"]).unwrap_or("target");
-    Harness {
-        schema: None,
-        harness_id: format!(
-            "hrn_target_runner_source_publication_{}",
-            safe_id(target_repo)
-        ),
-        parent_harness_ref: Some(request.revision_receipt_ref.clone()),
-        state: HarnessState::Sealed,
-        host_ref: Reference::runx(
-            ReferenceType::Host,
-            "target_runner_source_publication_adapter",
-        ),
-        harness_ref: Reference::runx(ReferenceType::Harness, "target-runner-source-publication"),
-        authority: Authority {
-            schema: None,
-            actor_ref: Reference::runx(
-                ReferenceType::Principal,
-                "target_runner_source_publication",
-            ),
-            authority_proof_refs: Vec::new(),
-            grant_refs: Vec::new(),
-            scope_refs: Vec::new(),
-            policy_refs: Vec::new(),
-            terms: Vec::new(),
-            attenuation: AuthorityAttenuation {
-                parent_authority_ref: Some(request.revision_receipt_ref.clone()),
-                subset_proof: Some(AuthoritySubsetProof {
-                    parent_authority_ref: request.revision_receipt_ref.clone(),
-                    comparison_algorithm: "runx.target-runner.publication-subset.v1".to_owned(),
-                    result: AuthoritySubsetResult::Subset,
-                    compared_terms: Vec::new(),
-                    proof_ref: None,
-                    checked_at: created_at.to_owned(),
-                }),
-            },
-            mandate_ref: None,
-        },
-        enforcement: HarnessEnforcement {
-            harness_ref: None,
-            version: "target-runner-source-publication-adapter.v1".to_owned(),
-            enforcement_profile_hash: stable_hash(&format!(
-                "target-runner-source-publication:{}",
-                target_repo
-            )),
-            enforcer_ref: None,
-            sandbox: HarnessSandbox {
-                profile: "source-publication-adapter".to_owned(),
-                cwd_policy: "no-local-checkout".to_owned(),
-                network: "adapter-declared".to_owned(),
-                filesystem: "no-local-filesystem".to_owned(),
-            },
-            redaction_refs: Vec::new(),
-            stdout_hash: None,
-            stderr_hash: None,
-            setup_receipt_refs: Vec::new(),
-            teardown_receipt_refs: Vec::new(),
-        },
-        idempotency: HarnessIdempotency {
-            intent_key: stable_hash(&format!(
-                "target-runner-source-publication:{}:{}",
-                observation.source_thread_ref.uri, observation.pull_request_ref.uri
-            )),
-            trigger_fingerprint: stable_hash(&observation.pull_request_ref.uri),
-            content_hash: stable_hash(receipt_id),
-        },
-        revision: HarnessRevision {
-            sequence: 1,
-            previous_ref: Some(request.revision_receipt_ref.clone()),
-        },
-        signal_refs: vec![observation.source_thread_ref.clone()],
-        decisions: vec![Decision {
-            decision_id: decision_id.to_owned(),
-            choice: DecisionChoice::Close,
-            inputs: DecisionInputs {
-                signal_refs: vec![observation.source_thread_ref.clone()],
-                target_ref: Some(observation.pull_request_ref.clone()),
-                opportunity_refs: Vec::new(),
-                selection_ref: None,
-            },
-            proposed_intent: act.intent.clone(),
-            selected_act_id: Some(act.act_id.clone()),
-            selected_harness_ref: None,
-            justification: DecisionJustification {
-                summary: "Selected the source-publication path for the target pull request."
-                    .to_owned(),
-                evidence_refs: evidence_refs.to_vec(),
-            },
-            closure: Some(Closure {
-                disposition: ClosureDisposition::Closed,
-                reason_code: "target_runner_source_publication_closed".to_owned(),
-                summary: "Target pull request link was published to the source context.".to_owned(),
-                closed_at: created_at.to_owned(),
+    ReceiptAuthority {
+        actor_ref: Reference::runx(ReferenceType::Principal, "target_runner_source_publication"),
+        authority_proof_refs: Vec::new(),
+        grant_refs: Vec::new(),
+        scope_refs: Vec::new(),
+        terms: Vec::new(),
+        attenuation: AuthorityAttenuation {
+            parent_authority_ref: Some(request.revision_receipt_ref.clone()),
+            subset_proof: Some(AuthoritySubsetProof {
+                parent_authority_ref: request.revision_receipt_ref.clone(),
+                comparison_algorithm: "runx.target-runner.publication-subset.v1".to_owned(),
+                result: AuthoritySubsetResult::Subset,
+                compared_terms: Vec::new(),
+                proof_ref: None,
+                checked_at: created_at.to_owned(),
             }),
-            artifact_refs: observation.published_refs.clone(),
-        }],
-        acts: vec![act],
-        child_harness_receipt_refs: Vec::new(),
-        artifact_refs: observation.published_refs.clone(),
-        seal: Some(seal),
+        },
+        mandate_ref: None,
+        enforcement: ReceiptEnforcement {
+            profile_hash: stable_hash(&format!(
+                "target-runner-source-publication:{target_repo}"
+            )),
+            redaction_refs: Vec::new(),
+            setup_refs: Vec::new(),
+            teardown_refs: Vec::new(),
+        },
     }
 }
 
@@ -2268,61 +1986,44 @@ struct ReceiptSealInputs<'a> {
     artifact_refs: &'a [Reference],
 }
 
-fn receipt_seal(inputs: ReceiptSealInputs<'_>) -> HarnessSeal {
-    HarnessSeal {
+fn receipt_seal(inputs: ReceiptSealInputs<'_>) -> Seal {
+    let _ = inputs.act_id;
+    let _ = inputs.artifact_refs;
+    Seal {
         disposition: ClosureDisposition::Closed,
         reason_code: inputs.reason_code.to_owned(),
         summary: inputs.summary.to_owned(),
         closed_at: inputs.created_at.to_owned(),
-        last_observed_at: inputs.created_at.to_owned(),
-        canonicalization: "runx.harness-receipt.c14n.v1".to_owned(),
-        digest: "sha256:pending".to_owned(),
-        criteria: vec![SealCriterion {
+        criteria: vec![ReceiptCriterion {
             criterion_id: inputs.criterion_id.to_owned(),
             status: CriterionStatus::Verified,
-            act_id: Some(inputs.act_id.to_owned()),
             verification_refs: inputs.verification_refs.to_vec(),
             evidence_refs: inputs.evidence_refs.to_vec(),
             summary: Some(inputs.summary.to_owned()),
         }],
-        verification_summary: Some(ReceiptVerificationSummary {
-            signature_valid: true,
-            hash_commitments_valid: true,
-            authority_attenuation_valid: true,
-            criteria_bound: true,
-            redaction_valid: true,
-            external_attestations_present: !inputs.verification_refs.is_empty(),
-        }),
-        redaction_refs: Vec::new(),
-        artifact_refs: inputs.artifact_refs.to_vec(),
-        hash_commitments: Vec::new(),
     }
 }
 
-fn seal_revision_receipt(receipt: &mut HarnessReceipt) -> Result<(), TargetRepoRunnerRuntimeError> {
+fn seal_revision_receipt(receipt: &mut Receipt) -> Result<(), TargetRepoRunnerRuntimeError> {
     let digest = canonical_receipt_body_digest(receipt)
         .map_err(|error| TargetRepoRunnerRuntimeError::Receipt(error.to_string()))?;
-    receipt.seal.digest = digest.clone();
-    if let Some(harness_seal) = receipt.harness.seal.as_mut() {
-        harness_seal.digest = digest.clone();
-    }
+    receipt.digest = digest.clone();
     receipt.signature.value = format!("sig:{digest}");
-    validate_harness_receipt(receipt)
+    validate_receipt(receipt)
         .map_err(|verification| TargetRepoRunnerRuntimeError::Receipt(format!("{verification:?}")))
 }
 
 // rust-style-allow: long-function because projection validates a sealed receipt
 // and reconstructs the public target-runner view without partial helpers.
 pub fn project_target_repo_runner_revision_receipt(
-    receipt: &HarnessReceipt,
+    receipt: &Receipt,
 ) -> Result<TargetRepoRunnerRevisionReceiptProjection, TargetRepoRunnerRuntimeError> {
-    if receipt.harness.state != HarnessState::Sealed {
+    if matches!(receipt.seal.disposition, ClosureDisposition::Deferred) {
         return Err(TargetRepoRunnerRuntimeError::ReceiptProjection(
-            "receipt harness is not sealed".to_owned(),
+            "receipt is not sealed".to_owned(),
         ));
     }
     let act = receipt
-        .harness
         .acts
         .iter()
         .find(|act| act.form == ActForm::Revision)
@@ -2334,37 +2035,29 @@ pub fn project_target_repo_runner_revision_receipt(
             "target runner metadata is required".to_owned(),
         )
     })?;
-    let pull_request_ref = act
-        .target_refs
-        .iter()
-        .find(|reference| reference.reference_type == ReferenceType::GithubPullRequest)
-        .cloned()
+    let pull_request_ref = find_ref(&act.artifact_refs, ReferenceType::GithubPullRequest)
         .ok_or_else(|| {
             TargetRepoRunnerRuntimeError::ReceiptProjection(
                 "pull request ref is required".to_owned(),
             )
         })?;
-    let target_repo_ref = act
-        .target_refs
-        .iter()
-        .find(|reference| reference.reference_type == ReferenceType::GithubRepo)
-        .cloned()
-        .ok_or_else(|| {
+    let target_repo_ref =
+        find_ref(&act.artifact_refs, ReferenceType::GithubRepo).ok_or_else(|| {
             TargetRepoRunnerRuntimeError::ReceiptProjection(
                 "target repo ref is required".to_owned(),
             )
         })?;
-    let source_thread_ref = act.source_refs.first().cloned().ok_or_else(|| {
-        TargetRepoRunnerRuntimeError::ReceiptProjection("source thread ref is required".to_owned())
-    })?;
-    let source_issue_ref = act
-        .source_refs
-        .iter()
-        .find(|reference| reference.reference_type == ReferenceType::GithubIssue)
-        .cloned();
+    let source_thread_ref = find_ref(&act.artifact_refs, ReferenceType::SlackThread)
+        .or_else(|| act.artifact_refs.first().cloned())
+        .ok_or_else(|| {
+            TargetRepoRunnerRuntimeError::ReceiptProjection(
+                "source thread ref is required".to_owned(),
+            )
+        })?;
+    let source_issue_ref = find_ref(&act.artifact_refs, ReferenceType::GithubIssue);
     Ok(TargetRepoRunnerRevisionReceiptProjection {
-        receipt_ref: Reference::runx(ReferenceType::HarnessReceipt, &receipt.id),
-        act_id: act.act_id.clone(),
+        receipt_ref: Reference::runx(ReferenceType::Receipt, &receipt.id),
+        act_id: act.id.clone(),
         disposition: projection_disposition(&metadata)?,
         target_repo_ref,
         source_issue_ref,
@@ -2376,15 +2069,14 @@ pub fn project_target_repo_runner_revision_receipt(
 }
 
 pub fn project_target_repo_runner_source_publication_receipt(
-    receipt: &HarnessReceipt,
+    receipt: &Receipt,
 ) -> Result<TargetRepoRunnerSourcePublicationProjection, TargetRepoRunnerRuntimeError> {
-    if receipt.harness.state != HarnessState::Sealed {
+    if matches!(receipt.seal.disposition, ClosureDisposition::Deferred) {
         return Err(TargetRepoRunnerRuntimeError::ReceiptProjection(
-            "source publication receipt harness is not sealed".to_owned(),
+            "source publication receipt is not sealed".to_owned(),
         ));
     }
     let act = receipt
-        .harness
         .acts
         .iter()
         .find(|act| act.form == ActForm::Reply)
@@ -2398,36 +2090,47 @@ pub fn project_target_repo_runner_source_publication_receipt(
             "source publication metadata is required".to_owned(),
         )
     })?;
-    let pull_request_ref = act
-        .source_refs
-        .iter()
-        .find(|reference| reference.reference_type == ReferenceType::GithubPullRequest)
-        .cloned()
+    let pull_request_ref = find_ref(&act.artifact_refs, ReferenceType::GithubPullRequest)
         .ok_or_else(|| {
             TargetRepoRunnerRuntimeError::ReceiptProjection(
                 "source publication pull request ref is required".to_owned(),
             )
         })?;
-    let source_thread_ref = act.target_refs.first().cloned().ok_or_else(|| {
-        TargetRepoRunnerRuntimeError::ReceiptProjection(
-            "source publication thread ref is required".to_owned(),
-        )
-    })?;
-    let source_issue_ref = act
-        .target_refs
+    let source_thread_ref =
+        find_ref(&act.artifact_refs, ReferenceType::SlackThread).ok_or_else(|| {
+            TargetRepoRunnerRuntimeError::ReceiptProjection(
+                "source publication thread ref is required".to_owned(),
+            )
+        })?;
+    let source_issue_ref = find_ref(&act.artifact_refs, ReferenceType::GithubIssue);
+    let published_refs = act
+        .artifact_refs
         .iter()
-        .skip(1)
-        .find(|reference| reference.reference_type == ReferenceType::GithubIssue)
-        .cloned();
+        .filter(|reference| {
+            !matches!(
+                reference.reference_type,
+                ReferenceType::GithubPullRequest
+                    | ReferenceType::SlackThread
+                    | ReferenceType::GithubIssue
+            )
+        })
+        .cloned()
+        .collect();
     Ok(TargetRepoRunnerSourcePublicationProjection {
-        receipt_ref: Reference::runx(ReferenceType::HarnessReceipt, &receipt.id),
+        receipt_ref: Reference::runx(ReferenceType::Receipt, &receipt.id),
         source_issue_ref,
         source_thread_ref,
         pull_request_ref,
-        published_refs: act.artifact_refs.clone(),
+        published_refs,
         summary: receipt.seal.summary.clone(),
         metadata,
     })
+}
+
+fn find_ref(refs: &[Reference], reference_type: ReferenceType) -> Option<Reference> {
+    refs.iter()
+        .find(|reference| reference.reference_type == reference_type)
+        .cloned()
 }
 
 fn revision_receipt_metadata(execution: &TargetRepoRunnerFixtureExecution) -> JsonObject {

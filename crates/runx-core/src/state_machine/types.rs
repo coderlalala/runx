@@ -1,3 +1,5 @@
+// rust-style-allow: large-file - state-machine parity wire types stay colocated so single-step and
+// sequential-graph serde surfaces are reviewed against the TS oracle together.
 use std::collections::BTreeMap;
 
 use runx_contracts::{AuthorityVerb, JsonNumber, JsonObject, JsonValue, Reference};

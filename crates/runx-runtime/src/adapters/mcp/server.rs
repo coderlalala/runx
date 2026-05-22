@@ -351,12 +351,13 @@ fn rmcp_call_tool_result(
 }
 
 fn rmcp_json_object(value: JsonObject) -> Result<rmcp::model::JsonObject, rmcp::ErrorData> {
-    match serde_json::to_value(JsonValue::Object(value)).map_err(rmcp_internal_error)? {
-        serde_json::Value::Object(object) => Ok(object),
-        _ => Err(rmcp_internal_error(
-            "MCP tool input schema did not serialize to a JSON object.",
-        )),
-    }
+    serde_json::to_value(JsonValue::Object(value))
+        .map_err(rmcp_internal_error)?
+        .as_object()
+        .cloned()
+        .ok_or_else(|| {
+            rmcp_internal_error("MCP tool input schema did not serialize to a JSON object.")
+        })
 }
 
 fn runx_json_object(value: rmcp::model::JsonObject) -> Result<JsonObject, serde_json::Error> {

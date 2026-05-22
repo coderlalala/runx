@@ -8,6 +8,7 @@ mod payment_authority;
 pub(crate) mod posix_basename;
 pub mod public_work;
 mod retry;
+mod rfc3339;
 pub mod sandbox;
 pub mod scope;
 mod types;

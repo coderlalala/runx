@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use runx_contracts::{
-    ClosureDisposition, ExecutionEvent, HarnessReceipt, JsonObject, JsonValue, ResolutionRequest,
+    ClosureDisposition, ExecutionEvent, Receipt, JsonObject, JsonValue, ResolutionRequest,
     ResolutionResponse, ResolutionResponseActor,
 };
 use runx_core::state_machine::StepAdmissionWitness;
@@ -45,8 +45,8 @@ use crate::receipts::{
 pub struct HarnessReplayOutput {
     pub fixture: HarnessFixture,
     pub status: HarnessExpectedStatus,
-    pub receipt: HarnessReceipt,
-    pub step_receipts: Vec<HarnessReceipt>,
+    pub receipt: Receipt,
+    pub step_receipts: Vec<Receipt>,
     pub skill_output: Option<SkillOutput>,
 }
 
@@ -197,6 +197,8 @@ fn is_x402_idempotency_sequence_graph(fixture: &HarnessFixture) -> bool {
     string_metadata(fixture, "graph_shape") == Some("x402_idempotency_sequence")
 }
 
+// rust-style-allow: long-function - drives the multi-stage x402 idempotency fixture as one linear
+// replay sequence; the ordered assertions are clearer kept together than split across helpers.
 #[cfg(feature = "cli-tool")]
 fn run_x402_idempotency_sequence_fixture(
     fixture: &HarnessFixture,
@@ -580,7 +582,7 @@ fn step_receipt_digest(graph_run: &GraphRun, step_id: &str) -> Result<String, Ha
         .steps
         .iter()
         .find(|run| run.step_id == step_id)
-        .map(|run| run.receipt.seal.digest.clone())
+        .map(|run| run.receipt.digest.clone())
         .ok_or_else(|| HarnessReplayError::Mismatch {
             field: "metadata.x402_idempotency_replay.step",
             expected: step_id.to_owned(),

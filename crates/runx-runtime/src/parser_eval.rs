@@ -256,14 +256,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn evaluates_skill_markdown_validation() -> Result<(), Box<dyn std::error::Error>> {
+    fn evaluates_skill_markdown_validation() -> Result<(), String> {
         let output = evaluate_parser_document_str(
             r#"{
               "kind": "parser.validateSkillMarkdown",
               "markdown": "---\nname: parser-demo\n---\n# Parser Demo\n",
               "mode": "strict"
             }"#,
-        )?;
+        )
+        .map_err(|error| error.to_string())?;
         let ParserEvalOutput::Output { value } = output;
         let JsonValue::Object(skill) = value else {
             return Err("expected validated skill object".into());
@@ -276,8 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_parser_kind_before_deserializing()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn rejects_unsupported_parser_kind_before_deserializing() -> Result<(), String> {
         let error = match evaluate_parser_document_str(r#"{"kind":"parser.unknown"}"#) {
             Ok(_) => return Err("unsupported parser kind must fail closed".into()),
             Err(error) => error,

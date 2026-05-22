@@ -1,3 +1,6 @@
+// rust-style-allow: large-file - the runner authority gate keeps step admission, payment-authority
+// derivation, and in-flight recovery escalation in one module so the admit/recover decision surface
+// is reviewed as a single trust boundary.
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -92,7 +95,7 @@ pub(super) fn enforce_step_authority_receipt_before_success(
     authority: Option<&StepAuthorityContext>,
     output: &SkillOutput,
     outputs: &JsonObject,
-    receipt: &runx_contracts::HarnessReceipt,
+    receipt: &runx_contracts::Receipt,
 ) -> Result<Option<PaymentSupervisorProof>, RuntimeError> {
     let Some(authority) = authority else {
         return Ok(None);
@@ -298,6 +301,8 @@ pub(super) fn sealed_payment_replay(
     }))
 }
 
+// rust-style-allow: long-function - in-flight payment recovery escalation is one decision sequence
+// over the recovered authority context; keeping it linear preserves the ordering of its guards.
 pub(super) fn escalate_in_flight_payment_recovery(
     step: &GraphStep,
     inputs: &JsonObject,

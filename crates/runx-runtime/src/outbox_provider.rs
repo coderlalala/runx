@@ -1,10 +1,13 @@
+// rust-style-allow: large-file - the thread-outbox provider supervisor keeps transport, manifest
+// validation, secret rejection, and redaction in one module so the provider boundary is reviewed
+// as a single trust surface.
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use runx_contracts::{
-    THREAD_OUTBOX_PROVIDER_PROTOCOL_VERSION, ThreadOutboxProviderFetch,
+    JsonValue, THREAD_OUTBOX_PROVIDER_PROTOCOL_VERSION, ThreadOutboxProviderFetch,
     ThreadOutboxProviderManifest, ThreadOutboxProviderObservation,
     ThreadOutboxProviderObservationStatus, ThreadOutboxProviderOperation, ThreadOutboxProviderPush,
     ThreadOutboxProviderTransportKind,
@@ -398,11 +401,17 @@ fn parse_observation(
     if bytes.is_empty() {
         return Err(ThreadOutboxProviderSupervisorError::EmptyResponse);
     }
-    let mut value: serde_json::Value = serde_json::from_slice(bytes)
+    let mut value: JsonValue = serde_json::from_slice(bytes)
         .map_err(|source| json_error("parsing thread outbox provider observation", source))?;
     reject_secret_like_fields(&value, "$")?;
     redact_json_value(&mut value, credential_delivery);
-    let mut observation: ThreadOutboxProviderObservation = serde_json::from_value(value)
+    let redacted = serde_json::to_vec(&value).map_err(|source| {
+        json_error(
+            "serializing redacted thread outbox provider observation",
+            source,
+        )
+    })?;
+    let mut observation: ThreadOutboxProviderObservation = serde_json::from_slice(&redacted)
         .map_err(|source| json_error("validating thread outbox provider observation", source))?;
     if observation.delivery_observations.is_none() {
         if let Some(delivery_observation) = credential_delivery.public_observation() {
@@ -468,11 +477,11 @@ fn validate_observation(
 }
 
 fn reject_secret_like_fields(
-    value: &serde_json::Value,
+    value: &JsonValue,
     path: &str,
 ) -> Result<(), ThreadOutboxProviderSupervisorError> {
     match value {
-        serde_json::Value::Object(object) => {
+        JsonValue::Object(object) => {
             for (key, child) in object {
                 let child_path = format!("{path}.{key}");
                 if secret_like_key(key) {
@@ -483,15 +492,12 @@ fn reject_secret_like_fields(
                 reject_secret_like_fields(child, &child_path)?;
             }
         }
-        serde_json::Value::Array(values) => {
+        JsonValue::Array(values) => {
             for (index, child) in values.iter().enumerate() {
                 reject_secret_like_fields(child, &format!("{path}[{index}]"))?;
             }
         }
-        serde_json::Value::Null
-        | serde_json::Value::Bool(_)
-        | serde_json::Value::Number(_)
-        | serde_json::Value::String(_) => {}
+        JsonValue::Null | JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_) => {}
     }
     Ok(())
 }
@@ -513,22 +519,22 @@ fn secret_like_key(key: &str) -> bool {
     SECRET_KEYS.contains(&normalized.as_str())
 }
 
-fn redact_json_value(value: &mut serde_json::Value, credential_delivery: &CredentialDelivery) {
+fn redact_json_value(value: &mut JsonValue, credential_delivery: &CredentialDelivery) {
     match value {
-        serde_json::Value::String(text) => {
+        JsonValue::String(text) => {
             *text = credential_delivery.redact_text(std::mem::take(text));
         }
-        serde_json::Value::Array(values) => {
+        JsonValue::Array(values) => {
             for child in values {
                 redact_json_value(child, credential_delivery);
             }
         }
-        serde_json::Value::Object(object) => {
+        JsonValue::Object(object) => {
             for child in object.values_mut() {
                 redact_json_value(child, credential_delivery);
             }
         }
-        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {}
+        JsonValue::Null | JsonValue::Bool(_) | JsonValue::Number(_) => {}
     }
 }
 

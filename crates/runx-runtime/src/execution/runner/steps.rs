@@ -40,6 +40,8 @@ pub(super) fn output_error(run: &StepRun) -> String {
     }
 }
 
+// rust-style-allow: long-function - step execution is one linear admit/run/seal sequence; splitting
+// it would scatter the ordering invariants between admission, invocation, and receipt sealing.
 pub(super) fn run_step<A>(
     runtime: &Runtime<A>,
     graph_dir: &Path,
@@ -199,7 +201,7 @@ fn persist_payment_state_for_step<A>(
     step: &GraphStep,
     authority: Option<&super::authority::StepAuthorityContext>,
     outputs: &JsonObject,
-    receipt: &runx_contracts::HarnessReceipt,
+    receipt: &runx_contracts::Receipt,
     supervisor_proof: Option<&PaymentSupervisorProof>,
 ) -> Result<(), RuntimeError>
 where
@@ -227,6 +229,8 @@ where
     .map_err(|source| RuntimeError::payment_state("persisting payment step state", source))
 }
 
+// rust-style-allow: long-function - replayed payment step reconstruction is one linear recovery
+// path; the reconstruction order must stay together to rebuild state deterministically.
 fn run_replayed_payment_step(
     graph_dir: &Path,
     graph_name: &str,
@@ -262,13 +266,13 @@ fn run_replayed_payment_step(
             ),
         ));
     }
-    if receipt.seal.digest != replay.receipt_digest {
+    if receipt.digest != replay.receipt_digest {
         return Err(authority_denied(
             step,
             AuthorityVerb::Spend,
             format!(
                 "sealed payment replay rebuilt receipt digest {}, expected {}",
-                receipt.seal.digest, replay.receipt_digest
+                receipt.digest, replay.receipt_digest
             ),
         ));
     }
@@ -371,14 +375,17 @@ fn replay_stdout_payload(outputs: &JsonObject) -> JsonObject {
 }
 
 fn receipt_has_payment_rail_proof(
-    receipt: &runx_contracts::HarnessReceipt,
+    receipt: &runx_contracts::Receipt,
     rail_proof_ref: &str,
 ) -> bool {
-    receipt.harness.acts.iter().any(|act| {
-        act.verification_refs.iter().any(|reference| {
-            reference.uri == rail_proof_ref
-                && reference.proof_kind.as_ref() == Some(&ProofKind::PaymentRail)
-        })
+    receipt.acts.iter().any(|act| {
+        act.criteria
+            .iter()
+            .flat_map(|criterion| criterion.verification_refs.iter())
+            .any(|reference| {
+                reference.uri == rail_proof_ref
+                    && reference.proof_kind.as_ref() == Some(&ProofKind::PaymentRail)
+            })
     })
 }
 

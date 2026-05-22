@@ -1,3 +1,6 @@
+// rust-style-allow: large-file - credential delivery is one secret-handling trust surface; secret
+// string/env types, redaction, material resolution, and the delivery boundary stay colocated so the
+// "secrets never leak" review happens against the whole module at once.
 use std::collections::BTreeMap;
 use std::fmt;
 
