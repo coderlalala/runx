@@ -25,6 +25,7 @@ fn native_skill_run_pauses_with_agent_act_request() -> Result<(), Box<dyn std::e
         .collect(),
         env: BTreeMap::new(),
         cwd: temp.path().to_path_buf(),
+        local_credential: None,
     })?;
 
     let output = object(&result.output, "skill run result")?;
@@ -90,6 +91,7 @@ fn native_skill_run_resumes_and_seals_harness_receipt() -> Result<(), Box<dyn st
         inputs: BTreeMap::new(),
         env: BTreeMap::new(),
         cwd: temp.path().to_path_buf(),
+        local_credential: None,
     })?;
 
     let output = object(&result.output, "skill run result")?;
@@ -152,6 +154,7 @@ fn native_skill_run_preserves_deferred_closure_disposition()
         inputs: BTreeMap::new(),
         env: BTreeMap::new(),
         cwd: temp.path().to_path_buf(),
+        local_credential: None,
     })?;
 
     let output = object(&result.output, "skill run result")?;
@@ -201,6 +204,7 @@ fn native_skill_run_uses_runtime_receipt_path_resolution() -> Result<(), Box<dyn
         .into_iter()
         .collect(),
         cwd: temp.path().to_path_buf(),
+        local_credential: None,
     })?;
 
     let output = object(&result.output, "skill run result")?;
@@ -223,6 +227,7 @@ fn native_skill_run_rejects_partial_continuation_shape() -> Result<(), Box<dyn s
         inputs: BTreeMap::new(),
         env: BTreeMap::new(),
         cwd: temp.path().to_path_buf(),
+        local_credential: None,
     }) {
         Ok(_) => return Err("run-id without answers should fail".into()),
         Err(error) => error,
@@ -241,6 +246,7 @@ fn native_skill_run_rejects_partial_continuation_shape() -> Result<(), Box<dyn s
         inputs: BTreeMap::new(),
         env: BTreeMap::new(),
         cwd: temp.path().to_path_buf(),
+        local_credential: None,
     }) {
         Ok(_) => return Err("answers without run-id should fail".into()),
         Err(error) => error,

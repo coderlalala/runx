@@ -44,7 +44,13 @@ pub(crate) fn execute_skill_run(request: &SkillRunRequest) -> Result<JsonValue, 
     let skill_dir = resolve_skill_dir(&request.skill_path)?;
     let manifest = load_runner_manifest(&skill_dir)?;
     let runner = selected_runner(&manifest)?;
-    let invocation = runner_invocation(&skill_dir, runner, &request.inputs, &request.env)?;
+    let invocation = runner_invocation(
+        &skill_dir,
+        runner,
+        &request.inputs,
+        &request.env,
+        request.local_credential.as_ref(),
+    )?;
     if runner.source.source_type == "cli-tool" {
         return execute_cli_tool_skill_run(request, &manifest, runner, invocation);
     }
@@ -172,6 +178,7 @@ fn runner_invocation(
     runner: &SkillRunnerDefinition,
     inputs: &BTreeMap<String, JsonValue>,
     env: &BTreeMap<String, String>,
+    local_credential: Option<&crate::execution::orchestrator::LocalCredentialDescriptor>,
 ) -> Result<SkillInvocation, SkillRunError> {
     if !matches!(
         runner.source.source_type.as_str(),
@@ -182,6 +189,18 @@ fn runner_invocation(
             runner.source.source_type
         )));
     }
+    let credential_delivery = match local_credential {
+        Some(descriptor) => crate::credentials::CredentialDelivery::from_local_descriptor(
+            descriptor.provider.clone(),
+            descriptor.auth_mode.clone(),
+            descriptor.env_var.clone(),
+            descriptor.material_ref.clone(),
+            descriptor.scopes.clone(),
+            descriptor.secret.clone(),
+        )
+        .map_err(|error| invalid(format!("local credential provision failed: {error}")))?,
+        None => crate::credentials::CredentialDelivery::none(),
+    };
     Ok(SkillInvocation {
         skill_name: runner.name.clone(),
         source: runner.source.clone(),
@@ -189,7 +208,7 @@ fn runner_invocation(
         resolved_inputs: JsonObject::new(),
         skill_directory: skill_dir.to_path_buf(),
         env: env.clone(),
-        credential_delivery: crate::credentials::CredentialDelivery::none(),
+        credential_delivery,
     })
 }
 

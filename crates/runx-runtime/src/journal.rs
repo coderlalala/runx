@@ -10,7 +10,10 @@ use runx_contracts::{
     ClosureDisposition, ExecutionEvent, HarnessReceipt, HarnessState, JsonObject, JsonValue,
     Reference, ReferenceType,
 };
-use runx_receipts::{ReceiptProofContextProvider, verify_harness_receipt_proof};
+use runx_receipts::{
+    ReceiptFindingCode, ReceiptProofContextProvider, ReceiptVerification,
+    verify_harness_receipt_proof,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -163,7 +166,30 @@ pub fn list_local_history(
     project_runx_dir: &Path,
     filter: &HistoryFilter,
 ) -> Result<LocalHistoryProjection, JournalProjectionError> {
-    list_local_history_with_checkpoints(store, workspace_base, project_runx_dir, filter, &[])
+    list_local_history_with_policy(
+        store,
+        workspace_base,
+        project_runx_dir,
+        filter,
+        RuntimeReceiptSignaturePolicy::local_development(),
+    )
+}
+
+pub fn list_local_history_with_policy(
+    store: &LocalReceiptStore,
+    workspace_base: &Path,
+    project_runx_dir: &Path,
+    filter: &HistoryFilter,
+    signature_policy: RuntimeReceiptSignaturePolicy<'_>,
+) -> Result<LocalHistoryProjection, JournalProjectionError> {
+    list_local_history_with_checkpoints_and_policy(
+        store,
+        workspace_base,
+        project_runx_dir,
+        filter,
+        &[],
+        signature_policy,
+    )
 }
 
 pub fn list_local_history_with_checkpoints(
@@ -173,10 +199,31 @@ pub fn list_local_history_with_checkpoints(
     filter: &HistoryFilter,
     checkpoints: &[PausedRunCheckpoint],
 ) -> Result<LocalHistoryProjection, JournalProjectionError> {
+    list_local_history_with_checkpoints_and_policy(
+        store,
+        workspace_base,
+        project_runx_dir,
+        filter,
+        checkpoints,
+        RuntimeReceiptSignaturePolicy::local_development(),
+    )
+}
+
+pub fn list_local_history_with_checkpoints_and_policy(
+    store: &LocalReceiptStore,
+    workspace_base: &Path,
+    project_runx_dir: &Path,
+    filter: &HistoryFilter,
+    checkpoints: &[PausedRunCheckpoint],
+    signature_policy: RuntimeReceiptSignaturePolicy<'_>,
+) -> Result<LocalHistoryProjection, JournalProjectionError> {
     let label = safe_receipt_store_label(store.root(), workspace_base, project_runx_dir);
     let filter = ResolvedHistoryFilter::parse(filter)?;
-    let all_rows = match store.list() {
-        Ok(receipts) => receipts.iter().map(history_row).collect::<Vec<_>>(),
+    let all_rows = match store.list_without_proof_for_history() {
+        Ok(receipts) => receipts
+            .iter()
+            .map(|receipt| history_row_with_policy(receipt, signature_policy))
+            .collect::<Vec<_>>(),
         Err(ReceiptStoreError::MissingStore { .. }) => Vec::new(),
         Err(error) => return Err(error.into()),
     };
@@ -340,7 +387,10 @@ pub fn exact_receipt_id(reference: &str) -> String {
         .to_owned()
 }
 
-fn history_row(receipt: &HarnessReceipt) -> LocalHistoryReceipt {
+fn history_row_with_policy(
+    receipt: &HarnessReceipt,
+    signature_policy: RuntimeReceiptSignaturePolicy<'_>,
+) -> LocalHistoryReceipt {
     LocalHistoryReceipt {
         id: receipt.id.clone(),
         receipt_ref: harness_receipt_ref(&receipt.id),
@@ -355,10 +405,7 @@ fn history_row(receipt: &HarnessReceipt) -> LocalHistoryReceipt {
         actors: metadata_values(receipt.metadata.as_ref(), &["actor", "runner", "provider"]),
         artifact_types: artifact_types(receipt),
         verification: ReceiptVerificationProjection {
-            status: verification_status(
-                receipt,
-                RuntimeReceiptSignaturePolicy::local_development(),
-            ),
+            status: verification_status(receipt, signature_policy),
         },
     }
 }
@@ -451,11 +498,29 @@ fn verification_status(
 ) -> String {
     let proof_contexts = RuntimeReceiptProofContextProvider::new(signature_policy);
     let context = proof_contexts.proof_context(receipt);
-    if verify_harness_receipt_proof(receipt, &context).valid {
-        "verified".to_owned()
+    let verification = verify_harness_receipt_proof(receipt, &context);
+    if verification.valid {
+        if signature_policy.can_report_production_verified() {
+            "verified".to_owned()
+        } else {
+            "unverified".to_owned()
+        }
+    } else if only_missing_verifier_input(&verification) {
+        "unverified".to_owned()
     } else {
-        "failed".to_owned()
+        "invalid".to_owned()
     }
+}
+
+fn only_missing_verifier_input(verification: &ReceiptVerification) -> bool {
+    !verification.findings.is_empty()
+        && verification.findings.iter().all(|finding| {
+            matches!(
+                finding.code,
+                ReceiptFindingCode::SignatureVerifierMissing
+                    | ReceiptFindingCode::VerificationSummaryInvalid
+            )
+        })
 }
 
 fn receipt_watermark(receipt: &HarnessReceipt) -> String {

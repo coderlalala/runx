@@ -1,7 +1,13 @@
 use std::path::{Path, PathBuf};
 
-use runx_contracts::{ClosureDisposition, HarnessReceiptSchema, HarnessState, JsonValue};
+use runx_contracts::{
+    ClosureDisposition, HarnessReceiptSchema, HarnessState, JsonObject, JsonValue,
+};
 use runx_receipts::canonical_receipt_json;
+use runx_runtime::payment_supervisor::{
+    PAYMENT_RAIL_SUPERVISOR_EVIDENCE_METADATA, PAYMENT_RAIL_SUPERVISOR_VERIFIER_ID,
+    PaymentSupervisorSettlementEvidence, payment_supervisor_evidence_metadata_value,
+};
 use runx_runtime::{
     HarnessExpectedStatus, HarnessFixtureError, HarnessFixtureKind, InvocationStatus,
     RuntimeOptions, SkillAdapter, SkillInvocation, SkillOutput, load_harness_fixture,
@@ -396,7 +402,29 @@ impl SkillAdapter for TestAdapter {
     }
 
     fn invoke(&self, request: SkillInvocation) -> Result<SkillOutput, runx_runtime::RuntimeError> {
+        let mut metadata = JsonObject::default();
         let stdout = if request.skill_name == "pay-fulfill-rail" {
+            let evidence = PaymentSupervisorSettlementEvidence {
+                verifier_id: PAYMENT_RAIL_SUPERVISOR_VERIFIER_ID.to_owned(),
+                proof_ref: "receipt-proof:mock:x402-pay-approval-001".to_owned(),
+                rail: "mock".to_owned(),
+                counterparty: "merchant-123".to_owned(),
+                amount_minor: 125,
+                currency: "USD".to_owned(),
+                idempotency_key: "payment:x402-pay-approval-001".to_owned(),
+                settlement_status: Some("fulfilled".to_owned()),
+                provider_event_ref: None,
+            };
+            let evidence_value = payment_supervisor_evidence_metadata_value(&evidence).map_err(
+                |source| runx_runtime::RuntimeError::SkillFailed {
+                    skill_name: request.skill_name.clone(),
+                    message: source.to_string(),
+                },
+            )?;
+            metadata.insert(
+                PAYMENT_RAIL_SUPERVISOR_EVIDENCE_METADATA.to_owned(),
+                evidence_value,
+            );
             r#"{"payment_rail_packet":{"data":{"rail_result":{"status":"fulfilled","rail":"mock","amount_minor":125,"currency":"USD"},"rail_proof":{"proof_ref":"receipt-proof:mock:x402-pay-approval-001","idempotency_key":"payment:x402-pay-approval-001"},"credential_envelope":{"form":"paid_tool_credential","credential_ref":"credential:mock:x402-pay-approval-001"}}}}"#.to_owned()
         } else {
             request
@@ -415,7 +443,7 @@ impl SkillAdapter for TestAdapter {
             stderr: String::new(),
             exit_code: Some(0),
             duration_ms: 0,
-            metadata: Default::default(),
+            metadata,
         })
     }
 }

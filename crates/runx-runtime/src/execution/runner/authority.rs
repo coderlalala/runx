@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use runx_contracts::{
-    AuthoritySubsetProof, AuthorityTerm, AuthorityVerb, Decision, JsonObject, ProofKind,
-};
+use runx_contracts::{AuthoritySubsetProof, AuthorityTerm, AuthorityVerb, Decision, JsonObject};
 use runx_core::policy::{
     PaymentSpendCapabilityBinding, StepAuthorityAdmission, admit_step_authority,
     authority_term_has_verb,
@@ -22,37 +20,117 @@ use crate::payment_state::{
     consumed_spend_capability_recorded, escalate_payment_rail_mutation,
     lookup_payment_idempotency_entry, lookup_payment_rail_mutation,
 };
+use crate::payment_supervisor::{
+    PaymentSupervisorProof, PaymentSupervisorProofMatch, PaymentSupervisorVerificationInput,
+    validate_payment_supervisor_proof, verify_payment_rail_supervisor_proof,
+};
 
 pub(super) fn enforce_step_authority_receipt_before_success(
     step: &GraphStep,
     authority: Option<&StepAuthorityContext>,
     output: &SkillOutput,
+    outputs: &JsonObject,
     receipt: &runx_contracts::HarnessReceipt,
-) -> Result<(), RuntimeError> {
+) -> Result<Option<PaymentSupervisorProof>, RuntimeError> {
     let Some(authority) = authority else {
-        return Ok(());
+        return Ok(None);
     };
     if !output.succeeded() || authority.verb != AuthorityVerb::Spend {
-        return Ok(());
+        return Ok(None);
     }
-    let proof_present = receipt
-        .harness
-        .acts
-        .iter()
-        .any(|act| act.verification_refs.iter().any(is_payment_rail_proof_ref));
-    if proof_present {
+    let Some(payment) = authority.payment.as_ref() else {
+        return Ok(None);
+    };
+    let act_id = format!("act_{}", step.id);
+    let proof = verify_payment_rail_supervisor_proof(PaymentSupervisorVerificationInput {
+        outputs,
+        metadata: &output.metadata,
+        receipt,
+        rail: &payment.rail,
+        counterparty: &payment.counterparty,
+        amount_minor: payment.amount_minor,
+        currency: &payment.currency,
+        idempotency_key: &payment.idempotency_key.key,
+        spend_capability_ref: &payment.spend_capability_ref.uri,
+        act_id: &act_id,
+    })
+    .map_err(|source| {
+        authority_denied(
+            step,
+            AuthorityVerb::Spend,
+            format!("spend success requires supervisor-verified rail proof: {source}"),
+        )
+    })?;
+    Ok(Some(proof))
+}
+
+pub(super) fn validate_replayed_payment_supervisor_proof(
+    step: &GraphStep,
+    replay: &StepPaymentReplay,
+) -> Result<(), RuntimeError> {
+    validate_payment_supervisor_proof(
+        &replay.supervisor_proof,
+        PaymentSupervisorProofMatch {
+            proof_ref: &replay.rail_proof_ref,
+            rail: &replay.rail,
+            counterparty: &replay.counterparty,
+            amount_minor: replay.amount_minor,
+            currency: &replay.currency,
+            idempotency_key: &replay.idempotency_key.key,
+            spend_capability_ref: &replay.spend_capability_ref,
+            act_id: &replay.act_id,
+            receipt_ref: &replay.receipt_ref,
+            receipt_digest: &replay.receipt_digest,
+        },
+    )
+    .map_err(|source| {
+        authority_denied(
+            step,
+            AuthorityVerb::Spend,
+            format!("sealed payment replay supervisor proof mismatch: {source}"),
+        )
+    })
+}
+
+fn validate_entry_matches_payment(
+    step: &GraphStep,
+    entry: &crate::payment_state::PaymentIdempotencyEntry,
+    payment: &StepPaymentAuthorityContext,
+) -> Result<(), RuntimeError> {
+    if entry.amount_minor != payment.amount_minor || entry.currency != payment.currency {
+        return Err(authority_denied(
+            step,
+            AuthorityVerb::Spend,
+            format!(
+                "payment idempotency key {} was sealed for {} {}, but this spend requested {} {}",
+                payment.idempotency_key.key,
+                entry.amount_minor,
+                entry.currency,
+                payment.amount_minor,
+                payment.currency
+            ),
+        ));
+    }
+    if entry.supervisor_proof.rail == payment.rail
+        && entry.supervisor_proof.counterparty == payment.counterparty
+        && entry.supervisor_proof.spend_capability_ref == payment.spend_capability_ref.uri
+    {
         return Ok(());
     }
     Err(authority_denied(
         step,
         AuthorityVerb::Spend,
-        "spend success requires a sealed rail proof reference".to_owned(),
+        format!(
+            "payment idempotency key {} supervisor proof was sealed for {} {}, capability {}, but this spend requested {} {}, capability {}",
+            payment.idempotency_key.key,
+            entry.supervisor_proof.rail,
+            entry.supervisor_proof.counterparty,
+            entry.supervisor_proof.spend_capability_ref,
+            payment.rail,
+            payment.counterparty,
+            payment.spend_capability_ref.uri
+        ),
     ))
-}
-
-fn is_payment_rail_proof_ref(reference: &runx_contracts::Reference) -> bool {
-    reference.reference_type == runx_contracts::ReferenceType::Verification
-        && reference.proof_kind.as_ref() == Some(&ProofKind::PaymentRail)
 }
 
 pub(super) fn enforce_step_authority_admission(
@@ -139,27 +217,22 @@ pub(super) fn sealed_payment_replay(
     if decision.verb != Some(AuthorityVerb::Spend) {
         return Ok(None);
     }
-    if entry.amount_minor != payment.amount_minor || entry.currency != payment.currency {
-        return Err(authority_denied(
-            step,
-            AuthorityVerb::Spend,
-            format!(
-                "payment idempotency key {} was sealed for {} {}, but this spend requested {} {}",
-                payment.idempotency_key.key,
-                entry.amount_minor,
-                entry.currency,
-                payment.amount_minor,
-                payment.currency
-            ),
-        ));
-    }
+    validate_entry_matches_payment(step, &entry, &payment)?;
 
     Ok(Some(StepPaymentReplay {
-        receipt_ref: entry.receipt_ref,
-        receipt_created_at: entry.receipt_created_at,
-        receipt_digest: entry.receipt_digest,
-        rail_proof_ref: entry.rail_proof_ref,
-        outputs: entry.outputs,
+        receipt_ref: entry.receipt_ref.clone(),
+        receipt_created_at: entry.receipt_created_at.clone(),
+        receipt_digest: entry.receipt_digest.clone(),
+        rail_proof_ref: entry.rail_proof_ref.clone(),
+        idempotency_key: entry.idempotency_key.clone(),
+        spend_capability_ref: entry.supervisor_proof.spend_capability_ref.clone(),
+        rail: entry.supervisor_proof.rail.clone(),
+        counterparty: entry.supervisor_proof.counterparty.clone(),
+        amount_minor: entry.supervisor_proof.amount_minor,
+        currency: entry.supervisor_proof.currency.clone(),
+        act_id,
+        supervisor_proof: entry.supervisor_proof.clone(),
+        outputs: entry.outputs.clone(),
     }))
 }
 
@@ -407,6 +480,14 @@ pub(super) struct StepPaymentReplay {
     pub(super) receipt_created_at: String,
     pub(super) receipt_digest: String,
     pub(super) rail_proof_ref: String,
+    pub(super) idempotency_key: PaymentIdempotencyKey,
+    pub(super) spend_capability_ref: String,
+    pub(super) rail: String,
+    pub(super) counterparty: String,
+    pub(super) amount_minor: u64,
+    pub(super) currency: String,
+    pub(super) act_id: String,
+    pub(super) supervisor_proof: PaymentSupervisorProof,
     pub(super) outputs: JsonObject,
 }
 
@@ -432,36 +513,4 @@ struct ReservedAuthorityInput {
     child_harness_ref: runx_contracts::Reference,
     spend_capability_binding: Option<PaymentSpendCapabilityBinding>,
     consumed_spend_capability_refs: Vec<runx_contracts::Reference>,
-}
-
-#[cfg(test)]
-mod tests {
-    use runx_contracts::{ProofKind, Reference, ReferenceType};
-
-    use super::is_payment_rail_proof_ref;
-
-    #[test]
-    fn payment_rail_proof_matching_uses_typed_kind_not_label() {
-        let typed_ref = Reference {
-            reference_type: ReferenceType::Verification,
-            uri: "receipt-proof:mock:typed".to_owned(),
-            provider: None,
-            locator: None,
-            label: Some("human display text".to_owned()),
-            observed_at: None,
-            proof_kind: Some(ProofKind::PaymentRail),
-        };
-        let label_only_ref = Reference {
-            reference_type: ReferenceType::Verification,
-            uri: "receipt-proof:mock:label-only".to_owned(),
-            provider: None,
-            locator: None,
-            label: Some("payment rail proof".to_owned()),
-            observed_at: None,
-            proof_kind: None,
-        };
-
-        assert!(is_payment_rail_proof_ref(&typed_ref));
-        assert!(!is_payment_rail_proof_ref(&label_only_ref));
-    }
 }

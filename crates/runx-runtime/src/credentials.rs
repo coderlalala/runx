@@ -219,6 +219,50 @@ impl CredentialDelivery {
         }
     }
 
+    /// Build a delivery from a one-shot, per-run local credential descriptor.
+    ///
+    /// This is the OSS local-provision path: no network, no persistence, no
+    /// brokerage. It derives a delivery profile, a credential envelope, and an
+    /// allowed binding decision purely from the supplied descriptor, resolves
+    /// the secret in-memory, and routes it through the same
+    /// [`Self::from_allowed_binding`] seam so policy checks and redaction stay
+    /// centralized. The secret value is held only for the lifetime of this run.
+    pub fn from_local_descriptor(
+        provider: impl Into<String>,
+        auth_mode: impl Into<String>,
+        env_var: impl Into<String>,
+        material_ref: impl Into<String>,
+        scopes: Vec<String>,
+        secret: impl Into<String>,
+    ) -> Result<Self, CredentialDeliveryError> {
+        let provider = provider.into();
+        let auth_mode = auth_mode.into();
+        let material_ref = material_ref.into();
+
+        let profile =
+            CredentialDeliveryProfile::env_token(provider.clone(), auth_mode.clone(), env_var)?;
+        let envelope = CredentialEnvelope {
+            kind: "runx.credential-envelope.v1".to_owned(),
+            grant_id: material_ref.clone(),
+            provider,
+            auth_mode,
+            material_kind: "access_token".to_owned(),
+            connection_id: None,
+            scopes,
+            grant_reference: None,
+            material_ref: material_ref.clone(),
+        };
+        let decision = CredentialBindingDecision::Allow {
+            reasons: vec!["local per-run credential provision".to_owned()],
+        };
+        let resolver = InMemoryMaterialResolver::with_material(
+            material_ref.clone(),
+            ResolvedCredentialMaterial::access_token(material_ref, secret),
+        );
+
+        Self::from_allowed_binding(&decision, &envelope, &profile, &resolver)
+    }
+
     pub fn from_allowed_binding<R: MaterialResolver>(
         decision: &CredentialBindingDecision,
         credential: &CredentialEnvelope,

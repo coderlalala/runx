@@ -140,6 +140,36 @@ impl LocalReceiptStore {
         Ok(receipts)
     }
 
+    pub(crate) fn list_without_proof_for_history(
+        &self,
+    ) -> Result<Vec<HarnessReceipt>, ReceiptStoreError> {
+        self.ensure_store_dir()?;
+        let mut receipts = Vec::new();
+        for entry in
+            fs::read_dir(&self.root).map_err(|source| ReceiptStoreError::StoreUnreadable {
+                path: self.root.clone(),
+                source,
+            })?
+        {
+            let entry = entry.map_err(|source| ReceiptStoreError::StoreUnreadable {
+                path: self.root.clone(),
+                source,
+            })?;
+            let path = entry.path();
+            if path.extension() != Some(OsStr::new("json"))
+                || path.file_name() == Some(OsStr::new(INDEX_FILE_NAME))
+            {
+                continue;
+            }
+            let Some(receipt_id) = path.file_stem().and_then(OsStr::to_str) else {
+                continue;
+            };
+            receipts.push(read_receipt_file_without_proof(&path, receipt_id)?);
+        }
+        receipts.sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(receipts)
+    }
+
     pub fn load_index(&self) -> Result<ReceiptStoreIndex, ReceiptStoreError> {
         self.load_index_with_policy(RuntimeReceiptSignaturePolicy::local_development())
     }
@@ -439,11 +469,40 @@ fn read_receipt_file(
     parse_receipt_contents(&contents, path, expected_id, signature_policy)
 }
 
+fn read_receipt_file_without_proof(
+    path: &Path,
+    expected_id: &str,
+) -> Result<HarnessReceipt, ReceiptStoreError> {
+    let contents = fs::read_to_string(path).map_err(|source| {
+        if source.kind() == ErrorKind::NotFound {
+            ReceiptStoreError::MissingReceipt {
+                path: path.to_path_buf(),
+            }
+        } else {
+            ReceiptStoreError::ReceiptUnreadable {
+                path: path.to_path_buf(),
+                source,
+            }
+        }
+    })?;
+    parse_receipt_contents_without_proof(&contents, path, expected_id)
+}
+
 fn parse_receipt_contents(
     contents: &str,
     path: &Path,
     expected_id: &str,
     signature_policy: RuntimeReceiptSignaturePolicy<'_>,
+) -> Result<HarnessReceipt, ReceiptStoreError> {
+    let receipt = parse_receipt_contents_without_proof(contents, path, expected_id)?;
+    verify_receipt_proof(path, &receipt, signature_policy)?;
+    Ok(receipt)
+}
+
+fn parse_receipt_contents_without_proof(
+    contents: &str,
+    path: &Path,
+    expected_id: &str,
 ) -> Result<HarnessReceipt, ReceiptStoreError> {
     let probe = serde_json::from_str::<ReceiptSchemaProbe>(contents).map_err(|source| {
         ReceiptStoreError::MalformedJson {
@@ -471,7 +530,6 @@ fn parse_receipt_contents(
             file_stem: expected_id.to_owned(),
         });
     }
-    verify_receipt_proof(path, &receipt, signature_policy)?;
     Ok(receipt)
 }
 

@@ -14,6 +14,7 @@ pub trait SignatureVerifier {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SignatureVerificationFailure {
     MissingKey,
+    MalformedKey,
     KeyHashMismatch,
     UnsupportedIssuer,
     UnsupportedAlgorithm,
@@ -24,6 +25,7 @@ pub enum SignatureVerificationFailure {
 pub(super) fn signature_failure_code(error: &SignatureVerificationFailure) -> ReceiptFindingCode {
     match error {
         SignatureVerificationFailure::MissingKey => ReceiptFindingCode::SignatureKeyMissing,
+        SignatureVerificationFailure::MalformedKey => ReceiptFindingCode::SignatureKeyMalformed,
         SignatureVerificationFailure::KeyHashMismatch => {
             ReceiptFindingCode::SignatureKeyHashMismatch
         }
@@ -41,6 +43,7 @@ pub(super) fn signature_failure_code(error: &SignatureVerificationFailure) -> Re
 pub(super) fn signature_failure_path(error: &SignatureVerificationFailure) -> &'static str {
     match error {
         SignatureVerificationFailure::MissingKey
+        | SignatureVerificationFailure::MalformedKey
         | SignatureVerificationFailure::KeyHashMismatch
         | SignatureVerificationFailure::UnsupportedIssuer => "issuer",
         SignatureVerificationFailure::UnsupportedAlgorithm => "signature.alg",
@@ -53,6 +56,9 @@ pub(super) fn signature_failure_message(error: &SignatureVerificationFailure) ->
     match error {
         SignatureVerificationFailure::MissingKey => {
             "signature verifier could not resolve the issuer key"
+        }
+        SignatureVerificationFailure::MalformedKey => {
+            "signature verifier resolved malformed issuer key material"
         }
         SignatureVerificationFailure::KeyHashMismatch => {
             "issuer public key hash does not match the resolved verifier key"

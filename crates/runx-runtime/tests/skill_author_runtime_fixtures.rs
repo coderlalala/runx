@@ -44,6 +44,7 @@ struct FixtureExpected {
     status: String,
     stdout_bytes: Option<usize>,
     stdout_json: Option<JsonValue>,
+    stderr_contains: Option<String>,
     max_duration_ms: Option<u128>,
     sentinel_absent_after_ms: Option<u64>,
 }
@@ -76,7 +77,15 @@ fn rust_matches_skill_author_runtime_fixtures() -> Result<(), Box<dyn std::error
             "{} status",
             fixture.id
         );
-        assert_eq!(output.stderr, "", "{} stderr", fixture.id);
+        if let Some(expected) = fixture.expected.stderr_contains.as_ref() {
+            assert!(
+                output.stderr.contains(expected),
+                "{} stderr should contain {expected:?}",
+                fixture.id
+            );
+        } else {
+            assert_eq!(output.stderr, "", "{} stderr", fixture.id);
+        }
         if let Some(expected) = fixture.expected.stdout_json {
             let actual: JsonValue = serde_json::from_str(&output.stdout)?;
             assert_eq!(actual, expected, "{} stdout_json", fixture.id);

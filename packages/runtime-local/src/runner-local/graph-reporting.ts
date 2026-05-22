@@ -3,7 +3,15 @@ import path from "node:path";
 import type { ResolutionRequestContract as ResolutionRequest } from "@runxhq/contracts";
 
 import type { Caller } from "./index.js";
-import type { GraphStep } from "../parser-types.js";
+
+export interface GraphStep {
+  readonly id: string;
+  readonly label?: string;
+  readonly skill?: string;
+  readonly tool?: string;
+  readonly run?: Readonly<Record<string, unknown>>;
+  readonly runner?: string;
+}
 
 export function graphStepExecutionDirectory(step: GraphStep, stepExecutablePath: string, graphDirectory: string): string {
   if (step.tool) {

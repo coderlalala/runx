@@ -19,8 +19,8 @@ Next: harden
 Reason: `connect-auth-mit-boundary-v1` removed OSS brokerage, but retained
 legacy public `connection_id` wire fields as passive compatibility metadata.
 This spec owns the separate contract migration to provider-opaque naming.
-Blockers: `credential-broker-delivery-contract-v1` and downstream hosted
-credential envelope consumers must confirm wire-compatibility requirements.
+Blockers: none. Greenfields clean cutover; no external wire consumers to keep
+compatible.
 Allowed follow-up command: `scafld harden credential-envelope-opaque-reference-v1`
 Latest runner update: 2026-05-22T03:18:00+10:00
 Review gate: not_started
@@ -34,9 +34,9 @@ constructing provider-specific `nango:<provider>:<connection_id>` locators. This
 spec cleans up the remaining contract vocabulary so passive metadata does not
 continue to encode a provider-shaped concept.
 
-The migration must be wire-safe: either preserve backward-compatible serde
-aliases during a planned transition or explicitly coordinate a versioned contract
-break with the published contract consumers.
+This is a clean cutover. runx is still greenfields with no published external
+consumers of the wire format, so the old `connection_id` key is renamed outright:
+no serde alias, no dual-path, no compatibility shim.
 
 ## Context
 
@@ -53,9 +53,8 @@ break with the published contract consumers.
 - Replace the provider-shaped public field name with provider-opaque naming such
   as `provider_reference`, `credential_reference`, or an equivalent agreed
   contract term.
-- Keep or version the old `connection_id` wire key deliberately, with tests that
-  prove old envelopes either still deserialize through an alias or fail only
-  under an intentional version break.
+- Remove the old `connection_id` wire key outright (no serde alias, no retained
+  legacy field); fixtures and tests assert the new provider-opaque shape only.
 - Update authority-proof metadata projection, fixtures, schemas, docs, and
   downstream tests consistently.
 - Remove the `connection_id` allowlist entries from
@@ -79,9 +78,8 @@ Out of scope:
 
 - [ ] `dod1` Public Rust contract types no longer expose a provider-shaped
   `connection_id` API as the preferred field name.
-- [ ] `dod2` Backward compatibility for existing `connection_id` wire payloads is
-  either proven with serde alias tests or explicitly rejected by a versioned
-  contract-break decision.
+- [ ] `dod2` The old `connection_id` wire key is gone (no alias, no fallback); a
+  test asserts the renamed provider-opaque field is the only accepted shape.
 - [ ] `dod3` Authority-proof fixtures and schema validation match the chosen
   contract shape.
 - [ ] `dod4` `docs/license-boundary.manifest.json` no longer needs allowlist
@@ -90,9 +88,9 @@ Out of scope:
 
 ## Phase 1: Compatibility Design
 
-Inventory every `connection_id` occurrence in retained MIT source and fixtures,
-then choose alias-preserving migration versus versioned break. Record the exact
-wire contract before implementation.
+Inventory every `connection_id` occurrence in retained MIT source and fixtures.
+Record the exact renamed provider-opaque wire contract before implementation. No
+alias path; this is a clean rename.
 
 ## Phase 2: Contract Migration
 
@@ -106,8 +104,8 @@ plus runx-core policy tests.
 
 ## Rollback
 
-If downstream compatibility cannot be proven, keep the legacy fields as passive
-metadata and leave the boundary allowlist in place with this spec blocked.
+Revert the rename to restore the prior field name and re-run the boundary guard
+and policy tests. There is no compatibility layer to unwind (clean cutover).
 
 ## Origin
 

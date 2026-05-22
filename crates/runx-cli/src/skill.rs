@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use runx_contracts::JsonValue;
+use runx_runtime::orchestrator::LocalCredentialDescriptor;
 use runx_runtime::{LocalOrchestrator, SkillRunRequest};
 
 #[derive(Debug, PartialEq)]
@@ -16,6 +17,9 @@ pub struct SkillPlan {
     pub answers: Option<PathBuf>,
     pub json: bool,
     pub inputs: BTreeMap<String, JsonValue>,
+    /// One-shot, per-run local credential supplied via `--credential` and
+    /// `--secret-env`. Never persisted; redacted by the runtime.
+    pub local_credential: Option<LocalCredentialDescriptor>,
 }
 
 pub fn parse_skill_plan(args: &[OsString]) -> Result<SkillPlan, String> {
@@ -26,6 +30,8 @@ pub fn parse_skill_plan(args: &[OsString]) -> Result<SkillPlan, String> {
         index = parse_skill_arg(args, index, &mut state)?;
         index += 1;
     }
+
+    let local_credential = finalize_local_credential(&state)?;
 
     let Some(skill_path) = state.skill_path else {
         return Err("runx skill requires a skill package path".to_owned());
@@ -44,6 +50,7 @@ pub fn parse_skill_plan(args: &[OsString]) -> Result<SkillPlan, String> {
         answers: state.answers,
         json: state.json,
         inputs: state.inputs,
+        local_credential,
     })
 }
 
@@ -55,6 +62,95 @@ struct SkillParseState {
     answers: Option<PathBuf>,
     json: bool,
     inputs: BTreeMap<String, JsonValue>,
+    credential: Option<CredentialBinding>,
+    secret_env: Option<(String, String)>,
+}
+
+/// Non-secret binding metadata parsed from `--credential`.
+struct CredentialBinding {
+    provider: String,
+    auth_mode: String,
+    material_ref: String,
+    scopes: Vec<String>,
+}
+
+/// Parse `--credential <provider>:<auth_mode>:<material_ref>[:<scope,scope>]`.
+fn parse_credential_binding(value: &str) -> Result<CredentialBinding, String> {
+    let mut parts = value.splitn(4, ':');
+    let provider = parts
+        .next()
+        .filter(|part| !part.is_empty())
+        .ok_or_else(|| {
+            "runx skill --credential requires <provider>:<auth_mode>:<material_ref>".to_owned()
+        })?;
+    let auth_mode = parts
+        .next()
+        .filter(|part| !part.is_empty())
+        .ok_or_else(|| {
+            "runx skill --credential requires <provider>:<auth_mode>:<material_ref>".to_owned()
+        })?;
+    let material_ref = parts
+        .next()
+        .filter(|part| !part.is_empty())
+        .ok_or_else(|| {
+            "runx skill --credential requires <provider>:<auth_mode>:<material_ref>".to_owned()
+        })?;
+    let scopes = parts
+        .next()
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|scope| !scope.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(CredentialBinding {
+        provider: provider.to_owned(),
+        auth_mode: auth_mode.to_owned(),
+        material_ref: material_ref.to_owned(),
+        scopes,
+    })
+}
+
+/// Parse `--secret-env <ENV=VALUE>` into an env var name and secret value.
+fn parse_secret_env(value: &str) -> Result<(String, String), String> {
+    let (name, secret) = value
+        .split_once('=')
+        .ok_or_else(|| "runx skill --secret-env requires <ENV_VAR>=<value>".to_owned())?;
+    if name.is_empty() {
+        return Err("runx skill --secret-env requires a non-empty env var name".to_owned());
+    }
+    Ok((name.to_owned(), secret.to_owned()))
+}
+
+/// Build the per-run local credential descriptor from the parsed flags.
+///
+/// `--secret-env` is required to provision a credential (it carries the env var
+/// and the secret); `--credential` supplies the non-secret binding metadata.
+fn finalize_local_credential(
+    state: &SkillParseState,
+) -> Result<Option<LocalCredentialDescriptor>, String> {
+    match (&state.credential, &state.secret_env) {
+        (None, None) => Ok(None),
+        (Some(_), None) => {
+            Err("runx skill --credential requires --secret-env <ENV>=<value>".to_owned())
+        }
+        (binding, Some((env_var, secret))) => {
+            let binding = binding.as_ref().ok_or_else(|| {
+                "runx skill --secret-env requires --credential <provider>:<auth_mode>:<material_ref>"
+                    .to_owned()
+            })?;
+            Ok(Some(LocalCredentialDescriptor {
+                provider: binding.provider.clone(),
+                auth_mode: binding.auth_mode.clone(),
+                env_var: env_var.clone(),
+                material_ref: binding.material_ref.clone(),
+                scopes: binding.scopes.clone(),
+                secret: secret.clone(),
+            }))
+        }
+    }
 }
 
 fn parse_skill_arg(
@@ -89,6 +185,22 @@ fn parse_skill_arg(
         "--answers" => {
             index += 1;
             state.answers = Some(PathBuf::from(string_arg(args, index)?));
+        }
+        value if value.starts_with("--credential=") => {
+            state.credential = Some(parse_credential_binding(
+                value.trim_start_matches("--credential="),
+            )?);
+        }
+        "--credential" => {
+            index += 1;
+            state.credential = Some(parse_credential_binding(&string_arg(args, index)?)?);
+        }
+        value if value.starts_with("--secret-env=") => {
+            state.secret_env = Some(parse_secret_env(value.trim_start_matches("--secret-env="))?);
+        }
+        "--secret-env" => {
+            index += 1;
+            state.secret_env = Some(parse_secret_env(&string_arg(args, index)?)?);
         }
         "--json" => state.json = true,
         "--non-interactive" => {}
@@ -148,6 +260,7 @@ pub fn run_native_skill(plan: SkillPlan) -> ExitCode {
         inputs: plan.inputs,
         env: env::vars().collect(),
         cwd: env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        local_credential: plan.local_credential,
     };
     match LocalOrchestrator.run_skill(&request) {
         Ok(result) => {

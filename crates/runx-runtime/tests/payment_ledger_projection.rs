@@ -7,6 +7,10 @@ use runx_runtime::payment_ledger::{
     build_payment_ledger_projection, persist_x402_payment_ledger_projection_event,
     write_payment_ledger_projection_artifact,
 };
+use runx_runtime::payment_supervisor::{
+    PAYMENT_RAIL_SUPERVISOR_VERIFIER_ID, PaymentSupervisorProof,
+    insert_payment_supervisor_proof_metadata,
+};
 use runx_runtime::receipts::{graph_receipt, step_receipt};
 use runx_runtime::{InvocationStatus, SkillOutput, StepRun};
 use serde_json::Value;
@@ -42,15 +46,16 @@ fn x402_happy_settlement_projection_matches_golden_fixture()
         evidence: vec![
             PaymentLedgerEvidence {
                 receipt: &fulfill.receipt,
-                packet: PaymentLedgerEvidencePacket::RailSettlement(
+                packet: PaymentLedgerEvidencePacket::RailSettlement(Box::new(
                     PaymentRailSettlementEvidence {
                         amount_minor: 125,
                         currency: "USD".to_owned(),
                         rail: "mock".to_owned(),
                         proof_ref: "receipt-proof:mock:paid-echo-001".to_owned(),
                         idempotency_key: "payment:paid-echo-001".to_owned(),
+                        supervisor_proof: Some(paid_echo_supervisor_proof(&fulfill.receipt)),
                     },
-                ),
+                )),
             },
             PaymentLedgerEvidence {
                 receipt: &echo.receipt,
@@ -169,10 +174,14 @@ fn x402_projection_event_persists_after_sealed_graph_receipt()
         "reserve",
         r#"{"payment_reservation_packet":{"data":{"reserved_payment_authority":{"child_authority":{"bounds":{"payment":{"operation":"paid.echo"}}}},"spend_capability_binding":{"idempotency_key":"payment:paid-echo-001","amount_minor":125,"currency":"USD","counterparty":"merchant:paid-echo","rail":"mock"},"spend_capability_ref":{"type":"credential","uri":"runx:payment-capability:paid-echo-spend-1"}}}}"#,
     )?;
-    let fulfill = step_run(
+    let mut fulfill = step_run(
         "x402-pay-paid-echo",
         "fulfill",
         r#"{"payment_rail_packet":{"data":{"rail_result":{"status":"fulfilled","rail":"mock","amount_minor":125,"currency":"USD"},"rail_proof":{"proof_ref":"receipt-proof:mock:paid-echo-001","idempotency_key":"payment:paid-echo-001"},"credential_envelope":{"form":"paid_tool_credential","credential_ref":"credential:mock:paid-echo-001"}}}}"#,
+    )?;
+    insert_payment_supervisor_proof_metadata(
+        &mut fulfill.output.metadata,
+        &paid_echo_supervisor_proof(&fulfill.receipt),
     )?;
     let echo = step_run(
         "x402-pay-paid-echo",
@@ -278,6 +287,23 @@ fn x402_projection_event_persists_refusal_for_blocked_graph_receipt()
     assert_eq!(record["entry"]["data"]["kind"], "payment_ledger_projected");
     assert_eq!(record["entry"]["data"]["detail"]["disposition"], "refused");
     Ok(())
+}
+
+fn paid_echo_supervisor_proof(receipt: &HarnessReceipt) -> PaymentSupervisorProof {
+    PaymentSupervisorProof {
+        verifier_id: PAYMENT_RAIL_SUPERVISOR_VERIFIER_ID.to_owned(),
+        proof_ref: "receipt-proof:mock:paid-echo-001".to_owned(),
+        rail: "mock".to_owned(),
+        counterparty: "merchant:paid-echo".to_owned(),
+        amount_minor: 125,
+        currency: "USD".to_owned(),
+        idempotency_key: "payment:paid-echo-001".to_owned(),
+        spend_capability_ref: "runx:payment-capability:paid-echo-spend-1".to_owned(),
+        act_id: "act_fulfill".to_owned(),
+        receipt_ref: receipt.id.clone(),
+        receipt_digest: receipt.seal.digest.clone(),
+        evidence_digest: "sha256:test-supervisor-evidence".to_owned(),
+    }
 }
 
 fn paid_echo_reservation(

@@ -4,9 +4,12 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use runx_runtime::journal::{HistoryFilter, JournalProjectionError, list_local_history};
+use runx_runtime::journal::{
+    HistoryFilter, JournalProjectionError, list_local_history, list_local_history_with_policy,
+};
 use runx_runtime::{
-    LocalReceiptStore, ReceiptPathInputs, RuntimeReceiptConfig, resolve_receipt_path,
+    Ed25519ReceiptVerifier, LocalReceiptStore, ReceiptPathInputs, RuntimeReceiptConfig,
+    RuntimeReceiptSignaturePolicy, resolve_receipt_path,
 };
 
 // rust-style-allow: large-file because the native history CLI slice keeps
@@ -15,6 +18,7 @@ use runx_runtime::{
 #[derive(Debug)]
 pub enum HistoryCliError {
     InvalidArgs(String),
+    InvalidReceiptVerifier(String),
     Projection(JournalProjectionError),
     Serialize(serde_json::Error),
 }
@@ -23,6 +27,7 @@ impl fmt::Display for HistoryCliError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidArgs(message) => formatter.write_str(message),
+            Self::InvalidReceiptVerifier(message) => formatter.write_str(message),
             Self::Projection(error) => write!(formatter, "{error}"),
             Self::Serialize(error) => write!(formatter, "failed to serialize history: {error}"),
         }
@@ -59,12 +64,23 @@ pub fn run_history_command(
         cwd,
     });
     let store = LocalReceiptStore::new(&resolved.path);
-    let history = list_local_history(
-        &store,
-        &resolved.workspace_base,
-        &resolved.project_runx_dir,
-        &parsed.filter,
-    )
+    let verifier = history_production_verifier(env)?;
+    let history = if let Some(verifier) = verifier.as_ref() {
+        list_local_history_with_policy(
+            &store,
+            &resolved.workspace_base,
+            &resolved.project_runx_dir,
+            &parsed.filter,
+            RuntimeReceiptSignaturePolicy::production(verifier),
+        )
+    } else {
+        list_local_history(
+            &store,
+            &resolved.workspace_base,
+            &resolved.project_runx_dir,
+            &parsed.filter,
+        )
+    }
     .map_err(HistoryCliError::Projection)?;
     let output = if parsed.json {
         format!(
@@ -78,6 +94,40 @@ pub fn run_history_command(
         output,
         error_is_usage: false,
     })
+}
+
+const RUNX_RECEIPT_VERIFY_KID_ENV: &str = "RUNX_RECEIPT_VERIFY_KID";
+const RUNX_RECEIPT_VERIFY_ED25519_PUBLIC_KEY_BASE64_ENV: &str =
+    "RUNX_RECEIPT_VERIFY_ED25519_PUBLIC_KEY_BASE64";
+
+fn history_production_verifier(
+    env: &BTreeMap<String, String>,
+) -> Result<Option<Ed25519ReceiptVerifier>, HistoryCliError> {
+    let kid = non_empty_env(env, RUNX_RECEIPT_VERIFY_KID_ENV);
+    let public_key = non_empty_env(env, RUNX_RECEIPT_VERIFY_ED25519_PUBLIC_KEY_BASE64_ENV);
+    match (kid, public_key) {
+        (None, None) => Ok(None),
+        (Some(kid), Some(public_key)) => Ed25519ReceiptVerifier::from_public_key_base64(
+            kid.to_owned(),
+            public_key,
+        )
+        .map(Some)
+        .map_err(|_| {
+            HistoryCliError::InvalidReceiptVerifier(format!(
+                "{RUNX_RECEIPT_VERIFY_ED25519_PUBLIC_KEY_BASE64_ENV} is not valid Ed25519 public key material"
+            ))
+        }),
+        _ => Err(HistoryCliError::InvalidReceiptVerifier(format!(
+            "{RUNX_RECEIPT_VERIFY_KID_ENV} and {RUNX_RECEIPT_VERIFY_ED25519_PUBLIC_KEY_BASE64_ENV} must be set together"
+        ))),
+    }
+}
+
+fn non_empty_env<'a>(env: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
+    env.get(key)
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 pub fn env_map() -> BTreeMap<String, String> {

@@ -22,6 +22,7 @@ interface FixtureCase {
     readonly status: "sealed" | "failure";
     readonly stdout_bytes?: number;
     readonly stdout_json?: unknown;
+    readonly stderr_contains?: string;
     readonly max_duration_ms?: number;
     readonly sentinel_absent_after_ms?: number;
   };
@@ -69,7 +70,11 @@ describe("skill author runtime fixtures", () => {
         const durationMs = performance.now() - started;
 
         expect(result.status).toBe(fixture.expected.status);
-        expect(result.stderr).toBe("");
+        if (fixture.expected.stderr_contains !== undefined) {
+          expect(result.stderr).toContain(fixture.expected.stderr_contains);
+        } else {
+          expect(result.stderr).toBe("");
+        }
         if (fixture.expected.stdout_json !== undefined) {
           expect(JSON.parse(result.stdout)).toEqual(fixture.expected.stdout_json);
         }

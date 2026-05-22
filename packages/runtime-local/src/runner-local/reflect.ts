@@ -19,7 +19,8 @@ import {
   runnerReceiptSource,
   runnerReceiptStatus,
 } from "./graph-governance.js";
-import type { PostRunReflectPolicy } from "../parser-types.js";
+
+export type PostRunReflectPolicy = "auto" | "always" | "never";
 
 type ReflectReceipt = NonNullable<
   | Extract<RunLocalSkillResult, { readonly status: "sealed" | "failure" }>["receipt"]

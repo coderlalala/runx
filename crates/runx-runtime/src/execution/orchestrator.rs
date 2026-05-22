@@ -24,6 +24,36 @@ pub struct SkillRunRequest {
     pub inputs: BTreeMap<String, JsonValue>,
     pub env: BTreeMap<String, String>,
     pub cwd: PathBuf,
+    /// Optional one-shot, per-run local credential supplied at invocation.
+    ///
+    /// When present, the runtime derives a `CredentialDelivery` from it for this
+    /// single run. The secret value is never persisted and is redacted from
+    /// captured output, receipts, and metadata through the existing delivery
+    /// channel. `None` keeps the current no-credential behavior.
+    pub local_credential: Option<LocalCredentialDescriptor>,
+}
+
+/// Structured per-run credential provision request.
+///
+/// This is the local, no-network establishment surface for the OSS CLI: the
+/// caller supplies the non-secret binding fields plus the raw secret value, and
+/// the runtime turns it into a `CredentialDelivery` through the existing opaque
+/// `MaterialResolver`. No secret state is persisted; the descriptor lives only
+/// for the duration of a single run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalCredentialDescriptor {
+    /// Provider the credential authenticates against (for example `github`).
+    pub provider: String,
+    /// Authentication mode label carried on the delivery profile/envelope.
+    pub auth_mode: String,
+    /// Environment variable the secret is delivered into for the skill process.
+    pub env_var: String,
+    /// Opaque reference identifying the in-memory material for this run.
+    pub material_ref: String,
+    /// Scopes recorded on the credential envelope.
+    pub scopes: Vec<String>,
+    /// The raw secret value supplied for this run only.
+    pub secret: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,7 +74,7 @@ pub struct RunContinuation {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunRequest {
-    Skill(SkillRunRequest),
+    Skill(Box<SkillRunRequest>),
     Graph(GraphRunRequest),
     Harness(HarnessRunRequest),
 }

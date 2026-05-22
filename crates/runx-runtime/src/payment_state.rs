@@ -13,8 +13,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::payment_packets::{PaymentPacketError, PaymentRailPacket, read_payment_rail_packet};
+use crate::payment_supervisor::{
+    PaymentSupervisorProof, PaymentSupervisorProofMatch, validate_payment_supervisor_proof,
+};
 
-pub const PAYMENT_STATE_SCHEMA_VERSION: &str = "runx.payment_state.v3";
+pub const PAYMENT_STATE_SCHEMA_VERSION: &str = "runx.payment_state.v4";
 pub const RUNX_PAYMENT_STATE_PATH_ENV: &str = "RUNX_PAYMENT_STATE_PATH";
 const PAYMENT_STATE_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 const PAYMENT_STATE_LOCK_RETRY: Duration = Duration::from_millis(10);
@@ -55,6 +58,7 @@ pub struct PaymentIdempotencyEntry {
     pub receipt_created_at: String,
     pub receipt_digest: String,
     pub rail_proof_ref: String,
+    pub supervisor_proof: PaymentSupervisorProof,
     pub amount_minor: u64,
     pub currency: String,
     pub outputs: JsonObject,
@@ -106,6 +110,7 @@ pub struct PaymentStepStateInput {
     pub counterparty: String,
     pub amount_minor: u64,
     pub currency: String,
+    pub act_id: String,
 }
 
 #[derive(Debug)]
@@ -189,6 +194,10 @@ pub enum PaymentStateError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("payment supervisor proof is required before sealing rail proof {proof_ref}")]
+    MissingSupervisorProof { proof_ref: String },
+    #[error("payment supervisor proof mismatch: {message}")]
+    SupervisorProof { message: String },
     #[error(transparent)]
     PaymentPacket(#[from] PaymentPacketError),
 }
@@ -384,6 +393,16 @@ fn load_payment_state(path: &Path) -> Result<PaymentStateDocument, PaymentStateE
                         source,
                     })
                 }
+                "runx.payment_state.v3" => {
+                    let legacy: PaymentStateDocumentV3 =
+                        serde_json::from_str(&contents).map_err(|source| {
+                            PaymentStateError::Parse {
+                                path: path.to_path_buf(),
+                                source,
+                            }
+                        })?;
+                    Ok(legacy.into_current())
+                }
                 "runx.payment_state.v2" => {
                     let legacy: PaymentStateDocumentV2 =
                         serde_json::from_str(&contents).map_err(|source| {
@@ -460,6 +479,28 @@ impl PaymentStateDocumentV2 {
     }
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PaymentStateDocumentV3 {
+    schema_version: String,
+    idempotency_entries: BTreeMap<String, serde_json::Value>,
+    consumed_spend_capabilities: BTreeMap<String, SpendCapabilityConsumption>,
+    rail_mutations: BTreeMap<String, RailMutation>,
+}
+
+impl PaymentStateDocumentV3 {
+    fn into_current(self) -> PaymentStateDocument {
+        let _ = self.schema_version;
+        let _ = self.idempotency_entries;
+        PaymentStateDocument {
+            schema_version: PAYMENT_STATE_SCHEMA_VERSION.to_owned(),
+            idempotency_entries: BTreeMap::new(),
+            consumed_spend_capabilities: self.consumed_spend_capabilities,
+            rail_mutations: self.rail_mutations,
+        }
+    }
+}
+
 pub fn consumed_spend_capability_recorded(
     env: &BTreeMap<String, String>,
     cwd: &Path,
@@ -518,11 +559,11 @@ pub fn persist_payment_step_state(
     input: &PaymentStepStateInput,
     outputs: &JsonObject,
     receipt: &runx_contracts::HarnessReceipt,
+    supervisor_proof: Option<&PaymentSupervisorProof>,
 ) -> Result<(), PaymentStateError> {
     let Some(path) = resolve_payment_state_path(env, cwd) else {
         return Ok(());
     };
-    let mut store = FileBackedPaymentStateStore::open(&path)?;
     let rail_packet = read_payment_rail_packet(outputs)?;
     let recovery_state = payment_recovery_state(rail_packet.as_ref());
     let rail_touched = rail_packet
@@ -530,6 +571,8 @@ pub fn persist_payment_step_state(
         .and_then(|packet| packet.result.as_ref())
         .and_then(|result| result.status.as_deref())
         .is_some();
+
+    let mut store = FileBackedPaymentStateStore::open(&path)?;
 
     if rail_touched
         && store
@@ -548,6 +591,12 @@ pub fn persist_payment_step_state(
         .as_ref()
         .and_then(|packet| packet.proof.as_ref())
         .map(|proof| proof.proof_ref.as_str());
+    let supervisor_proof = proof_ref
+        .map(|proof_ref| {
+            validate_sealed_supervisor_proof(input, receipt, proof_ref, supervisor_proof)
+        })
+        .transpose()?;
+
     if let Some(proof_ref) = proof_ref
         && store.lookup_idempotency(&input.idempotency_key).is_none()
     {
@@ -560,6 +609,11 @@ pub fn persist_payment_step_state(
             receipt_created_at: receipt.created_at.clone(),
             receipt_digest: receipt.seal.digest.clone(),
             rail_proof_ref: proof_ref.to_owned(),
+            supervisor_proof: supervisor_proof.cloned().ok_or_else(|| {
+                PaymentStateError::MissingSupervisorProof {
+                    proof_ref: proof_ref.to_owned(),
+                }
+            })?,
             amount_minor: result
                 .and_then(|result| result.amount_minor)
                 .unwrap_or(input.amount_minor),
@@ -599,6 +653,36 @@ pub fn persist_payment_step_state(
     }
 
     Ok(())
+}
+
+fn validate_sealed_supervisor_proof<'a>(
+    input: &PaymentStepStateInput,
+    receipt: &runx_contracts::HarnessReceipt,
+    proof_ref: &str,
+    supervisor_proof: Option<&'a PaymentSupervisorProof>,
+) -> Result<&'a PaymentSupervisorProof, PaymentStateError> {
+    let proof = supervisor_proof.ok_or_else(|| PaymentStateError::MissingSupervisorProof {
+        proof_ref: proof_ref.to_owned(),
+    })?;
+    validate_payment_supervisor_proof(
+        proof,
+        PaymentSupervisorProofMatch {
+            proof_ref,
+            rail: &input.rail,
+            counterparty: &input.counterparty,
+            amount_minor: input.amount_minor,
+            currency: &input.currency,
+            idempotency_key: &input.idempotency_key.key,
+            spend_capability_ref: &input.spend_capability_ref,
+            act_id: &input.act_id,
+            receipt_ref: &receipt.id,
+            receipt_digest: &receipt.seal.digest,
+        },
+    )
+    .map_err(|source| PaymentStateError::SupervisorProof {
+        message: source.to_string(),
+    })?;
+    Ok(proof)
 }
 
 fn replay_safe_outputs(outputs: &JsonObject) -> Result<JsonObject, PaymentStateError> {

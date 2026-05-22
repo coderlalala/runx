@@ -9,6 +9,9 @@ use runx_runtime::payment_state::{
     escalate_payment_rail_mutation, lookup_payment_idempotency_entry, lookup_payment_rail_mutation,
     persist_payment_step_state,
 };
+use runx_runtime::payment_supervisor::{
+    PAYMENT_RAIL_SUPERVISOR_VERIFIER_ID, PaymentSupervisorProof,
+};
 use runx_runtime::receipts::step_receipt;
 use runx_runtime::{InvocationStatus, SkillOutput};
 use serde_json::json;
@@ -28,6 +31,11 @@ fn persists_payment_state_across_fresh_store() -> Result<(), Box<dyn std::error:
             receipt_created_at: "2026-05-18T00:00:00Z".to_owned(),
             receipt_digest: "sha256:receipt-paid-echo-first".to_owned(),
             rail_proof_ref: "receipt-proof:mock:paid-echo-001".to_owned(),
+            supervisor_proof: supervisor_proof_for_fields(
+                "receipt-proof:mock:paid-echo-001",
+                "receipt:paid-echo:first",
+                "sha256:receipt-paid-echo-first",
+            ),
             amount_minor: 125,
             currency: "USD".to_owned(),
             outputs: JsonObject::new(),
@@ -187,6 +195,11 @@ fn rejects_duplicate_idempotency_and_rail_mutation_without_overwrite()
         receipt_created_at: "2026-05-18T00:00:00Z".to_owned(),
         receipt_digest: "sha256:receipt-first".to_owned(),
         rail_proof_ref: "proof:first".to_owned(),
+        supervisor_proof: supervisor_proof_for_fields(
+            "proof:first",
+            "receipt:first",
+            "sha256:receipt-first",
+        ),
         amount_minor: 125,
         currency: "USD".to_owned(),
         outputs: JsonObject::new(),
@@ -198,6 +211,11 @@ fn rejects_duplicate_idempotency_and_rail_mutation_without_overwrite()
             receipt_created_at: "2026-05-18T00:00:00Z".to_owned(),
             receipt_digest: "sha256:receipt-second".to_owned(),
             rail_proof_ref: "proof:second".to_owned(),
+            supervisor_proof: supervisor_proof_for_fields(
+                "proof:second",
+                "receipt:second",
+                "sha256:receipt-second",
+            ),
             amount_minor: 250,
             currency: "USD".to_owned(),
             outputs: JsonObject::new(),
@@ -263,7 +281,16 @@ fn persists_sealed_payment_step_state_for_replay_and_reuse_lookups()
 
     let outputs = sealed_payment_outputs("receipt-proof:mock:paid-echo-001", 125)?;
     let receipt = receipt_for_outputs("x402-pay-idempotency-replay", "fulfill", &outputs)?;
-    persist_payment_step_state(&env, &graph_dir, &input, &outputs, &receipt)?;
+    let supervisor_proof =
+        supervisor_proof_for_receipt(&input, "receipt-proof:mock:paid-echo-001", &receipt);
+    persist_payment_step_state(
+        &env,
+        &graph_dir,
+        &input,
+        &outputs,
+        &receipt,
+        Some(&supervisor_proof),
+    )?;
 
     let entry = lookup_payment_idempotency_entry(&env, &graph_dir, &input.idempotency_key)?
         .ok_or("sealed idempotency entry should be available through public lookup")?;
@@ -313,10 +340,29 @@ fn payment_step_state_persistence_keeps_first_sealed_record()
 
     let first_outputs = sealed_payment_outputs("receipt-proof:mock:first", 125)?;
     let first_receipt = receipt_for_outputs("first", "fulfill", &first_outputs)?;
-    persist_payment_step_state(&env, temp.path(), &input, &first_outputs, &first_receipt)?;
+    let first_supervisor_proof =
+        supervisor_proof_for_receipt(&input, "receipt-proof:mock:first", &first_receipt);
+    persist_payment_step_state(
+        &env,
+        temp.path(),
+        &input,
+        &first_outputs,
+        &first_receipt,
+        Some(&first_supervisor_proof),
+    )?;
     let second_outputs = sealed_payment_outputs("receipt-proof:mock:second", 250)?;
     let second_receipt = receipt_for_outputs("second", "fulfill", &second_outputs)?;
-    persist_payment_step_state(&env, temp.path(), &input, &second_outputs, &second_receipt)?;
+    let mut second_supervisor_proof =
+        supervisor_proof_for_receipt(&input, "receipt-proof:mock:second", &second_receipt);
+    second_supervisor_proof.amount_minor = 250;
+    persist_payment_step_state(
+        &env,
+        temp.path(),
+        &input,
+        &second_outputs,
+        &second_receipt,
+        Some(&second_supervisor_proof),
+    )?;
 
     let store = FileBackedPaymentStateStore::open(temp.path().join("payment-state.json"))?;
     let entry = store
@@ -354,6 +400,11 @@ fn stale_store_mutation_reloads_locked_state_before_writing()
         receipt_created_at: "2026-05-18T00:00:00Z".to_owned(),
         receipt_digest: "sha256:receipt-first".to_owned(),
         rail_proof_ref: "proof:first".to_owned(),
+        supervisor_proof: supervisor_proof_for_fields(
+            "proof:first",
+            "receipt:first",
+            "sha256:receipt-first",
+        ),
         amount_minor: 125,
         currency: "USD".to_owned(),
         outputs: JsonObject::new(),
@@ -366,6 +417,11 @@ fn stale_store_mutation_reloads_locked_state_before_writing()
             receipt_created_at: "2026-05-18T00:00:00Z".to_owned(),
             receipt_digest: "sha256:receipt-second".to_owned(),
             rail_proof_ref: "proof:second".to_owned(),
+            supervisor_proof: supervisor_proof_for_fields(
+                "proof:second",
+                "receipt:second",
+                "sha256:receipt-second",
+            ),
             amount_minor: 250,
             currency: "USD".to_owned(),
             outputs: JsonObject::new(),
@@ -399,7 +455,7 @@ fn persists_partial_rail_mutation_for_recovery_lookup_without_sealed_idempotency
 
     let outputs = partial_payment_outputs()?;
     let receipt = receipt_for_outputs("partial", "fulfill", &outputs)?;
-    persist_payment_step_state(&env, temp.path(), &input, &outputs, &receipt)?;
+    persist_payment_step_state(&env, temp.path(), &input, &outputs, &receipt, None)?;
 
     assert!(
         lookup_payment_idempotency_entry(&env, temp.path(), &input.idempotency_key)?.is_none(),
@@ -443,6 +499,49 @@ fn payment_step_input() -> PaymentStepStateInput {
         counterparty: "merchant:paid-echo".to_owned(),
         amount_minor: 125,
         currency: "USD".to_owned(),
+        act_id: "act_fulfill".to_owned(),
+    }
+}
+
+fn supervisor_proof_for_receipt(
+    input: &PaymentStepStateInput,
+    proof_ref: &str,
+    receipt: &HarnessReceipt,
+) -> PaymentSupervisorProof {
+    PaymentSupervisorProof {
+        verifier_id: PAYMENT_RAIL_SUPERVISOR_VERIFIER_ID.to_owned(),
+        proof_ref: proof_ref.to_owned(),
+        rail: input.rail.clone(),
+        counterparty: input.counterparty.clone(),
+        amount_minor: input.amount_minor,
+        currency: input.currency.clone(),
+        idempotency_key: input.idempotency_key.key.clone(),
+        spend_capability_ref: input.spend_capability_ref.clone(),
+        act_id: input.act_id.clone(),
+        receipt_ref: receipt.id.clone(),
+        receipt_digest: receipt.seal.digest.clone(),
+        evidence_digest: "sha256:test-supervisor-evidence".to_owned(),
+    }
+}
+
+fn supervisor_proof_for_fields(
+    proof_ref: &str,
+    receipt_ref: &str,
+    receipt_digest: &str,
+) -> PaymentSupervisorProof {
+    PaymentSupervisorProof {
+        verifier_id: PAYMENT_RAIL_SUPERVISOR_VERIFIER_ID.to_owned(),
+        proof_ref: proof_ref.to_owned(),
+        rail: "mock".to_owned(),
+        counterparty: "merchant:paid-echo".to_owned(),
+        amount_minor: 125,
+        currency: "USD".to_owned(),
+        idempotency_key: "payment:paid-echo-001".to_owned(),
+        spend_capability_ref: "runx:payment-capability:paid-echo-spend-1".to_owned(),
+        act_id: "act_fulfill".to_owned(),
+        receipt_ref: receipt_ref.to_owned(),
+        receipt_digest: receipt_digest.to_owned(),
+        evidence_digest: "sha256:test-supervisor-evidence".to_owned(),
     }
 }
 

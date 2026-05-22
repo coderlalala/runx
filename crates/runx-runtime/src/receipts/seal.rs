@@ -19,8 +19,10 @@ use runx_receipts::{
 use crate::adapter::SkillOutput;
 use crate::{RuntimeError, StepRun};
 
-use super::tree::validate_runtime_receipt_tree;
-
+use super::signing::{
+    RuntimeReceiptSigner, RuntimeReceiptSigningError, is_local_pseudo_signature,
+    validate_production_issuer,
+};
 pub fn step_receipt(
     graph_name: &str,
     step_id: &str,
@@ -41,6 +43,30 @@ pub fn step_receipt(
     })
 }
 
+pub fn step_receipt_with_signature_policy(
+    graph_name: &str,
+    step_id: &str,
+    attempt: u32,
+    output: &SkillOutput,
+    created_at: &str,
+    signature_policy: RuntimeReceiptSignaturePolicy<'_>,
+) -> Result<HarnessReceipt, RuntimeError> {
+    let disposition = disposition(output);
+    step_receipt_with_disposition_and_policy(
+        StepReceiptWithDisposition {
+            graph_name,
+            step_id,
+            attempt,
+            output,
+            created_at,
+            reason_code: process_reason_code(&disposition),
+            disposition,
+            summary: format!("step {step_id} completed"),
+        },
+        signature_policy,
+    )
+}
+
 pub(crate) struct StepReceiptWithDisposition<'a> {
     pub(crate) graph_name: &'a str,
     pub(crate) step_id: &'a str,
@@ -54,6 +80,16 @@ pub(crate) struct StepReceiptWithDisposition<'a> {
 
 pub(crate) fn step_receipt_with_disposition(
     params: StepReceiptWithDisposition<'_>,
+) -> Result<HarnessReceipt, RuntimeError> {
+    step_receipt_with_disposition_and_policy(
+        params,
+        RuntimeReceiptSignaturePolicy::local_development(),
+    )
+}
+
+pub(crate) fn step_receipt_with_disposition_and_policy(
+    params: StepReceiptWithDisposition<'_>,
+    signature_policy: RuntimeReceiptSignaturePolicy<'_>,
 ) -> Result<HarnessReceipt, RuntimeError> {
     let StepReceiptWithDisposition {
         graph_name,
@@ -96,10 +132,7 @@ pub(crate) fn step_receipt_with_disposition(
         sync_points: Vec::new(),
         metadata: None,
     };
-    seal_receipt(
-        &mut receipt,
-        RuntimeReceiptSignaturePolicy::local_development(),
-    )?;
+    seal_receipt(&mut receipt, signature_policy)?;
     Ok(receipt)
 }
 
@@ -120,6 +153,27 @@ pub fn graph_receipt(
     )
 }
 
+pub fn graph_receipt_with_signature_policy(
+    graph_name: &str,
+    steps: &mut [StepRun],
+    sync_points: Vec<FanoutReceiptSyncPoint>,
+    created_at: &str,
+    signature_policy: RuntimeReceiptSignaturePolicy<'_>,
+) -> Result<HarnessReceipt, RuntimeError> {
+    graph_receipt_with_disposition_and_policy(
+        graph_name,
+        steps,
+        sync_points,
+        created_at,
+        GraphClosure {
+            disposition: ClosureDisposition::Closed,
+            reason_code: "graph_closed".to_owned(),
+            summary: format!("graph {graph_name} completed"),
+        },
+        signature_policy,
+    )
+}
+
 pub(crate) fn graph_receipt_with_disposition(
     graph_name: &str,
     steps: &mut [StepRun],
@@ -129,13 +183,47 @@ pub(crate) fn graph_receipt_with_disposition(
     reason_code: String,
     summary: String,
 ) -> Result<HarnessReceipt, RuntimeError> {
+    graph_receipt_with_disposition_and_policy(
+        graph_name,
+        steps,
+        sync_points,
+        created_at,
+        GraphClosure {
+            disposition,
+            reason_code,
+            summary,
+        },
+        RuntimeReceiptSignaturePolicy::local_development(),
+    )
+}
+
+struct GraphClosure {
+    disposition: ClosureDisposition,
+    reason_code: String,
+    summary: String,
+}
+
+fn graph_receipt_with_disposition_and_policy(
+    graph_name: &str,
+    steps: &mut [StepRun],
+    sync_points: Vec<FanoutReceiptSyncPoint>,
+    created_at: &str,
+    closure: GraphClosure,
+    signature_policy: RuntimeReceiptSignaturePolicy<'_>,
+) -> Result<HarnessReceipt, RuntimeError> {
     let parent_harness_ref = harness_ref(graph_name, "graph");
-    attach_parent_to_child_receipts(steps, &parent_harness_ref)?;
+    attach_parent_to_child_receipts(steps, &parent_harness_ref, signature_policy)?;
     let child_refs = steps
         .iter()
         .map(|step| child_receipt_reference(&step.receipt))
         .collect::<Vec<_>>();
-    let seal = seal(disposition, reason_code, summary, created_at, Vec::new());
+    let seal = seal(
+        closure.disposition,
+        closure.reason_code,
+        closure.summary,
+        created_at,
+        Vec::new(),
+    );
     let mut receipt = HarnessReceipt {
         schema: HarnessReceiptSchema::V1,
         id: format!("hrn_rcpt_{graph_name}"),
@@ -157,24 +245,27 @@ pub(crate) fn graph_receipt_with_disposition(
         sync_points,
         metadata: None,
     };
-    seal_receipt(
-        &mut receipt,
-        RuntimeReceiptSignaturePolicy::local_development(),
-    )?;
+    seal_receipt(&mut receipt, signature_policy)?;
     let children = steps
         .iter()
         .map(|step| step.receipt.clone())
         .collect::<Vec<_>>();
-    validate_local_receipt_tree(&receipt, &children)?;
+    validate_receipt_tree_with_policy(&receipt, &children, signature_policy)?;
     Ok(receipt)
 }
 
-fn validate_local_receipt_tree(
+fn validate_receipt_tree_with_policy(
     root: &HarnessReceipt,
     children: &[HarnessReceipt],
+    signature_policy: RuntimeReceiptSignaturePolicy<'_>,
 ) -> Result<(), RuntimeError> {
-    validate_runtime_receipt_tree(root, children.iter().cloned(), ReceiptTreeConfig::default())
-        .map_err(receipt_error)
+    super::tree::validate_runtime_receipt_tree_with_policy(
+        root,
+        children.iter().cloned(),
+        ReceiptTreeConfig::default(),
+        signature_policy,
+    )
+    .map_err(receipt_error)
 }
 
 fn step_receipt_id(graph_name: &str, step_id: &str, attempt: u32) -> String {
@@ -634,13 +725,11 @@ fn harness_ref(graph_name: &str, step_id: &str) -> Reference {
 fn attach_parent_to_child_receipts(
     steps: &mut [StepRun],
     parent_harness_ref: &Reference,
+    signature_policy: RuntimeReceiptSignaturePolicy<'_>,
 ) -> Result<(), RuntimeError> {
     for step in steps {
         step.receipt.harness.parent_harness_ref = Some(parent_harness_ref.clone());
-        seal_receipt(
-            &mut step.receipt,
-            RuntimeReceiptSignaturePolicy::local_development(),
-        )?;
+        seal_receipt(&mut step.receipt, signature_policy)?;
     }
     Ok(())
 }
@@ -704,6 +793,7 @@ fn seal_receipt(
     receipt: &mut HarnessReceipt,
     signature_policy: RuntimeReceiptSignaturePolicy<'_>,
 ) -> Result<(), RuntimeError> {
+    signature_policy.prepare_receipt(receipt)?;
     sync_verification_summary(receipt);
     let digest =
         canonical_receipt_body_digest(receipt).map_err(|error| RuntimeError::ReceiptInvalid {
@@ -736,6 +826,7 @@ pub(crate) fn proof_context<'a>(
 #[derive(Clone, Copy)]
 pub struct RuntimeReceiptSignaturePolicy<'a> {
     mode: RuntimeReceiptSignatureMode,
+    production_signer: Option<&'a dyn RuntimeReceiptSigner>,
     production_verifier: Option<&'a dyn SignatureVerifier>,
 }
 
@@ -751,6 +842,10 @@ impl std::fmt::Debug for RuntimeReceiptSignaturePolicy<'_> {
             .debug_struct("RuntimeReceiptSignaturePolicy")
             .field("mode", &self.mode)
             .field(
+                "production_signer_supplied",
+                &self.production_signer.is_some(),
+            )
+            .field(
                 "production_verifier_supplied",
                 &self.production_verifier.is_some(),
             )
@@ -763,6 +858,7 @@ impl<'a> RuntimeReceiptSignaturePolicy<'a> {
     pub fn local_development() -> Self {
         Self {
             mode: RuntimeReceiptSignatureMode::LocalDevelopment,
+            production_signer: None,
             production_verifier: None,
         }
     }
@@ -771,7 +867,29 @@ impl<'a> RuntimeReceiptSignaturePolicy<'a> {
     pub fn production(verifier: &'a dyn SignatureVerifier) -> Self {
         Self {
             mode: RuntimeReceiptSignatureMode::Production,
+            production_signer: None,
             production_verifier: Some(verifier),
+        }
+    }
+
+    #[must_use]
+    pub fn production_signing(
+        signer: &'a dyn RuntimeReceiptSigner,
+        verifier: &'a dyn SignatureVerifier,
+    ) -> Self {
+        Self {
+            mode: RuntimeReceiptSignatureMode::Production,
+            production_signer: Some(signer),
+            production_verifier: Some(verifier),
+        }
+    }
+
+    #[must_use]
+    pub fn production_signing_without_verifier(signer: &'a dyn RuntimeReceiptSigner) -> Self {
+        Self {
+            mode: RuntimeReceiptSignatureMode::Production,
+            production_signer: Some(signer),
+            production_verifier: None,
         }
     }
 
@@ -779,6 +897,7 @@ impl<'a> RuntimeReceiptSignaturePolicy<'a> {
     pub fn production_without_verifier() -> Self {
         Self {
             mode: RuntimeReceiptSignatureMode::Production,
+            production_signer: None,
             production_verifier: None,
         }
     }
@@ -786,6 +905,28 @@ impl<'a> RuntimeReceiptSignaturePolicy<'a> {
     #[must_use]
     pub fn allows_local_pseudo_signatures(&self) -> bool {
         self.mode == RuntimeReceiptSignatureMode::LocalDevelopment
+    }
+
+    #[must_use]
+    pub fn can_report_production_verified(&self) -> bool {
+        self.mode == RuntimeReceiptSignatureMode::Production && self.production_verifier.is_some()
+    }
+
+    fn prepare_receipt(self, receipt: &mut HarnessReceipt) -> Result<(), RuntimeError> {
+        if self.allows_local_pseudo_signatures() {
+            receipt.issuer = local_issuer();
+            return Ok(());
+        }
+        let Some(signer) = self.production_signer else {
+            return Err(signing_error(RuntimeReceiptSigningError::MissingSigner));
+        };
+        if self.production_verifier.is_none() {
+            return Err(signing_error(RuntimeReceiptSigningError::MissingVerifier));
+        }
+        let issuer = signer.issuer();
+        validate_production_issuer(&issuer).map_err(signing_error)?;
+        receipt.issuer = issuer;
+        Ok(())
     }
 
     fn sign_receipt(
@@ -797,9 +938,28 @@ impl<'a> RuntimeReceiptSignaturePolicy<'a> {
             receipt.signature.value = format!("sig:{body_digest}");
             return Ok(());
         }
-        Err(RuntimeError::ReceiptInvalid {
-            message: "production receipt signing requires a real Ed25519 signer; local pseudo signatures are disabled".to_owned(),
-        })
+        let Some(signer) = self.production_signer else {
+            return Err(signing_error(RuntimeReceiptSigningError::MissingSigner));
+        };
+        let Some(verifier) = self.production_verifier else {
+            return Err(signing_error(RuntimeReceiptSigningError::MissingVerifier));
+        };
+        let signature = signer
+            .sign_receipt_body(body_digest)
+            .map_err(signing_error)?;
+        if signature.alg != SignatureAlgorithm::Ed25519 {
+            return Err(signing_error(
+                RuntimeReceiptSigningError::UnsupportedAlgorithm,
+            ));
+        }
+        if is_local_pseudo_signature(&signature.value) {
+            return Err(signing_error(RuntimeReceiptSigningError::PseudoSignature));
+        }
+        receipt.signature = signature;
+        verifier
+            .verify(&receipt.issuer, &receipt.signature, body_digest)
+            .map_err(RuntimeReceiptSigningError::SignatureVerification)
+            .map_err(signing_error)
     }
 
     fn verifier(self) -> Option<RuntimeReceiptSignatureVerifier<'a>> {
@@ -852,7 +1012,7 @@ impl SignatureVerifier for RuntimeReceiptSignatureVerifier<'_> {
         signature: &ReceiptSignature,
         body_digest: &str,
     ) -> Result<(), SignatureVerificationFailure> {
-        if signature.value.starts_with("sig:") {
+        if is_local_pseudo_signature(&signature.value) {
             return if self.policy.allows_local_pseudo_signatures()
                 && signature.value == format!("sig:{body_digest}")
             {
@@ -867,6 +1027,12 @@ impl SignatureVerifier for RuntimeReceiptSignatureVerifier<'_> {
             return Err(SignatureVerificationFailure::MissingKey);
         };
         verifier.verify(issuer, signature, body_digest)
+    }
+}
+
+fn signing_error(error: RuntimeReceiptSigningError) -> RuntimeError {
+    RuntimeError::ReceiptInvalid {
+        message: error.to_string(),
     }
 }
 

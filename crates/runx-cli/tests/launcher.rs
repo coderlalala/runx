@@ -146,6 +146,7 @@ fn routes_canonical_skill_run_to_native_plan() {
             )]
             .into_iter()
             .collect(),
+            local_credential: None,
         })
     );
 }

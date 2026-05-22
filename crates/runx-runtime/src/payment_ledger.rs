@@ -6,10 +6,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use runx_contracts::{
-    ClosureDisposition, HarnessReceipt, JsonValue, ProofKind, Reference, ReferenceType,
-    sha256_prefixed,
-};
+use runx_contracts::{ClosureDisposition, HarnessReceipt, JsonValue, Reference, sha256_prefixed};
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value as JsonWireValue, json};
 use thiserror::Error;
@@ -18,6 +15,10 @@ use crate::execution::runner::StepRun;
 use crate::payment_packets::{
     PaymentPacketError, read_paid_tool_packet, read_payment_rail_packet,
     read_payment_refusal_packet, read_payment_reservation_packet,
+};
+use crate::payment_supervisor::{
+    PaymentSupervisorProof, PaymentSupervisorProofMatch, is_payment_rail_proof_ref,
+    payment_supervisor_proof_from_metadata, validate_payment_supervisor_proof,
 };
 
 pub const PAYMENT_LEDGER_PROJECTION_SCHEMA_VERSION: &str = "runx.payment_ledger_projection.v1";
@@ -110,7 +111,7 @@ pub struct PaymentLedgerEvidence<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PaymentLedgerEvidencePacket {
     Reservation(PaymentReservationEvidence),
-    RailSettlement(PaymentRailSettlementEvidence),
+    RailSettlement(Box<PaymentRailSettlementEvidence>),
     Refusal(PaymentRefusalEvidence),
     PaidTool(PaidToolEvidence),
 }
@@ -133,6 +134,7 @@ pub struct PaymentRailSettlementEvidence {
     pub rail: String,
     pub proof_ref: String,
     pub idempotency_key: String,
+    pub supervisor_proof: Option<PaymentSupervisorProof>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -161,6 +163,10 @@ pub enum PaymentLedgerProjectionError {
         receipt_id: String,
         proof_ref: String,
     },
+    #[error("settlement evidence proof ref {proof_ref} is missing supervisor proof")]
+    MissingSupervisorProof { proof_ref: String },
+    #[error("settlement evidence supervisor proof mismatch: {message}")]
+    SupervisorProofMismatch { message: String },
     #[error("paid tool evidence proof ref {proof_ref} has no matching settlement proof")]
     PaidToolProofMismatch { proof_ref: String },
     #[error(
@@ -233,7 +239,9 @@ pub fn build_payment_ledger_projection(
         .evidence
         .iter()
         .find_map(|evidence| match &evidence.packet {
-            PaymentLedgerEvidencePacket::RailSettlement(settlement) => Some((evidence, settlement)),
+            PaymentLedgerEvidencePacket::RailSettlement(settlement) => {
+                Some((evidence, settlement.as_ref()))
+            }
             _ => None,
         });
 
@@ -250,7 +258,8 @@ pub fn build_payment_ledger_projection(
         )
     } else if let Some((evidence, settlement)) = settlement {
         validate_settlement_matches_reservation(reservation, settlement)?;
-        validate_receipt_rail_proof(evidence.receipt, settlement)?;
+        let act_id = validate_receipt_rail_proof(evidence.receipt, settlement)?;
+        validate_settlement_supervisor_proof(reservation, evidence.receipt, settlement, &act_id)?;
         validate_paid_tool_refs(&input.evidence, &settlement.proof_ref)?;
         (
             PaymentLedgerDisposition::Settled,
@@ -397,7 +406,7 @@ pub fn build_x402_payment_ledger_projection_from_steps(
         if let Some(settlement) = settlement_evidence(step)? {
             evidence.push(PaymentLedgerEvidence {
                 receipt: &step.receipt,
-                packet: PaymentLedgerEvidencePacket::RailSettlement(settlement),
+                packet: PaymentLedgerEvidencePacket::RailSettlement(Box::new(settlement)),
             });
         }
         if let Some(refusal) = refusal_evidence(step)? {
@@ -550,29 +559,29 @@ fn validate_settlement_matches_reservation(
 fn validate_receipt_rail_proof(
     receipt: &HarnessReceipt,
     settlement: &PaymentRailSettlementEvidence,
-) -> Result<(), PaymentLedgerProjectionError> {
-    let has_proof = receipt
+) -> Result<String, PaymentLedgerProjectionError> {
+    let act_id = receipt
         .harness
         .acts
         .iter()
-        .flat_map(|act| act.verification_refs.iter())
-        .any(|reference| is_matching_payment_rail_proof(reference, settlement));
-    if has_proof {
-        Ok(())
-    } else {
-        Err(PaymentLedgerProjectionError::MissingReceiptRailProof {
+        .find(|act| {
+            act.verification_refs
+                .iter()
+                .any(|reference| is_matching_payment_rail_proof(reference, settlement))
+        })
+        .map(|act| act.act_id.clone())
+        .ok_or_else(|| PaymentLedgerProjectionError::MissingReceiptRailProof {
             receipt_id: receipt.id.clone(),
             proof_ref: settlement.proof_ref.clone(),
-        })
-    }
+        })?;
+    Ok(act_id)
 }
 
 fn is_matching_payment_rail_proof(
     reference: &Reference,
     settlement: &PaymentRailSettlementEvidence,
 ) -> bool {
-    reference.reference_type == ReferenceType::Verification
-        && reference.proof_kind.as_ref() == Some(&ProofKind::PaymentRail)
+    is_payment_rail_proof_ref(reference)
         && reference.uri == settlement.proof_ref
         && reference.locator.as_deref() == Some(settlement.idempotency_key.as_str())
 }
@@ -591,6 +600,39 @@ fn validate_paid_tool_refs(
         }
     }
     Ok(())
+}
+
+fn validate_settlement_supervisor_proof(
+    reservation: &PaymentReservationEvidence,
+    receipt: &HarnessReceipt,
+    settlement: &PaymentRailSettlementEvidence,
+    act_id: &str,
+) -> Result<(), PaymentLedgerProjectionError> {
+    let proof = settlement.supervisor_proof.as_ref().ok_or_else(|| {
+        PaymentLedgerProjectionError::MissingSupervisorProof {
+            proof_ref: settlement.proof_ref.clone(),
+        }
+    })?;
+    validate_payment_supervisor_proof(
+        proof,
+        PaymentSupervisorProofMatch {
+            proof_ref: &settlement.proof_ref,
+            rail: &settlement.rail,
+            counterparty: &reservation.counterparty,
+            amount_minor: settlement.amount_minor,
+            currency: &settlement.currency,
+            idempotency_key: &settlement.idempotency_key,
+            spend_capability_ref: &reservation.spend_capability_ref,
+            act_id,
+            receipt_ref: &receipt.id,
+            receipt_digest: &receipt.seal.digest,
+        },
+    )
+    .map_err(
+        |source| PaymentLedgerProjectionError::SupervisorProofMismatch {
+            message: source.to_string(),
+        },
+    )
 }
 
 fn evidence_refs(evidence: &[PaymentLedgerEvidence<'_>]) -> Vec<String> {
@@ -703,6 +745,12 @@ fn settlement_evidence(
                 })?,
             proof_ref: proof.proof_ref,
             idempotency_key: proof.idempotency_key,
+            supervisor_proof: payment_supervisor_proof_from_metadata(&step.output.metadata)
+                .map_err(
+                    |source| PaymentLedgerProjectionError::SupervisorProofMismatch {
+                        message: source.to_string(),
+                    },
+                )?,
         }))
     })
 }

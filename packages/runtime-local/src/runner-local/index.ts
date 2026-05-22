@@ -116,7 +116,7 @@ import { readResumedSelectedRunner, resolveInputs } from "./inputs.js";
 import { defaultReceiptDir } from "./receipt-paths.js";
 export { defaultReceiptDir } from "./receipt-paths.js";
 import type { RegistryStore } from "./registry-resolver.js";
-import type { ExecutionGraph, PostRunReflectPolicy, ValidatedSkill } from "../parser-types.js";
+import type { ExecutionGraph, ValidatedSkill } from "../parser-types.js";
 import {
   approvalReceiptMetadata,
   approveSandboxEscalationIfNeeded,
@@ -129,7 +129,7 @@ import {
   resolveSkillRunner,
   type OfficialSkillResolver,
 } from "./execution-targets.js";
-import { projectReflectIfEnabled } from "./reflect.js";
+import { projectReflectIfEnabled, type PostRunReflectPolicy } from "./reflect.js";
 import {
   indexReceiptIfEnabled,
   isAgentMediatedSource,

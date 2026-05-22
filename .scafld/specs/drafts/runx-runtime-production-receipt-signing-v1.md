@@ -13,17 +13,60 @@ risk_level: high
 
 ## Current State
 
-Status: draft
-Current phase: planning
-Next: harden
+Status: implementing
+Current phase: Phase 2 (runtime sealing)
+Next: wire the production signature policy from runtime options into the seal
+path; make history strict-proof verification production-aware.
 Reason: R2 from `runx-security-hardening-v1` remains open: runtime receipts are
 not production-signed by default, and the runtime receipt builder is still wired
-through local-development signature policy.
-Blockers: settle the signer/key-resolver boundary before implementation.
+through local-development signature policy. Architecture settled 2026-05-22.
+Blockers: none. Signer/verifier boundary is settled (see Settled Architecture):
+Ed25519 over `canonical_receipt_body_digest`, key material resolved from env,
+verifier/key-resolver shared by seal, store, journal, and CLI history.
 Allowed follow-up command: `scafld harden runx-runtime-production-receipt-signing-v1`
-Latest runner update: 2026-05-22T12:04:12+10:00 drafted from
-`runx-security-hardening-v1` R2.
+Latest runner update: 2026-05-22 architecture settled and implementation
+authorized; the Ed25519 signer/verifier primitive in
+`crates/runx-runtime/src/receipts/signing.rs` already exists and is unit-tested,
+this work wires it into the live seal/verify path.
 Review gate: not_started
+
+## Settled Architecture
+
+- The runtime is the only trust boundary. A receipt is production-trusted only
+  when the runtime signs `canonical_receipt_body_digest` with a real Ed25519
+  key and the bound verifier confirms it. `placeholder_signature()` and
+  `sig:<digest>` pseudo signatures are local-development only and must never be
+  reported as production-verified.
+- A single `RuntimeReceiptSignaturePolicy` flows from `RuntimeOptions` through
+  step/graph sealing, the receipt store, journal projection, and CLI history,
+  so one verifier/key-resolver governs every consumer. Production-vs-local is
+  decided once, from configured key material (env-resolved), never per call
+  site.
+- Key material is resolved outside receipts: private seed never enters a
+  receipt, log, metadata, snapshot, or committed fixture. Public `kid` +
+  `public_key_sha256` are the only key facts bound into issuer metadata.
+
+## A+ Coding Invariants
+
+This work must hold the runx Rust core invariants (enforced by
+`scripts/check-rust-core-style.mjs`, `crates/deny.toml`, and
+`[workspace.lints]`):
+
+- Typed errors only via `thiserror`; no `anyhow`, `eyre`, or `Box<dyn Error>` in
+  library code. Signing/verification failures use typed
+  `RuntimeReceiptSigningError` / verifier finding variants.
+- No `unwrap`, `expect`, `panic`, `todo`, `unimplemented`, `dbg`, or `print` in
+  runtime/library code. Fail-closed paths return typed errors.
+- No `serde_json::Value` in public API surfaces; typed structs in, typed structs
+  out. `BTreeMap`/`BTreeSet` for determinism, never `HashMap`.
+- No wildcard re-exports; `unsafe` forbidden.
+- Parse-don't-validate: production-vs-local is a sum type, not a bool pair; an
+  unsigned-but-claimed-production receipt is unrepresentable.
+- File <=350 lines / fn <=60 lines, with documented `// rust-style-allow:`
+  escape hatches naming the reason where a security transaction genuinely needs
+  it.
+- Determinism: signing inputs and fixture keys are deterministic; golden
+  regeneration is reproducible.
 
 ## Summary
 

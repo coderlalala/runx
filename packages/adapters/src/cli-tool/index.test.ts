@@ -75,7 +75,7 @@ describe("invokeCliTool", () => {
     expect(result.durationMs).toBeLessThan(1500);
   });
 
-  it("truncates stdout by byte count without emitting broken UTF-8", async () => {
+  it("fails closed and omits output when stdout exceeds the capture limit", async () => {
     const result = await invokeCliTool({
       source: {
         command: "node",
@@ -90,11 +90,10 @@ describe("invokeCliTool", () => {
       skillDirectory: process.cwd(),
     });
 
-    expect(result.status).toBe("sealed");
-    expect(Buffer.byteLength(result.stdout, "utf8")).toBeLessThanOrEqual(outputLimitBytes);
-    expect(result.stdout).not.toContain("\uFFFD");
-    expect(result.stdout.endsWith("€")).toBe(false);
-    expect(result.stdout).toBe("a".repeat(outputLimitBytes - 1));
+    expect(result.status).toBe("failure");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("stdout/stderr omitted");
+    expect(result.errorMessage).toContain("stdout/stderr omitted");
   });
 
   it("applies declared env allowlist and reports sandbox profile metadata", async () => {

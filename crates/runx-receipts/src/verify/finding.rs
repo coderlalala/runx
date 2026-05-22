@@ -34,6 +34,7 @@ pub enum ReceiptFindingCode {
     SignatureVerifierMissing,
     SignatureInvalid,
     SignatureKeyMissing,
+    SignatureKeyMalformed,
     SignatureKeyHashMismatch,
     SignatureUnsupportedIssuer,
     SignatureUnsupportedAlgorithm,

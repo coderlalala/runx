@@ -22,6 +22,7 @@ pub mod parser_eval;
 pub mod payment_ledger;
 pub mod payment_packets;
 pub mod payment_state;
+pub mod payment_supervisor;
 pub mod post_merge_observer;
 pub mod receipts;
 pub mod registry;
@@ -103,6 +104,10 @@ pub use receipts::store::{
 };
 pub use receipts::tree::{
     RuntimeReceiptResolver, validate_runtime_receipt_tree, verify_runtime_receipt_tree,
+};
+pub use receipts::{
+    Ed25519ReceiptSigner, Ed25519ReceiptVerifier, ProductionReceiptKey,
+    RuntimeReceiptSignaturePolicy, RuntimeReceiptSigner, RuntimeReceiptSigningError,
 };
 pub use registry::{RegistryInstallMetadataInput, registry_install_receipt_metadata};
 #[cfg(feature = "cli-tool")]

@@ -3,12 +3,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  canonicalJsonStringify,
+  sha256Prefixed,
   validateActAssignmentContract,
   type ActAssignmentActorContract,
   type ActAssignmentContract,
   type ActAssignmentHostContract,
 } from "@runxhq/contracts";
-import { hashStable, isRecord } from "@runxhq/core/util";
 
 const workspaceRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const fixtureRoot = path.join(workspaceRoot, "fixtures", "contracts");
@@ -293,12 +294,12 @@ function deriveActAssignmentIntentKey(options: {
   readonly sourceRef?: string;
   readonly inputOverrides?: JsonRecord;
 }): string {
-  return withSha256Prefix(hashStable({
+  return canonicalSha256({
     skill_ref: options.skillRef,
     runner: options.runner,
     source_ref: normalizeNonEmptyString(options.sourceRef),
     input_overrides: normalizeActAssignmentRecord(options.inputOverrides),
-  }));
+  });
 }
 
 function deriveActAssignmentTriggerKey(options: {
@@ -309,14 +310,14 @@ function deriveActAssignmentTriggerKey(options: {
   if (!triggerRef) {
     return undefined;
   }
-  return withSha256Prefix(hashStable({
+  return canonicalSha256({
     host_kind: options.hostKind,
     trigger_ref: triggerRef,
-  }));
+  });
 }
 
 function deriveActAssignmentContentHash(inputOverrides?: JsonRecord): string {
-  return withSha256Prefix(hashStable(normalizeActAssignmentRecord(inputOverrides) ?? {}));
+  return canonicalSha256(normalizeActAssignmentRecord(inputOverrides) ?? {});
 }
 
 function normalizeActAssignmentRecord(value: unknown): JsonRecord | undefined {
@@ -388,8 +389,8 @@ function normalizeUnknown(value: unknown): unknown {
   return normalized;
 }
 
-function withSha256Prefix(hash: string): string {
-  return `sha256:${hash}`;
+function canonicalSha256(value: unknown): string {
+  return sha256Prefixed(canonicalJsonStringify(pruneUndefined(value)));
 }
 
 function normalizeNonEmptyString(value: unknown): string | undefined {
@@ -411,6 +412,10 @@ function pruneUndefined<T>(value: T): T {
     result[key] = pruneUndefined(entry);
   }
   return result as T;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function buildAsterControlFixtures(): readonly ContractFixture[] {

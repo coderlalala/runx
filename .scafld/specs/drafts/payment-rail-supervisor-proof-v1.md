@@ -13,14 +13,59 @@ risk_level: high
 
 ## Current State
 
-Status: draft
-Current phase: planning
-Next: harden
-Reason: R3 from `runx-security-hardening-v1` remains open
-Blockers: none for planning; runtime implementation intentionally not started
+Status: implementing
+Current phase: producer wiring
+Next: synthesize supervisor evidence from the admitted spend authority before
+the receipt-before-success gate; share the synthesis path with the test adapter.
+Reason: R3 from `runx-security-hardening-v1` remains open. Architecture settled
+2026-05-22: the verifier/enforcement half exists but no producer synthesizes the
+supervisor evidence in the live path, so every real spend fails closed.
+Blockers: none. R2 (production receipt signing) is the integrity floor and is
+sequenced first.
 Allowed follow-up command: `scafld harden payment-rail-supervisor-proof-v1`
-Latest runner update: 2026-05-22T12:05:00+10:00
+Latest runner update: 2026-05-22 architecture settled and implementation
+authorized.
 Review gate: not_started
+
+## Settled Architecture
+
+- The Rust runtime is the trusted supervisor. The skill emits only a *claim*
+  (the rail packet in step outputs). It can never produce the proof or the
+  evidence.
+- The supervisor synthesizes `PaymentSupervisorSettlementEvidence`
+  deterministically from the *admitted spend authority*
+  (`StepPaymentAuthorityContext`: rail, counterparty, amount_minor, currency,
+  idempotency_key, spend_capability_ref) plus the claim's `proof_ref`, and
+  validates the skill's rail-packet claim against admission (any drift in rail,
+  counterparty, amount, currency, or idempotency key is denied). Evidence facts
+  originate from admission, never from a skill-provided object.
+- `output.metadata` is a runtime-controlled channel (it is `sandbox.metadata`
+  built by `sandbox_metadata()`; a cli-tool skill cannot write it), so the
+  runtime writing synthesized evidence there and the gate reading it is not a
+  trust hole. The single rule: the runtime is the writer, derived from
+  admission.
+- `PaymentSupervisorProof` binds every admitted spend fact plus receipt
+  ref/digest and an evidence digest, satisfying dod2. The negative
+  proofless-rail fixture must still fail closed (dod1).
+
+## A+ Coding Invariants
+
+This work must hold the runx Rust core invariants (enforced by
+`scripts/check-rust-core-style.mjs`, `crates/deny.toml`, and
+`[workspace.lints]`):
+
+- Typed errors only via `thiserror` (`PaymentSupervisorError`,
+  `PaymentStateError`); no `anyhow`/`eyre`/`Box<dyn Error>` in library code.
+- No `unwrap`/`expect`/`panic`/`todo`/`dbg`/`print`; spend gating fails closed
+  with typed errors.
+- No `serde_json::Value` in public API surfaces; `BTreeMap`/`BTreeSet`, never
+  `HashMap`. No wildcard re-exports; `unsafe` forbidden.
+- Parse-don't-validate: the supervisor proof match binds all admitted fields by
+  type, so a partially-matched proof is unrepresentable.
+- The production synthesis path and the test adapter share one function, so test
+  and live behavior cannot diverge.
+- File <=350 lines / fn <=60 lines with documented `// rust-style-allow:`
+  escape hatches where a payment transaction genuinely needs it.
 
 ## Summary
 

@@ -129,6 +129,8 @@ export async function invokeCliTool(request: CliToolInvokeRequest): Promise<CliT
     let timedOut = false;
     let aborted = false;
     let finished = false;
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
 
     let forceKill: NodeJS.Timeout | undefined;
     const timeoutMs = Math.max(0.05, request.source.timeoutSeconds ?? 60) * 1000;
@@ -156,18 +158,26 @@ export async function invokeCliTool(request: CliToolInvokeRequest): Promise<CliT
 
     child.stdout.on("data", (chunk: Buffer) => {
       const remaining = outputLimitBytes - stdoutBytes;
-      if (remaining <= 0) return;
+      if (remaining <= 0) {
+        stdoutTruncated = true;
+        return;
+      }
       const captured = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
       stdoutChunks.push(captured);
       stdoutBytes += captured.length;
+      stdoutTruncated = stdoutTruncated || chunk.length > remaining;
     });
 
     child.stderr.on("data", (chunk: Buffer) => {
       const remaining = outputLimitBytes - stderrBytes;
-      if (remaining <= 0) return;
+      if (remaining <= 0) {
+        stderrTruncated = true;
+        return;
+      }
       const captured = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
       stderrChunks.push(captured);
       stderrBytes += captured.length;
+      stderrTruncated = stderrTruncated || chunk.length > remaining;
     });
 
     child.on("error", (error) => {
@@ -183,13 +193,16 @@ export async function invokeCliTool(request: CliToolInvokeRequest): Promise<CliT
       const cleanupErrors = cleanupLocalProcessSandbox(sandbox);
 
       const durationMs = Math.round(performance.now() - started);
+      const outputTruncated = stdoutTruncated || stderrTruncated;
+      const outputLimitMessage = `runx cli-tool output exceeded ${outputLimitBytes} byte capture limit; stdout/stderr omitted`;
       const errorMessage = spawnError?.message
         ?? (aborted ? "cli-tool aborted" : undefined)
-        ?? (timedOut ? `cli-tool timed out after ${timeoutMs}ms` : undefined);
-      const status = exitCode === 0 && !timedOut && !aborted && !spawnError ? "sealed" : "failure";
+        ?? (timedOut ? `cli-tool timed out after ${timeoutMs}ms` : undefined)
+        ?? (outputTruncated ? outputLimitMessage : undefined);
+      const status = exitCode === 0 && !timedOut && !aborted && !spawnError && !outputTruncated ? "sealed" : "failure";
 
-      const stdout = truncateToBytes(Buffer.concat(stdoutChunks), outputLimitBytes);
-      const stderr = truncateToBytes(Buffer.concat(stderrChunks), outputLimitBytes);
+      const stdout = outputTruncated ? "" : truncateToBytes(Buffer.concat(stdoutChunks), outputLimitBytes);
+      const stderr = outputTruncated ? outputLimitMessage : truncateToBytes(Buffer.concat(stderrChunks), outputLimitBytes);
 
       resolve({
         status,

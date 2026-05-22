@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { createHarnessHookAdapter } from "./agent-hook.js";
-import type { SkillSource } from "../parser-types.js";
+
+type HarnessHookSource = {
+  readonly type: "harness-hook";
+  readonly args: readonly string[];
+  readonly hook: string;
+  readonly outputs?: Readonly<Record<string, unknown>>;
+  readonly raw: Readonly<Record<string, unknown>>;
+};
 
 describe("harness-hook adapter", () => {
   it("invokes a deterministic hook through the adapter seam", async () => {
@@ -56,7 +63,7 @@ describe("harness-hook adapter", () => {
   });
 });
 
-function harnessHookSource(hook: string, outputs?: Readonly<Record<string, unknown>>): SkillSource {
+function harnessHookSource(hook: string, outputs?: Readonly<Record<string, unknown>>): HarnessHookSource {
   return {
     type: "harness-hook",
     args: [],

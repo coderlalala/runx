@@ -14,7 +14,7 @@ use super::super::graph::{load_skill, output_object, resolve_inputs, skill_dir};
 use super::authority::{
     StepPaymentReplay, authority_denied, enforce_step_authority_admission,
     enforce_step_authority_receipt_before_success, escalate_in_flight_payment_recovery,
-    sealed_payment_replay,
+    sealed_payment_replay, validate_replayed_payment_supervisor_proof,
 };
 use super::inputs::{optional_input_string, required_input_string, string_value, string_value_ref};
 use super::{Runtime, StepRun};
@@ -23,6 +23,7 @@ use crate::adapter::{InvocationStatus, SkillAdapter, SkillInvocation, SkillOutpu
 use crate::approval::{ApprovalResolution, request_approval};
 use crate::host::Host;
 use crate::payment_state::{PaymentStepStateInput, persist_payment_step_state};
+use crate::payment_supervisor::{PaymentSupervisorProof, insert_payment_supervisor_proof_metadata};
 use crate::receipts::step_receipt;
 
 const EXTERNAL_ADAPTER_HOST_RESOLUTION_REQUEST_METADATA: &str =
@@ -82,8 +83,33 @@ where
         &output,
         &runtime.options.created_at,
     )?;
-    enforce_step_authority_receipt_before_success(step, authority.as_ref(), &output, &receipt)?;
-    persist_payment_state_for_step(runtime, graph_dir, authority.as_ref(), &outputs, &receipt)?;
+    let supervisor_proof = enforce_step_authority_receipt_before_success(
+        step,
+        authority.as_ref(),
+        &output,
+        &outputs,
+        &receipt,
+    )?;
+    if let Some(proof) = supervisor_proof.as_ref() {
+        insert_payment_supervisor_proof_metadata(&mut output.metadata, proof).map_err(
+            |source| {
+                authority_denied(
+                    step,
+                    AuthorityVerb::Spend,
+                    format!("recording supervisor proof metadata failed: {source}"),
+                )
+            },
+        )?;
+    }
+    persist_payment_state_for_step(
+        runtime,
+        graph_dir,
+        step,
+        authority.as_ref(),
+        &outputs,
+        &receipt,
+        supervisor_proof.as_ref(),
+    )?;
     let admission_witness = step_admission_witness(&step.id, &receipt.id, authority.as_ref());
     Ok(StepRun {
         step_id: step.id.clone(),
@@ -163,9 +189,11 @@ fn host_resolution_event_data(step: &GraphStep, payload: JsonValue) -> JsonObjec
 fn persist_payment_state_for_step<A>(
     runtime: &Runtime<A>,
     graph_dir: &Path,
+    step: &GraphStep,
     authority: Option<&super::authority::StepAuthorityContext>,
     outputs: &JsonObject,
     receipt: &runx_contracts::HarnessReceipt,
+    supervisor_proof: Option<&PaymentSupervisorProof>,
 ) -> Result<(), RuntimeError>
 where
     A: SkillAdapter,
@@ -183,9 +211,11 @@ where
             counterparty: payment.counterparty.clone(),
             amount_minor: payment.amount_minor,
             currency: payment.currency.clone(),
+            act_id: format!("act_{}", step.id),
         },
         outputs,
         receipt,
+        supervisor_proof,
     )
     .map_err(|source| RuntimeError::payment_state("persisting payment step state", source))
 }
@@ -245,6 +275,16 @@ fn run_replayed_payment_step(
             ),
         ));
     }
+    validate_replayed_payment_supervisor_proof(step, &replay)?;
+    let mut output = output;
+    insert_payment_supervisor_proof_metadata(&mut output.metadata, &replay.supervisor_proof)
+        .map_err(|source| {
+            authority_denied(
+                step,
+                AuthorityVerb::Spend,
+                format!("recording replayed supervisor proof metadata failed: {source}"),
+            )
+        })?;
     let admission_witness = StepAdmissionWitness::local_runtime(&step.id, &replay.receipt_ref);
     Ok(StepRun {
         step_id: step.id.clone(),

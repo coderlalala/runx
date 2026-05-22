@@ -1,6 +1,20 @@
 import type { ArtifactEnvelope } from "@runxhq/core/artifacts";
 import { isRecord } from "@runxhq/core/util";
-import type { ExecutionGraph, GraphStep } from "../parser-types.js";
+
+interface GraphContextEdge {
+  readonly input: string;
+  readonly fromStep: string;
+  readonly output: string;
+}
+
+interface GraphContextStep {
+  readonly id: string;
+  readonly contextEdges: readonly GraphContextEdge[];
+}
+
+interface GraphContextGraph<TStep extends GraphContextStep = GraphContextStep> {
+  readonly steps: readonly TStep[];
+}
 
 export interface GraphStepOutput {
   readonly status: "sealed" | "failure";
@@ -21,7 +35,10 @@ export interface MaterializedContextEdge {
   readonly value: unknown;
 }
 
-export function findGraphStep(graph: ExecutionGraph, stepId: string): GraphStep {
+export function findGraphStep<TGraph extends GraphContextGraph>(
+  graph: TGraph,
+  stepId: string,
+): TGraph["steps"][number] {
   const step = graph.steps.find((candidate) => candidate.id === stepId);
   if (!step) {
     throw new Error(`Graph step '${stepId}' is missing.`);
@@ -30,7 +47,7 @@ export function findGraphStep(graph: ExecutionGraph, stepId: string): GraphStep 
 }
 
 export function materializeContext(
-  step: GraphStep,
+  step: GraphContextStep,
   outputs: ReadonlyMap<string, GraphStepOutput>,
 ): readonly MaterializedContextEdge[] {
   return step.contextEdges.map((edge) => {
