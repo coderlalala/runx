@@ -46,21 +46,50 @@ Stages (the order is intentional — the GitHub Release must exist before any
 channel that downloads its archives):
 
 1. **prepare** — resolve the version, stamp + `--check` manifests, `verify:fast`.
-2. **build** (5-platform matrix) — stamp, `cargo build --release`, then per platform:
-   npm artifacts (`package-rust-cli.ts`), the raw archive (`build-release-archives.ts`),
-   and the `.deb` (linux). Uploads npm + archive artifacts.
-3. **github-release** — assemble `checksums.txt` and publish the Release with all
-   archives. This is the hub.
-4. **publish-npm** — verify + publish the selector and native packages with npm
+2. **build** (5-platform matrix) — pinned toolchain (`rust-toolchain.toml`), stamp,
+   `cargo build --release`, then per platform: npm artifacts (`package-rust-cli.ts`),
+   the raw archive (`build-release-archives.ts`), and the `.deb` (linux). Uploads
+   npm + archive artifacts.
+3. **smoke** (5-platform matrix) — downloads each built archive and runs
+   `runx --version` on the real OS. Gates the release: a broken or wrong-arch
+   binary fails here before anything is published. Runs in dry-runs too.
+4. **github-release** — assemble `checksums.txt`, generate a CycloneDX SBOM, emit
+   build-provenance attestations for the binaries, stage the install scripts, and
+   publish the Release with all archives. This is the hub.
+5. **publish-npm** — verify + publish the selector and native packages with npm
    provenance (`skip-existing`).
-5. **publish-crates** — publish the crates in dependency order, then `runx-cli`.
-6. **package-managers** — build the channel input from the published checksums
+6. **publish-crates** — publish the crates in dependency order, then `runx-cli`.
+7. **package-managers** — build the channel input from the published checksums
    (`build-channel-input.mjs`), render Homebrew / Scoop / winget / AUR manifests
    (`gen-channel-manifests.ts`), attach them to the Release.
-7. **publish-{homebrew,scoop,winget,aur}** — push to the owned registries when
+8. **publish-{homebrew,scoop,winget,aur}** — push to the owned registries when
    their credentials are configured; otherwise skipped with a warning.
-8. **publish-docker** — multi-arch GHCR image (pulls the musl archive from the
+9. **publish-docker** — multi-arch GHCR image (pulls the musl archive from the
    Release; no Rust toolchain in the image build).
+
+## Installing (end users)
+
+These work the moment a `cli-v*` tag ships, with no package-manager setup:
+
+```sh
+# macOS / Linux
+curl -fsSL runx.ai/install | sh
+```
+```powershell
+# Windows
+irm runx.ai/install.ps1 | iex
+```
+
+`runx.ai/install` and `runx.ai/install.ps1` are clean public paths that **proxy**
+to the scripts in this repo ([scripts/install](../scripts/install) and
+[scripts/install.ps1](../scripts/install.ps1) on `main`); the script bodies are
+not duplicated on the site. Both detect OS/arch, download the matching archive
+from the GitHub Release, verify its sha256, and install to a user bin dir.
+Overrides: `RUNX_VERSION`, `RUNX_INSTALL_DIR`, `RUNX_BASE_URL` (private mirror).
+
+> Site proxy: point `runx.ai/install` → the raw `scripts/install` and
+> `runx.ai/install.ps1` → raw `scripts/install.ps1` (302 or pass-through). Keep
+> the path extensionless for the shell installer.
 
 ## Required secrets
 
@@ -96,6 +125,7 @@ Never move a published semver tag; cut a new patch instead.
 ## Layout
 
 ```
+crates/rust-toolchain.toml    # pinned Rust version for reproducible builds
 scripts/
   set-release-version.ts      # stamp / --check the version across manifests
   build-release-archives.ts   # raw tar.gz/zip + .sha256 per target (release hub)
@@ -104,6 +134,7 @@ scripts/
   make-signature-manifest.ts  # npm native-package signature manifest
   package-rust-cli.ts         # npm selector + native package staging
   check-rust-cli-release-artifacts.ts  # npm release contract validator
+  install / install.ps1       # end-user one-liner installers (proxied via runx.ai/install)
 packaging/
   docker/Dockerfile           # GHCR image (fetches the musl archive)
 ```

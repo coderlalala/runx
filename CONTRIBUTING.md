@@ -156,6 +156,14 @@ The first runnable example is documented in
 [docs/getting-started.md](docs/getting-started.md). The generated package
 export index is in [docs/api-surface.md](docs/api-surface.md).
 
+## Releasing
+
+The CLI ships from a single `cli-vX.Y.Z` tag to every channel (GitHub Release,
+npm, crates.io, Homebrew, Scoop, winget, AUR, Docker) plus the `runx.ai/install`
+one-liner. The tag is the only source of truth; release jobs stamp the version,
+they are never hand-committed. Full pipeline, versioning model, required secrets,
+and how to cut a release are in [docs/releasing.md](docs/releasing.md).
+
 ## Code of conduct
 
 Be respectful. Assume good faith. Disagreement on technical direction is

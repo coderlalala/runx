@@ -1,0 +1,89 @@
+#!/bin/sh
+# runx installer.
+#
+#   curl -fsSL runx.ai/install | sh
+#
+# Downloads the prebuilt binary for this OS/arch from the GitHub Release, verifies
+# its sha256, and installs it. Honors:
+#   RUNX_VERSION   pin a version (e.g. 0.6.0); default: latest cli-v* release
+#   RUNX_INSTALL_DIR  install dir; default: $HOME/.local/bin (or /usr/local/bin if writable & in PATH)
+set -eu
+
+REPO="runxhq/runx"
+RED='\033[0;31m'; YEL='\033[0;33m'; GRN='\033[0;32m'; NC='\033[0m'
+err() { printf "${RED}error:${NC} %s\n" "$1" >&2; exit 1; }
+info() { printf "${GRN}runx:${NC} %s\n" "$1" >&2; }
+warn() { printf "${YEL}runx:${NC} %s\n" "$1" >&2; }
+
+need() { command -v "$1" >/dev/null 2>&1 || err "required tool not found: $1"; }
+need uname; need tar; need mktemp
+
+# --- detect platform → rust target triple ---
+os=$(uname -s); arch=$(uname -m)
+case "$os" in
+  Darwin) case "$arch" in
+    arm64|aarch64) target="aarch64-apple-darwin" ;;
+    x86_64) target="x86_64-apple-darwin" ;;
+    *) err "unsupported macOS arch: $arch" ;; esac ;;
+  Linux) case "$arch" in
+    aarch64|arm64) target="aarch64-unknown-linux-musl" ;;
+    x86_64|amd64) target="x86_64-unknown-linux-musl" ;;
+    *) err "unsupported Linux arch: $arch" ;; esac ;;
+  *) err "unsupported OS: $os (use scripts/install.ps1 on Windows)" ;;
+esac
+
+# --- pick a downloader ---
+if command -v curl >/dev/null 2>&1; then dl() { curl -fsSL "$1" -o "$2"; }; fetch() { curl -fsSL "$1"; }
+elif command -v wget >/dev/null 2>&1; then dl() { wget -qO "$2" "$1"; }; fetch() { wget -qO- "$1"; }
+else err "need curl or wget"; fi
+
+# --- resolve version ---
+version="${RUNX_VERSION:-}"
+if [ -z "$version" ]; then
+  info "resolving latest release..."
+  version=$(fetch "https://api.github.com/repos/${REPO}/releases" \
+    | grep -o '"tag_name": *"cli-v[^"]*"' | head -n1 | sed -E 's/.*cli-v([^"]*)".*/\1/') \
+    || true
+  [ -n "$version" ] || err "could not resolve latest cli-v* release; set RUNX_VERSION"
+fi
+version="${version#cli-v}"; version="${version#v}"
+
+archive="runx-${version}-${target}.tar.gz"
+# RUNX_BASE_URL points at a directory of release archives (private mirror / test).
+base="${RUNX_BASE_URL:-https://github.com/${REPO}/releases/download/cli-v${version}}"
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+
+info "downloading runx ${version} (${target})"
+dl "${base}/${archive}" "${tmp}/${archive}" || err "download failed: ${base}/${archive}"
+
+# --- verify sha256 ---
+if dl "${base}/${archive}.sha256" "${tmp}/${archive}.sha256" 2>/dev/null; then
+  expected=$(awk '{print $1}' "${tmp}/${archive}.sha256")
+  if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "${tmp}/${archive}" | awk '{print $1}')
+  elif command -v shasum >/dev/null 2>&1; then actual=$(shasum -a 256 "${tmp}/${archive}" | awk '{print $1}')
+  else actual=""; warn "no sha256 tool; skipping checksum verification"; fi
+  if [ -n "${actual}" ] && [ "${actual}" != "${expected}" ]; then
+    err "checksum mismatch (expected ${expected}, got ${actual})"
+  fi
+  [ -n "${actual}" ] && info "checksum verified"
+else
+  warn "no published checksum; skipping verification"
+fi
+
+tar -xzf "${tmp}/${archive}" -C "${tmp}"
+
+# --- choose install dir ---
+dir="${RUNX_INSTALL_DIR:-}"
+if [ -z "$dir" ]; then
+  if [ -w /usr/local/bin ] && printf '%s' ":$PATH:" | grep -q ":/usr/local/bin:"; then dir="/usr/local/bin"
+  else dir="$HOME/.local/bin"; fi
+fi
+mkdir -p "$dir"
+install -m 755 "${tmp}/runx-${version}-${target}/runx" "${dir}/runx"
+info "installed to ${dir}/runx"
+
+case ":$PATH:" in
+  *":$dir:"*) ;;
+  *) warn "add ${dir} to your PATH:  export PATH=\"${dir}:\$PATH\"" ;;
+esac
+"${dir}/runx" --version >/dev/null 2>&1 && info "$(${dir}/runx --version)" || true
