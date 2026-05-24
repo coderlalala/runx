@@ -288,7 +288,7 @@ function extractUsageCommands(helpSource: string): readonly string[] {
   const quoted = [...helpSource.matchAll(/"([^"]*)"/g)].map((match) => match[1] ?? "");
   return [
     ...extractQuotedHelpBlock(quoted, "Usage:"),
-    ...extractQuotedHelpBlock(quoted, "Manage Skills:"),
+    ...extractQuotedHelpBlock(quoted, "Commands:"),
   ];
 }
 
