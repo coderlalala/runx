@@ -9,6 +9,7 @@ import type {
   ExecutionGraph,
   GraphStep,
   SkillRunnerDefinition,
+  SkillSource,
   ValidatedSkill,
   ValidatedTool,
 } from "../parser-types.js";
@@ -260,6 +261,20 @@ export async function resolveGraphStepExecution(options: {
   };
 }
 
+/**
+ * Run-step kinds the runner dispatches natively rather than as skills. These
+ * mirror the kernel's native run-step dispatch (`run_native_step`, currently
+ * the approval gate): the skill-source parser deliberately omits them from its
+ * source kinds, so their source is synthesized locally. Any other `run.type`
+ * (e.g. `agent-step`, `cli-tool`) is an inline skill source and is validated
+ * through the parser like a referenced skill.
+ */
+const NATIVE_RUN_STEP_TYPES = new Set(["approval"]);
+
+function nativeRunStepSource(run: Readonly<Record<string, unknown>>): SkillSource {
+  return { type: run.type as string, args: [], raw: { ...run } };
+}
+
 export async function buildInlineGraphStepSkill(
   step: GraphStep,
   skillEnvironment?: SkillEnvironment,
@@ -268,12 +283,17 @@ export async function buildInlineGraphStepSkill(
   if (!step.run) {
     throw new Error(`Graph step '${step.id}' is missing an inline run definition.`);
   }
+  const runType = typeof step.run.type === "string" ? step.run.type : undefined;
+  const source =
+    runType && NATIVE_RUN_STEP_TYPES.has(runType)
+      ? nativeRunStepSource(step.run)
+      : await validateSkillSourceViaParser(step.run, undefined, parserOptions);
   const body = composeInlineStepBody(skillEnvironment?.body, step);
   return {
     name: `${skillEnvironment?.name ?? "graph"}.${step.id}`,
     description: step.instructions,
     body,
-    source: await validateSkillSourceViaParser(step.run, undefined, parserOptions),
+    source,
     inputs: {},
     retry: step.retry,
     idempotency: step.idempotencyKey ? { key: step.idempotencyKey } : undefined,
