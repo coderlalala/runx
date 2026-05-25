@@ -190,6 +190,41 @@ pub fn object_schema_with_flatten(
     Value::Object(schema)
 }
 
+/// Assemble an open-map ("dictionary") document in the committed shape: an
+/// object whose values all match `value_schema`, rendered with the committed
+/// `patternProperties: { "^(.*)$": <value schema> }` form. When `identity` is
+/// set the document carries the top-level envelope (the `output.schema.json`
+/// document is a bare-`$id` map of this kind). No `additionalProperties` and no
+/// injected `schema` discriminant are emitted; the pattern alone constrains the
+/// values.
+pub fn object_map_schema(value_schema: Value, identity: Option<Identity<'_>>) -> Value {
+    let mut schema = Map::new();
+    if let Some(identity) = identity {
+        schema.insert(
+            "$schema".to_owned(),
+            json!("https://json-schema.org/draft/2020-12/schema"),
+        );
+        match identity {
+            Identity::Runx { logical, url } => {
+                let id = url
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| schema_id_url(logical));
+                schema.insert("$id".to_owned(), json!(id));
+                schema.insert("x-runx-schema".to_owned(), json!(logical));
+            }
+            Identity::BareId { url } => {
+                schema.insert("$id".to_owned(), json!(url));
+            }
+        }
+    }
+    schema.insert("type".to_owned(), json!("object"));
+    schema.insert(
+        "patternProperties".to_owned(),
+        json!({ "^(.*)$": value_schema }),
+    );
+    Value::Object(schema)
+}
+
 /// A closed string enum rendered as `anyOf` of `const` leaves, the committed
 /// shape (the schemas never use JSON Schema `enum`).
 pub fn string_enum(variants: &[&str]) -> Value {

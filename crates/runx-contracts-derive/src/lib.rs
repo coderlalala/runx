@@ -58,10 +58,17 @@ fn expand(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let body = match &input.data {
         Data::Struct(data) => match &data.fields {
             Fields::Named(_) => struct_body(input, data, &identity_expr)?,
+            // A single-field tuple struct (commonly `#[serde(transparent)]`)
+            // wrapping a `BTreeMap<String, T>` is a map-rooted document: it
+            // emits the committed open-map shape (`patternProperties` over the
+            // value type's schema), carrying any top-level identity.
+            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                map_newtype_body(ident, &fields.unnamed[0].ty, &identity_expr)?
+            }
             _ => {
                 return Err(syn::Error::new_spanned(
                     ident,
-                    "RunxSchema supports only named-field structs",
+                    "RunxSchema supports only named-field structs or single-field map newtypes",
                 ));
             }
         },
@@ -103,6 +110,50 @@ fn struct_body(
         deny_unknown,
         identity_expr,
     ))
+}
+
+/// Emit the open-map document for a single-field map newtype. The wrapped field
+/// must be a `BTreeMap<String, T>`; the document is `object_map_schema` over
+/// `T`'s schema, carrying any top-level identity.
+fn map_newtype_body(
+    ident: &syn::Ident,
+    ty: &Type,
+    identity_expr: &proc_macro2::TokenStream,
+) -> syn::Result<proc_macro2::TokenStream> {
+    let Some(value_ty) = map_value_type(ty) else {
+        return Err(syn::Error::new_spanned(
+            ident,
+            "RunxSchema map newtype must wrap a `BTreeMap<String, T>`",
+        ));
+    };
+    Ok(quote! {
+        ::runx_contracts::schema::object_map_schema(
+            <#value_ty as ::runx_contracts::schema::RunxSchema>::json_schema(),
+            #identity_expr,
+        )
+    })
+}
+
+/// Extract `T` from a `BTreeMap<String, T>` (or `HashMap<String, T>`) type,
+/// returning `None` for any other shape.
+fn map_value_type(ty: &Type) -> Option<Type> {
+    let Type::Path(type_path) = ty else {
+        return None;
+    };
+    let segment = type_path.path.segments.last()?;
+    if segment.ident != "BTreeMap" && segment.ident != "HashMap" {
+        return None;
+    }
+    let PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return None;
+    };
+    // The value type is the second generic argument (`String` is the key).
+    let mut type_args = args.args.iter().filter_map(|arg| match arg {
+        GenericArgument::Type(inner) => Some(inner.clone()),
+        _ => None,
+    });
+    let _key = type_args.next()?;
+    type_args.next()
 }
 
 /// Build the object-schema constructor call for a set of normal properties and

@@ -25,6 +25,7 @@ pub mod maturity;
 pub mod operational_policy;
 pub mod output;
 pub mod packet_index;
+pub mod policy_proof;
 pub mod post_merge_observer;
 pub mod receipt;
 pub mod receipts;

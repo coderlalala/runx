@@ -35,7 +35,9 @@ use runx_contracts::host_protocol::{
     ApprovalGate, Question, ResolutionRequest, ResolutionResponse,
 };
 use runx_contracts::operational_policy::OperationalPolicy;
+use runx_contracts::output::Output;
 use runx_contracts::packet_index::PacketIndex;
+use runx_contracts::policy_proof::{AuthorityProof, CredentialEnvelope, ScopeAdmission};
 use runx_contracts::receipt::Receipt;
 use runx_contracts::redaction::Redaction;
 use runx_contracts::reference::Reference;
@@ -294,6 +296,285 @@ fn covered() -> Vec<Covered> {
             emitted: AgentContextEnvelope::json_schema(),
             corpus: agent_context_envelope_corpus(),
         },
+        Covered {
+            file_name: "scope-admission.schema.json",
+            emitted: ScopeAdmission::json_schema(),
+            corpus: scope_admission_corpus(),
+        },
+        Covered {
+            file_name: "credential-envelope.schema.json",
+            emitted: CredentialEnvelope::json_schema(),
+            corpus: credential_envelope_corpus(),
+        },
+        Covered {
+            file_name: "authority-proof.schema.json",
+            emitted: AuthorityProof::json_schema(),
+            corpus: authority_proof_corpus(),
+        },
+        Covered {
+            file_name: "output.schema.json",
+            emitted: Output::json_schema(),
+            corpus: output_corpus(),
+        },
+    ]
+}
+
+fn scope_admission_corpus() -> Vec<(&'static str, Value)> {
+    // `status` is a closed enum the emitter models; the string fields commit
+    // `minLength: 1` (a constraint the plain-`String` Rust type does not carry),
+    // so corpus values keep those fields non-empty so both validators agree.
+    let valid = json!({
+        "status": "allow",
+        "requested_scopes": ["issues:write"],
+        "granted_scopes": ["issues:write"],
+        "decision_summary": "granted",
+    });
+    vec![
+        ("minimal valid", valid.clone()),
+        ("full valid", {
+            let mut v = valid.clone();
+            v["grant_id"] = json!("grant_1");
+            v["reasons"] = json!(["policy allowed"]);
+            v
+        }),
+        ("missing status", drop_field(valid.clone(), "status")),
+        (
+            "missing requested_scopes",
+            drop_field(valid.clone(), "requested_scopes"),
+        ),
+        // `decision_summary` is required by the Rust type but optional in the
+        // committed schema; keep it present so both validators agree.
+        (
+            "unknown status",
+            set_field(valid.clone(), "status", json!("maybe")),
+        ),
+        (
+            "status as object",
+            set_field(valid.clone(), "status", json!({})),
+        ),
+        (
+            "additional property",
+            set_field(valid.clone(), "bogus", json!(true)),
+        ),
+    ]
+}
+
+fn credential_envelope_corpus() -> Vec<(&'static str, Value)> {
+    // The committed schema requires `connection_id` and pins `kind` to a const,
+    // and marks the string fields `minLength: 1`; the Rust type carries `kind`
+    // as a plain `String` and `connection_id` as optional. Corpus values keep
+    // those fields present, correctly-valued, and non-empty so both validators
+    // agree on accept/reject.
+    let valid = json!({
+        "kind": "runx.credential-envelope.v1",
+        "grant_id": "grant_1",
+        "provider": "github",
+        "auth_mode": "oauth",
+        "material_kind": "token",
+        "connection_id": "conn_1",
+        "scopes": ["issues:write"],
+        "material_ref": "ref:abc",
+    });
+    vec![
+        ("minimal valid", valid.clone()),
+        ("full valid (grant_reference)", {
+            let mut v = valid.clone();
+            v["grant_reference"] = json!({
+                "grant_id": "grant_1",
+                "scope_family": "github",
+                "authority_kind": "constructive",
+                "target_repo": "acme/widgets",
+                "target_locator": "issue/1",
+            });
+            v
+        }),
+        ("missing grant_id", drop_field(valid.clone(), "grant_id")),
+        ("missing provider", drop_field(valid.clone(), "provider")),
+        (
+            "missing material_ref",
+            drop_field(valid.clone(), "material_ref"),
+        ),
+        (
+            "grant_reference unknown authority_kind",
+            set_field(
+                valid.clone(),
+                "grant_reference",
+                json!({ "grant_id": "g", "authority_kind": "godmode" }),
+            ),
+        ),
+        (
+            "grant_reference missing grant_id",
+            set_field(
+                valid.clone(),
+                "grant_reference",
+                json!({ "scope_family": "github" }),
+            ),
+        ),
+        (
+            "additional property",
+            set_field(valid.clone(), "bogus", json!(true)),
+        ),
+    ]
+}
+
+fn authority_proof_requested() -> Value {
+    json!({
+        "connected_auth": true,
+        "scopes": ["issues:write"],
+        "mutating": false,
+    })
+}
+
+fn authority_proof_credential_material() -> Value {
+    json!({ "status": "resolved" })
+}
+
+fn authority_proof_redaction() -> Value {
+    json!({
+        "status": "applied",
+        "secret_material": "omitted",
+        "stdout": "hashed",
+        "stderr": "hashed",
+        "metadata_secret_keys": [],
+    })
+}
+
+fn authority_proof_corpus() -> Vec<(&'static str, Value)> {
+    // The committed schema pins several const strings (`schema_version`, the
+    // redaction attestation fields) and marks string fields `minLength: 1`; the
+    // Rust type carries those as plain `String`. Corpus values keep those fields
+    // present and correctly-valued so both validators agree; reject cases target
+    // the enum-typed nested fields (`requested.authority_kind`,
+    // `scope_admission.status`) and required-field presence, which the emitter
+    // models.
+    let valid = json!({
+        "schema_version": "runx.authority-proof.v1",
+        "skill_name": "demo",
+        "source_type": "github_issue",
+        "requested": authority_proof_requested(),
+        "scope_admission": {
+            "status": "allow",
+            "requested_scopes": ["issues:write"],
+            "granted_scopes": ["issues:write"],
+            "decision_summary": "granted",
+        },
+        "credential_material": authority_proof_credential_material(),
+        "redaction": authority_proof_redaction(),
+    });
+    vec![
+        ("minimal valid", valid.clone()),
+        ("full valid (sandbox + approval + targeting)", {
+            let mut v = valid.clone();
+            v["run_id"] = json!("run_1");
+            v["requested"] = json!({
+                "connected_auth": true,
+                "scopes": ["issues:write"],
+                "mutating": true,
+                "scope_family": "github",
+                "authority_kind": "constructive",
+                "target_repo": "acme/widgets",
+                "target_locator": "issue/1",
+                "sandbox_profile": "workspace-write",
+            });
+            v["credential_material"] = json!({
+                "status": "resolved",
+                "grant_id": "grant_1",
+                "provider": "github",
+                "connection_id": "conn_1",
+                "scopes": ["issues:write"],
+                "authority_kind": "constructive",
+                "grant_reference": {
+                    "grant_id": "grant_1",
+                    "scope_family": "github",
+                    "authority_kind": "constructive",
+                },
+            });
+            v["sandbox"] = json!({
+                "profile": "workspace-write",
+                "cwd_policy": "skill-directory",
+                "require_enforcement": true,
+                "network": { "declared": false },
+                "filesystem": { "readonly_paths": true, "private_tmp": true },
+                "runtime": { "enforcer": "seatbelt" },
+                "approval_required": false,
+            });
+            v["approval_gate"] = json!({
+                "gate_id": "gate_1",
+                "gate_type": "human",
+                "decision": "approved",
+            });
+            v
+        }),
+        (
+            "missing schema_version",
+            drop_field(valid.clone(), "schema_version"),
+        ),
+        ("missing requested", drop_field(valid.clone(), "requested")),
+        (
+            "missing scope_admission",
+            drop_field(valid.clone(), "scope_admission"),
+        ),
+        ("missing redaction", drop_field(valid.clone(), "redaction")),
+        (
+            "requested unknown authority_kind",
+            set_field(
+                valid.clone(),
+                "requested",
+                set_field(
+                    authority_proof_requested(),
+                    "authority_kind",
+                    json!("godmode"),
+                ),
+            ),
+        ),
+        (
+            "scope_admission unknown status",
+            set_field(
+                valid.clone(),
+                "scope_admission",
+                json!({
+                    "status": "maybe",
+                    "requested_scopes": [],
+                    "granted_scopes": [],
+                    "decision_summary": "x",
+                }),
+            ),
+        ),
+        (
+            "additional property",
+            set_field(valid.clone(), "bogus", json!(true)),
+        ),
+    ]
+}
+
+fn output_corpus() -> Vec<(&'static str, Value)> {
+    // The per-value `OutputFieldSpec` commits `minProperties: 1` (a numeric bound
+    // the emitter does not model); corpus spec values stay non-empty so both
+    // validators agree.
+    vec![
+        ("empty map", json!({})),
+        (
+            "bare type values",
+            json!({ "result": "string", "count": "integer" }),
+        ),
+        (
+            "typed spec value",
+            json!({ "report": { "type": "object", "required": true } }),
+        ),
+        (
+            "spec with enum + wrap_as",
+            json!({ "status": { "type": "string", "enum": ["ok", "fail"], "wrap_as": "value" } }),
+        ),
+        ("unknown bare type rejected", json!({ "result": "blob" })),
+        (
+            "spec unknown type rejected",
+            json!({ "report": { "type": "blob" } }),
+        ),
+        (
+            "spec additional property rejected",
+            json!({ "report": { "type": "object", "bogus": true } }),
+        ),
+        ("not an object", json!("nope")),
     ]
 }
 

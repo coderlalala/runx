@@ -1,12 +1,13 @@
 //! Skill output declaration types: the value shape of the `runx.ai/spec`
 //! output map (a field is either a bare type name or a typed field spec).
 //!
-//! The standalone `output.schema.json` document itself is a top-level open map
-//! carrying a bare `$id`; that top-level identity-on-a-map shape is not
-//! expressible by the schema emitter (it attaches identity only to named
-//! structs/enums), so only the per-field value type lives here. It is embedded
-//! by the agent-context envelope's `output` field as a
-//! `BTreeMap<String, OutputField>`.
+//! The standalone `output.schema.json` document is a top-level open map carrying
+//! a bare `$id`; it is modeled here as the transparent map newtype [`Output`],
+//! whose `RunxSchema` derive emits the committed `patternProperties` shape. The
+//! same `BTreeMap<String, OutputField>` is embedded by the agent-context
+//! envelope's `output` field.
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::schema::{NonEmptyString, RunxSchema};
@@ -49,3 +50,10 @@ pub enum OutputField {
     Type(OutputType),
     Spec(OutputFieldSpec),
 }
+
+/// The standalone `output.schema.json` document: a top-level open map of field
+/// name to [`OutputField`], carrying the bare `runx.ai/spec` `$id`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, RunxSchema)]
+#[serde(transparent)]
+#[runx_schema(spec_id = "https://runx.ai/spec/output.schema.json")]
+pub struct Output(pub BTreeMap<String, OutputField>);
