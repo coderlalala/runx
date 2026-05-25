@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { runCli } from "../packages/cli/src/index.js";
+import { resolveRunxBinary } from "./runx-binary.js";
 
 describe("harness CLI", () => {
   it("runs a skill harness fixture non-interactively", async () => {
@@ -16,25 +17,27 @@ describe("harness CLI", () => {
       const exitCode = await runCli(
         ["harness", "fixtures/harness/echo-skill.yaml", "--json"],
         { stdin: process.stdin, stdout, stderr },
-        { ...process.env, RUNX_CWD: process.cwd(), RUNX_HOME: path.join(tempDir, "home") },
+        harnessCliEnv(tempDir),
       );
 
       expect(exitCode).toBe(0);
-      const report = JSON.parse(stdout.contents()) as {
-        fixture: { name: string };
-        status: string;
-        assertionErrors: string[];
+      const receipt = JSON.parse(stdout.contents()) as {
+        schema?: string;
+        subject?: { kind?: string; ref?: { type?: string; uri?: string } };
+        seal?: { disposition?: string; reason_code?: string };
       };
-      expect(report.fixture.name).toBe("echo-skill");
-      expect(report.status).toBe("success");
-      expect(report.assertionErrors).toEqual([]);
+      expect(receipt).toMatchObject({
+        schema: "runx.receipt.v1",
+        subject: { kind: "skill", ref: { type: "harness", uri: "hrn_echo-skill_echo" } },
+        seal: { disposition: "closed", reason_code: "process_closed" },
+      });
       expect(stderr.contents()).toBe("");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
 
-  it("runs inline harness cases from a skill directory", async () => {
+  it("rejects inline skill directories on the native harness CLI", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "runx-harness-inline-cli-"));
     const stdout = createMemoryStream();
     const stderr = createMemoryStream();
@@ -43,29 +46,28 @@ describe("harness CLI", () => {
       const exitCode = await runCli(
         ["harness", "skills/evolve", "--json"],
         { stdin: process.stdin, stdout, stderr },
-        { ...process.env, RUNX_CWD: process.cwd(), RUNX_HOME: path.join(tempDir, "home") },
+        harnessCliEnv(tempDir),
       );
 
-      expect(exitCode).toBe(0);
-      const report = JSON.parse(stdout.contents()) as {
-        source: string;
-        status: string;
-        cases: Array<{ fixture: { name: string }; status: string }>;
-        assertionErrors: string[];
-      };
-      expect(report.source).toBe("inline");
-      expect(report.status).toBe("success");
-      expect(report.cases).toMatchObject([
-        { fixture: { name: "evolve-introspect" }, status: "success" },
-        { fixture: { name: "evolve-plan-spec" }, status: "success" },
-      ]);
-      expect(report.assertionErrors).toEqual([]);
-      expect(stderr.contents()).toBe("");
+      expect(exitCode).toBe(1);
+      expect(stdout.contents()).toBe("");
+      expect(stderr.contents()).toContain("native harness replay failed");
+      expect(stderr.contents()).toContain("failed to read harness fixture");
+      expect(stderr.contents()).toContain("Is a directory");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
-  }, 15_000);
+  });
 });
+
+function harnessCliEnv(tempDir: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    RUNX_CWD: process.cwd(),
+    RUNX_HOME: path.join(tempDir, "home"),
+    RUNX_RUST_CLI_BIN: resolveRunxBinary(),
+  };
+}
 
 function createMemoryStream(): NodeJS.WriteStream & { contents: () => string } {
   let buffer = "";
