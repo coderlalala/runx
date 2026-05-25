@@ -12,8 +12,18 @@ import {
   actReceiptEnvelopeSchema,
   actAssignmentV1Schema,
   authorityProofSchema,
+  credentialDeliveryBrokerResponseV1Schema,
+  credentialDeliveryObservationV1Schema,
+  credentialDeliveryProfileV1Schema,
+  credentialDeliveryRequestV1Schema,
   devV1Schema,
   doctorV1Schema,
+  externalAdapterCancellationFrameV1Schema,
+  externalAdapterCredentialRequestV1Schema,
+  externalAdapterHostResolutionFrameV1Schema,
+  externalAdapterInvocationV1Schema,
+  externalAdapterManifestV1Schema,
+  externalAdapterResponseV1Schema,
   fixtureV1Schema,
   handoffSignalV1Schema,
   handoffStateV1Schema,
@@ -34,6 +44,10 @@ import {
   runxGeneratedSchemaArtifacts,
   scopeAdmissionSchema,
   suppressionRecordV1Schema,
+  threadOutboxProviderFetchV1Schema,
+  threadOutboxProviderManifestV1Schema,
+  threadOutboxProviderObservationV1Schema,
+  threadOutboxProviderPushV1Schema,
   toolManifestV1Schema,
   contractSchemaMatches,
   validateActReceiptEnvelopeContract,
@@ -99,6 +113,20 @@ describe("@runxhq/contracts", () => {
     expect(credentialEnvelopeSchema).toBe(runxContractSchemas.credentialEnvelope);
     expect(scopeAdmissionSchema).toBe(runxContractSchemas.scopeAdmission);
     expect(authorityProofSchema).toBe(runxContractSchemas.authorityProof);
+    expect(credentialDeliveryProfileV1Schema).toBe(runxContractSchemas.credentialDeliveryProfile);
+    expect(credentialDeliveryRequestV1Schema).toBe(runxContractSchemas.credentialDeliveryRequest);
+    expect(credentialDeliveryBrokerResponseV1Schema).toBe(runxContractSchemas.credentialDeliveryBrokerResponse);
+    expect(credentialDeliveryObservationV1Schema).toBe(runxContractSchemas.credentialDeliveryObservation);
+    expect(threadOutboxProviderManifestV1Schema).toBe(runxContractSchemas.threadOutboxProviderManifest);
+    expect(threadOutboxProviderPushV1Schema).toBe(runxContractSchemas.threadOutboxProviderPush);
+    expect(threadOutboxProviderFetchV1Schema).toBe(runxContractSchemas.threadOutboxProviderFetch);
+    expect(threadOutboxProviderObservationV1Schema).toBe(runxContractSchemas.threadOutboxProviderObservation);
+    expect(externalAdapterManifestV1Schema).toBe(runxContractSchemas.externalAdapterManifest);
+    expect(externalAdapterCredentialRequestV1Schema).toBe(runxContractSchemas.externalAdapterCredentialRequest);
+    expect(externalAdapterInvocationV1Schema).toBe(runxContractSchemas.externalAdapterInvocation);
+    expect(externalAdapterResponseV1Schema).toBe(runxContractSchemas.externalAdapterResponse);
+    expect(externalAdapterHostResolutionFrameV1Schema).toBe(runxContractSchemas.externalAdapterHostResolution);
+    expect(externalAdapterCancellationFrameV1Schema).toBe(runxContractSchemas.externalAdapterCancellation);
     expect(receiptV1Schema).toBe(runxContractSchemas.receipt);
     expect(doctorV1Schema).toBe(runxContractSchemas.doctor);
     expect(devV1Schema).toBe(runxContractSchemas.dev);

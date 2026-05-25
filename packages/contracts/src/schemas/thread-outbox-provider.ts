@@ -5,6 +5,7 @@ import {
   RUNX_LOGICAL_SCHEMAS,
   type DeepReadonly,
   dateTimeStringSchema,
+  generatedSchema,
   stringEnum,
   validateContractSchema,
 } from "../internal.js";
@@ -85,7 +86,7 @@ export const threadOutboxProviderRedactionCapabilitiesSchema = Type.Object(
 export type ThreadOutboxProviderRedactionCapabilitiesContract =
   DeepReadonly<Static<typeof threadOutboxProviderRedactionCapabilitiesSchema>>;
 
-export const threadOutboxProviderManifestV1Schema = Type.Object(
+const threadOutboxProviderManifestV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.threadOutboxProviderManifest),
     protocol_version: Type.Literal(threadOutboxProviderProtocolVersion),
@@ -108,7 +109,12 @@ export const threadOutboxProviderManifestV1Schema = Type.Object(
 );
 
 export type ThreadOutboxProviderManifestContract =
-  DeepReadonly<Static<typeof threadOutboxProviderManifestV1Schema>>;
+  DeepReadonly<Static<typeof threadOutboxProviderManifestV1TypeSchema>>;
+
+export const threadOutboxProviderManifestV1Schema =
+  generatedSchema<ThreadOutboxProviderManifestContract>(
+    "thread-outbox-provider-manifest.schema.json",
+  );
 
 export const threadOutboxProviderThreadLocatorSchema = Type.Object(
   {
@@ -197,7 +203,7 @@ export const threadOutboxProviderReceiptContextSchema = Type.Object(
 export type ThreadOutboxProviderReceiptContextContract =
   DeepReadonly<Static<typeof threadOutboxProviderReceiptContextSchema>>;
 
-export const threadOutboxProviderPushV1Schema = Type.Object(
+const threadOutboxProviderPushV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.threadOutboxProviderPush),
     protocol_version: Type.Literal(threadOutboxProviderProtocolVersion),
@@ -222,7 +228,12 @@ export const threadOutboxProviderPushV1Schema = Type.Object(
 );
 
 export type ThreadOutboxProviderPushContract =
-  DeepReadonly<Static<typeof threadOutboxProviderPushV1Schema>>;
+  DeepReadonly<Static<typeof threadOutboxProviderPushV1TypeSchema>>;
+
+export const threadOutboxProviderPushV1Schema =
+  generatedSchema<ThreadOutboxProviderPushContract>(
+    "thread-outbox-provider-push.schema.json",
+  );
 
 export const threadOutboxProviderFetchThreadTargetSchema = Type.Object(
   {
@@ -252,7 +263,7 @@ export const threadOutboxProviderFetchTargetSchema = Type.Union([
 export type ThreadOutboxProviderFetchTargetContract =
   DeepReadonly<Static<typeof threadOutboxProviderFetchTargetSchema>>;
 
-export const threadOutboxProviderFetchV1Schema = Type.Object(
+const threadOutboxProviderFetchV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.threadOutboxProviderFetch),
     protocol_version: Type.Literal(threadOutboxProviderProtocolVersion),
@@ -276,7 +287,12 @@ export const threadOutboxProviderFetchV1Schema = Type.Object(
 );
 
 export type ThreadOutboxProviderFetchContract =
-  DeepReadonly<Static<typeof threadOutboxProviderFetchV1Schema>>;
+  DeepReadonly<Static<typeof threadOutboxProviderFetchV1TypeSchema>>;
+
+export const threadOutboxProviderFetchV1Schema =
+  generatedSchema<ThreadOutboxProviderFetchContract>(
+    "thread-outbox-provider-fetch.schema.json",
+  );
 
 export const threadOutboxProviderReadbackSummarySchema = Type.Object(
   {
@@ -302,7 +318,7 @@ export const threadOutboxProviderErrorSchema = Type.Object(
 export type ThreadOutboxProviderErrorContract =
   DeepReadonly<Static<typeof threadOutboxProviderErrorSchema>>;
 
-export const threadOutboxProviderObservationV1Schema = Type.Object(
+const threadOutboxProviderObservationV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.threadOutboxProviderObservation),
     protocol_version: Type.Literal(threadOutboxProviderProtocolVersion),
@@ -330,7 +346,12 @@ export const threadOutboxProviderObservationV1Schema = Type.Object(
 );
 
 export type ThreadOutboxProviderObservationContract =
-  DeepReadonly<Static<typeof threadOutboxProviderObservationV1Schema>>;
+  DeepReadonly<Static<typeof threadOutboxProviderObservationV1TypeSchema>>;
+
+export const threadOutboxProviderObservationV1Schema =
+  generatedSchema<ThreadOutboxProviderObservationContract>(
+    "thread-outbox-provider-observation.schema.json",
+  );
 
 export function validateThreadOutboxProviderManifestContract(
   value: unknown,

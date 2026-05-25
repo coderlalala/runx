@@ -5,6 +5,7 @@ import {
   RUNX_LOGICAL_SCHEMAS,
   type DeepReadonly,
   dateTimeStringSchema,
+  generatedSchema,
   stringEnum,
   unknownRecordSchema,
   validateContractSchema,
@@ -81,7 +82,7 @@ export const externalAdapterTimeoutsSchema = Type.Object(
 
 export type ExternalAdapterTimeoutsContract = DeepReadonly<Static<typeof externalAdapterTimeoutsSchema>>;
 
-export const externalAdapterManifestV1Schema = Type.Object(
+const externalAdapterManifestV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.externalAdapterManifest),
     protocol_version: Type.Literal(externalAdapterProtocolVersion),
@@ -104,7 +105,12 @@ export const externalAdapterManifestV1Schema = Type.Object(
 );
 
 export type ExternalAdapterManifestContract =
-  DeepReadonly<Static<typeof externalAdapterManifestV1Schema>>;
+  DeepReadonly<Static<typeof externalAdapterManifestV1TypeSchema>>;
+
+export const externalAdapterManifestV1Schema =
+  generatedSchema<ExternalAdapterManifestContract>(
+    "external-adapter-manifest.schema.json",
+  );
 
 export const externalAdapterCredentialReferenceSchema = Type.Object(
   {
@@ -118,7 +124,7 @@ export const externalAdapterCredentialReferenceSchema = Type.Object(
 export type ExternalAdapterCredentialReferenceContract =
   DeepReadonly<Static<typeof externalAdapterCredentialReferenceSchema>>;
 
-export const externalAdapterCredentialRequestV1Schema = Type.Object(
+const externalAdapterCredentialRequestV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.externalAdapterCredentialRequest),
     protocol_version: Type.Literal(externalAdapterProtocolVersion),
@@ -137,9 +143,14 @@ export const externalAdapterCredentialRequestV1Schema = Type.Object(
 );
 
 export type ExternalAdapterCredentialRequestContract =
-  DeepReadonly<Static<typeof externalAdapterCredentialRequestV1Schema>>;
+  DeepReadonly<Static<typeof externalAdapterCredentialRequestV1TypeSchema>>;
 
-export const externalAdapterInvocationV1Schema = Type.Object(
+export const externalAdapterCredentialRequestV1Schema =
+  generatedSchema<ExternalAdapterCredentialRequestContract>(
+    "external-adapter-credential-request.schema.json",
+  );
+
+const externalAdapterInvocationV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.externalAdapterInvocation),
     protocol_version: Type.Literal(externalAdapterProtocolVersion),
@@ -168,7 +179,12 @@ export const externalAdapterInvocationV1Schema = Type.Object(
 );
 
 export type ExternalAdapterInvocationContract =
-  DeepReadonly<Static<typeof externalAdapterInvocationV1Schema>>;
+  DeepReadonly<Static<typeof externalAdapterInvocationV1TypeSchema>>;
+
+export const externalAdapterInvocationV1Schema =
+  generatedSchema<ExternalAdapterInvocationContract>(
+    "external-adapter-invocation.schema.json",
+  );
 
 export const externalAdapterArtifactObservationSchema = Type.Object(
   {
@@ -205,7 +221,7 @@ export const externalAdapterTelemetryObservationSchema = Type.Object(
 export type ExternalAdapterTelemetryObservationContract =
   DeepReadonly<Static<typeof externalAdapterTelemetryObservationSchema>>;
 
-export const externalAdapterResponseV1Schema = Type.Object(
+const externalAdapterResponseV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.externalAdapterResponse),
     protocol_version: Type.Literal(externalAdapterProtocolVersion),
@@ -231,9 +247,14 @@ export const externalAdapterResponseV1Schema = Type.Object(
 );
 
 export type ExternalAdapterResponseContract =
-  DeepReadonly<Static<typeof externalAdapterResponseV1Schema>>;
+  DeepReadonly<Static<typeof externalAdapterResponseV1TypeSchema>>;
 
-export const externalAdapterHostResolutionFrameV1Schema = Type.Object(
+export const externalAdapterResponseV1Schema =
+  generatedSchema<ExternalAdapterResponseContract>(
+    "external-adapter-response.schema.json",
+  );
+
+const externalAdapterHostResolutionFrameV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.externalAdapterHostResolution),
     protocol_version: Type.Literal(externalAdapterProtocolVersion),
@@ -252,9 +273,14 @@ export const externalAdapterHostResolutionFrameV1Schema = Type.Object(
 );
 
 export type ExternalAdapterHostResolutionFrameContract =
-  DeepReadonly<Static<typeof externalAdapterHostResolutionFrameV1Schema>>;
+  DeepReadonly<Static<typeof externalAdapterHostResolutionFrameV1TypeSchema>>;
 
-export const externalAdapterCancellationFrameV1Schema = Type.Object(
+export const externalAdapterHostResolutionFrameV1Schema =
+  generatedSchema<ExternalAdapterHostResolutionFrameContract>(
+    "external-adapter-host-resolution.schema.json",
+  );
+
+const externalAdapterCancellationFrameV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.externalAdapterCancellation),
     protocol_version: Type.Literal(externalAdapterProtocolVersion),
@@ -273,7 +299,12 @@ export const externalAdapterCancellationFrameV1Schema = Type.Object(
 );
 
 export type ExternalAdapterCancellationFrameContract =
-  DeepReadonly<Static<typeof externalAdapterCancellationFrameV1Schema>>;
+  DeepReadonly<Static<typeof externalAdapterCancellationFrameV1TypeSchema>>;
+
+export const externalAdapterCancellationFrameV1Schema =
+  generatedSchema<ExternalAdapterCancellationFrameContract>(
+    "external-adapter-cancellation.schema.json",
+  );
 
 export function validateExternalAdapterManifestContract(
   value: unknown,

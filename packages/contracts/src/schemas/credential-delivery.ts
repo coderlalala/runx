@@ -5,6 +5,7 @@ import {
   RUNX_LOGICAL_SCHEMAS,
   type DeepReadonly,
   dateTimeStringSchema,
+  generatedSchema,
   stringEnum,
   validateContractSchema,
 } from "../internal.js";
@@ -56,7 +57,7 @@ export const credentialDeliveryEnvBindingSchema = Type.Object(
 export type CredentialDeliveryEnvBindingContract =
   DeepReadonly<Static<typeof credentialDeliveryEnvBindingSchema>>;
 
-export const credentialDeliveryProfileV1Schema = Type.Object(
+const credentialDeliveryProfileV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.credentialDeliveryProfile),
     profile_id: Type.String({ minLength: 1 }),
@@ -77,9 +78,13 @@ export const credentialDeliveryProfileV1Schema = Type.Object(
 );
 
 export type CredentialDeliveryProfileContract =
-  DeepReadonly<Static<typeof credentialDeliveryProfileV1Schema>>;
+  DeepReadonly<Static<typeof credentialDeliveryProfileV1TypeSchema>>;
 
-export const credentialDeliveryRequestV1Schema = Type.Object(
+export const credentialDeliveryProfileV1Schema = generatedSchema<CredentialDeliveryProfileContract>(
+  "credential-delivery-profile.schema.json",
+);
+
+const credentialDeliveryRequestV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.credentialDeliveryRequest),
     request_id: Type.String({ minLength: 1 }),
@@ -102,7 +107,11 @@ export const credentialDeliveryRequestV1Schema = Type.Object(
 );
 
 export type CredentialDeliveryRequestContract =
-  DeepReadonly<Static<typeof credentialDeliveryRequestV1Schema>>;
+  DeepReadonly<Static<typeof credentialDeliveryRequestV1TypeSchema>>;
+
+export const credentialDeliveryRequestV1Schema = generatedSchema<CredentialDeliveryRequestContract>(
+  "credential-delivery-request.schema.json",
+);
 
 export const credentialDeliveryHandleSchema = Type.Object(
   {
@@ -116,7 +125,7 @@ export const credentialDeliveryHandleSchema = Type.Object(
 export type CredentialDeliveryHandleContract =
   DeepReadonly<Static<typeof credentialDeliveryHandleSchema>>;
 
-export const credentialDeliveryBrokerResponseV1Schema = Type.Object(
+const credentialDeliveryBrokerResponseV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.credentialDeliveryBrokerResponse),
     response_id: Type.String({ minLength: 1 }),
@@ -139,9 +148,14 @@ export const credentialDeliveryBrokerResponseV1Schema = Type.Object(
 );
 
 export type CredentialDeliveryBrokerResponseContract =
-  DeepReadonly<Static<typeof credentialDeliveryBrokerResponseV1Schema>>;
+  DeepReadonly<Static<typeof credentialDeliveryBrokerResponseV1TypeSchema>>;
 
-export const credentialDeliveryObservationV1Schema = Type.Object(
+export const credentialDeliveryBrokerResponseV1Schema =
+  generatedSchema<CredentialDeliveryBrokerResponseContract>(
+    "credential-delivery-broker-response.schema.json",
+  );
+
+const credentialDeliveryObservationV1TypeSchema = Type.Object(
   {
     schema: Type.Literal(RUNX_LOGICAL_SCHEMAS.credentialDeliveryObservation),
     observation_id: Type.String({ minLength: 1 }),
@@ -169,7 +183,12 @@ export const credentialDeliveryObservationV1Schema = Type.Object(
 );
 
 export type CredentialDeliveryObservationContract =
-  DeepReadonly<Static<typeof credentialDeliveryObservationV1Schema>>;
+  DeepReadonly<Static<typeof credentialDeliveryObservationV1TypeSchema>>;
+
+export const credentialDeliveryObservationV1Schema =
+  generatedSchema<CredentialDeliveryObservationContract>(
+    "credential-delivery-observation.schema.json",
+  );
 
 export function validateCredentialDeliveryProfileContract(
   value: unknown,
