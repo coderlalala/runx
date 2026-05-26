@@ -112,7 +112,7 @@ where
 
     let mut output = runtime.adapter.invoke(invocation)?;
     route_external_adapter_host_resolution(step, host, &mut output)?;
-    let outputs = output_object(&output);
+    let outputs = step_output_object(step, &output);
     let skill_claim = skill_claim_object(&output);
     attach_payment_supervisor_evidence_before_gate(
         step,
@@ -333,7 +333,7 @@ fn run_replayed_payment_step(
         ));
     }
     validate_replayed_payment_supervisor_proof(step, &replay)?;
-    let outputs = output_object(&output);
+    let outputs = step_output_object(step, &output);
     let admission_witness = StepAdmissionWitness::local_runtime(&step.id, &replay.receipt_ref);
     Ok(StepRun {
         step_id: step.id.clone(),
@@ -412,6 +412,51 @@ fn replay_stdout_payload(outputs: &JsonObject) -> JsonObject {
     payload
 }
 
+fn step_output_object(step: &GraphStep, output: &SkillOutput) -> JsonObject {
+    let mut outputs = output_object(output);
+    expose_declared_artifacts(step, output, &mut outputs);
+    outputs
+}
+
+fn expose_declared_artifacts(step: &GraphStep, output: &SkillOutput, outputs: &mut JsonObject) {
+    let Some(artifacts) = &step.artifacts else {
+        return;
+    };
+    let claim = skill_claim_object(output);
+    if claim.is_empty() {
+        return;
+    }
+
+    if let Some(wrap_as) = artifacts.get("wrap_as").and_then(json_string) {
+        let value = claim.get(wrap_as).cloned().unwrap_or_else(|| {
+            let mut wrapper = JsonObject::new();
+            wrapper.insert("data".to_owned(), JsonValue::Object(claim.clone()));
+            JsonValue::Object(wrapper)
+        });
+        outputs.insert(wrap_as.to_owned(), value);
+    }
+
+    if let Some(JsonValue::Object(named_emits)) = artifacts.get("named_emits") {
+        for name in named_emits.keys() {
+            let Some(value) = claim.get(name).cloned() else {
+                continue;
+            };
+            outputs.insert(name.clone(), artifact_data_wrapper(value));
+        }
+    }
+}
+
+fn artifact_data_wrapper(value: JsonValue) -> JsonValue {
+    match value {
+        JsonValue::Object(object) if object.contains_key("data") => JsonValue::Object(object),
+        other => {
+            let mut wrapper = JsonObject::new();
+            wrapper.insert("data".to_owned(), other);
+            JsonValue::Object(wrapper)
+        }
+    }
+}
+
 fn receipt_has_payment_rail_proof(receipt: &runx_contracts::Receipt, rail_proof_ref: &str) -> bool {
     receipt.acts.iter().any(|act| {
         act.criterion_bindings
@@ -487,7 +532,7 @@ where
     let disposition = agent_answer_disposition_value(&response.payload);
     let mut output = agent_step_output(response)?;
     apply_graph_step_artifact_wrappers(&mut output, step)?;
-    let outputs = output_object(&output);
+    let outputs = step_output_object(step, &output);
     let disposition_label = closure_disposition_label(&disposition);
     let receipt = step_receipt_with_disposition_and_policy(
         StepReceiptWithDisposition {
@@ -550,7 +595,7 @@ where
     let disposition = agent_answer_disposition_value(&response.payload);
     let mut output = agent_step_output(response)?;
     apply_graph_step_artifact_wrappers(&mut output, step)?;
-    let outputs = output_object(&output);
+    let outputs = step_output_object(step, &output);
     let disposition_label = closure_disposition_label(&disposition);
     let receipt = step_receipt_with_disposition_and_policy(
         StepReceiptWithDisposition {
@@ -677,7 +722,7 @@ where
         };
         let mut output = CatalogAdapter::default().invoke(invocation)?;
         apply_graph_step_artifact_wrappers(&mut output, step)?;
-        let outputs = output_object(&output);
+        let outputs = step_output_object(step, &output);
         let receipt = step_receipt_with_signature_policy(
             graph_name,
             &step.id,
