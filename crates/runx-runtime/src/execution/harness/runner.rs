@@ -46,11 +46,12 @@ use crate::payment::supervisor::{
 use crate::receipts::RuntimeReceiptSignaturePolicy;
 #[cfg(feature = "cli-tool")]
 use crate::receipts::paths::RUNX_CWD_ENV;
-use crate::receipts::paths::{RUNX_RECEIPT_DIR_ENV, ReceiptPathInputs, resolve_receipt_path};
+use crate::receipts::paths::RUNX_RECEIPT_DIR_ENV;
 use crate::receipts::{
     GraphClosure, StepReceiptWithDisposition, graph_receipt_with_disposition_and_policy,
     step_receipt_with_disposition_and_policy,
 };
+use crate::services::{ReceiptServices, WorkspaceEnv};
 
 #[derive(Clone, Debug)]
 pub struct HarnessReplayOutput {
@@ -1257,12 +1258,10 @@ where
     let cwd = std::env::current_dir().map_err(|source| {
         RuntimeError::io("resolving cwd for payment ledger projection", source)
     })?;
-    let receipt_path = resolve_receipt_path(ReceiptPathInputs {
-        explicit_dir: None,
-        runtime_config: None,
-        env: &runtime.options().env,
-        cwd: &cwd,
-    });
+    let workspace = WorkspaceEnv::new(runtime.options().env.clone(), cwd);
+    let receipts =
+        ReceiptServices::from_signature_config(runtime.options().receipt_signature.clone());
+    let receipt_path = receipts.resolve_path(&workspace, None, None);
     let scenario_id = required_string_metadata(
         &fixture.metadata,
         "metadata.payment_ledger_scenario_id",

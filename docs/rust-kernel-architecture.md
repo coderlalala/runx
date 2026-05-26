@@ -46,6 +46,12 @@ truth. If Rust and TypeScript disagree on a fixture before a surface cuts over,
 the active cutover spec decides whether the fixture is still a TypeScript
 oracle or a Rust contract fixture.
 
+MCP is native at the runtime boundary but not the kernel itself. The accepted
+cross-repo decision is recorded in
+`../../docs/mcp-native-runtime-boundary.md`: `rmcp` owns MCP protocol semantics
+inside the adapter tier, while runx owns graph state, admission, authority,
+approvals, pause/resume, receipts, and run identity.
+
 ## 2. Pure kernel scope
 
 "Pure kernel" in this document means exactly what the existing boundary check
@@ -243,6 +249,25 @@ of side effects. Current modules map to these implementation buckets:
 These buckets are not proposed Cargo crates. They are the internal ownership
 map for `runx-rust-runtime-architecture-lift-v1`: split only where the split
 creates a clearer dependency or capability boundary.
+
+Current runtime lift shape:
+
+- `runx-runtime::services` owns small service facets for workspace environment,
+  receipts, sandboxing, and adapter invocation. These facets are passed where
+  they are needed; there is no catch-all harness context.
+- `runx-runtime::adapter_pipeline` owns the shared adapter lifecycle:
+  resolve, admit, invoke, capture, project, and seal. CLI-tool, external
+  adapter, and MCP paths use the same lifecycle instead of parallel process
+  stories.
+- `runx-runtime::lifecycle` owns internal harness, decision, act, receipt,
+  abnormal-seal, verification, and publication events before they project into
+  local journal/history rows.
+- `runx_runtime::harness::list_cases()` is the single Rust harness replay case
+  registry. The oracle binary consumes that registry for check, regeneration,
+  and JSON summary output.
+- Stress gates are explicit scripts (`stress:runtime:mcp`,
+  `stress:runtime:cli-tool`, `stress:runtime:external-adapter`,
+  `stress:runtime:fanout`). They are not hidden inside the default fast loop.
 
 ## 4. `runx-core` public API stance
 

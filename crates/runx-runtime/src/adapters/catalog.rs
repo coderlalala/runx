@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -58,7 +59,12 @@ impl SkillAdapter for CatalogAdapter {
             return Ok(missing_imported_tool(catalog_ref, started));
         };
 
-        Ok(invoke_fixture_tool(&tool, &request.inputs, started))
+        Ok(invoke_fixture_tool(
+            &tool,
+            &request.inputs,
+            &request.env,
+            started,
+        ))
     }
 
     fn fanout_execution_mode(&self, source: &SkillSource) -> FanoutExecutionMode {
@@ -209,14 +215,19 @@ fn normalize_local_cli_source(source: &mut SkillSource, skill_directory: &Path) 
     }
 }
 
-fn invoke_fixture_tool(tool: &FixtureTool, inputs: &JsonObject, started: Instant) -> SkillOutput {
+fn invoke_fixture_tool(
+    tool: &FixtureTool,
+    inputs: &JsonObject,
+    env: &BTreeMap<String, String>,
+    started: Instant,
+) -> SkillOutput {
     match tool.name {
         "echo" => success(
             json_string(inputs.get("message")).unwrap_or_default(),
             tool.name,
             started,
         ),
-        "env" => success(env_value(inputs.get("name")), tool.name, started),
+        "env" => success(env_value(inputs.get("name"), env), tool.name, started),
         "fail" => failure_with_metadata(
             format!(
                 "MCP error -32000: fixture failure: {}",
@@ -300,11 +311,11 @@ fn json_number_string(value: &JsonNumber) -> String {
     }
 }
 
-fn env_value(name: Option<&JsonValue>) -> String {
+fn env_value(name: Option<&JsonValue>, env: &BTreeMap<String, String>) -> String {
     let Some(name) = json_string(name) else {
         return String::new();
     };
-    std::env::var(name).unwrap_or_default()
+    env.get(&name).cloned().unwrap_or_default()
 }
 
 fn mcp_metadata(tool_name: &str) -> JsonObject {

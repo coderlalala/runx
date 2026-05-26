@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = process.cwd();
+const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
+const root = process.env.RUNX_LICENSE_BOUNDARY_ROOT
+  ? path.resolve(process.env.RUNX_LICENSE_BOUNDARY_ROOT)
+  : path.resolve(scriptRoot, "..", "..");
 const manifestPath = process.env.RUNX_LICENSE_BOUNDARY_MANIFEST
   ? path.resolve(root, process.env.RUNX_LICENSE_BOUNDARY_MANIFEST)
   : path.join(root, "docs/license-boundary.manifest.json");
@@ -259,9 +263,12 @@ function checkEdges() {
 }
 
 const checkIndex = process.argv.indexOf("--check");
-const check = checkIndex === -1 ? null : process.argv[checkIndex + 1];
+const check = checkIndex === -1 ? "default" : process.argv[checkIndex + 1];
 
-if (check === "manifest-complete") {
+if (check === "default") {
+  checkManifestComplete();
+  checkIdentifiers();
+} else if (check === "manifest-complete") {
   checkManifestComplete();
 } else if (check === "identifiers" || check === "edges") {
   if (check === "identifiers") {

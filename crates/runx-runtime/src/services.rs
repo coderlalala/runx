@@ -66,6 +66,14 @@ impl WorkspaceEnv {
     }
 }
 
+pub(crate) fn process_env_value(key: &str) -> Option<String> {
+    std::env::var(key).ok()
+}
+
+pub(crate) fn process_env_snapshot() -> BTreeMap<String, String> {
+    std::env::vars().collect()
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ReceiptServices {
     signature_config: RuntimeReceiptSignatureConfig,
@@ -80,7 +88,6 @@ impl ReceiptServices {
         })
     }
 
-    #[cfg(test)]
     pub(crate) fn from_signature_config(signature_config: RuntimeReceiptSignatureConfig) -> Self {
         Self { signature_config }
     }

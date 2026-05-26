@@ -1,10 +1,9 @@
-use runx_contracts::{Receipt, sha256_prefixed};
-use serde_json as json;
+use runx_contracts::{JsonValue, Receipt, sha256_prefixed};
 
 use crate::ReceiptError;
 
 pub fn canonical_receipt_json(receipt: &Receipt) -> Result<String, ReceiptError> {
-    let value = receipt_json(receipt)?;
+    let value = receipt_value(receipt)?;
     canonical_json_value(&value)
 }
 
@@ -13,7 +12,7 @@ pub fn canonical_receipt_digest(receipt: &Receipt) -> Result<String, ReceiptErro
 }
 
 pub fn canonical_receipt_body_json(receipt: &Receipt) -> Result<String, ReceiptError> {
-    let mut value = receipt_json(receipt)?;
+    let mut value = receipt_value(receipt)?;
     strip_body_proof_fields(&mut value);
     canonical_json_value(&value)
 }
@@ -29,9 +28,9 @@ pub fn canonical_receipt_body_digest(receipt: &Receipt) -> Result<String, Receip
 /// own ids are known; excluding it breaks the parent<->child id circularity
 /// while keeping the address stable. The full `digest` still commits `lineage`.
 pub fn canonical_receipt_identity_json(receipt: &Receipt) -> Result<String, ReceiptError> {
-    let mut value = receipt_json(receipt)?;
+    let mut value = receipt_value(receipt)?;
     strip_body_proof_fields(&mut value);
-    if let json::Value::Object(map) = &mut value {
+    if let JsonValue::Object(map) = &mut value {
         map.remove("id");
         map.remove("lineage");
     }
@@ -44,8 +43,12 @@ pub fn content_addressed_receipt_id(receipt: &Receipt) -> Result<String, Receipt
     canonical_receipt_identity_json(receipt).map(|json| sha256_prefixed(json.as_bytes()))
 }
 
-fn receipt_json(receipt: &Receipt) -> Result<json::Value, ReceiptError> {
-    serde_json::to_value(receipt).map_err(|source| ReceiptError::Serialization {
+fn receipt_value(receipt: &Receipt) -> Result<JsonValue, ReceiptError> {
+    let serialized =
+        serde_json::to_string(receipt).map_err(|source| ReceiptError::Serialization {
+            message: source.to_string(),
+        })?;
+    serde_json::from_str(&serialized).map_err(|source| ReceiptError::Serialization {
         message: source.to_string(),
     })
 }
@@ -53,32 +56,29 @@ fn receipt_json(receipt: &Receipt) -> Result<json::Value, ReceiptError> {
 /// The signed body commits every flat field except the envelope's own
 /// `signature` and `digest`. `metadata` is a runtime-local read aid and is not
 /// part of the signed body.
-fn strip_body_proof_fields(value: &mut json::Value) {
-    if let json::Value::Object(map) = value {
+fn strip_body_proof_fields(value: &mut JsonValue) {
+    if let JsonValue::Object(map) = value {
         map.remove("signature");
         map.remove("digest");
         map.remove("metadata");
     }
 }
 
-fn canonical_json_value(value: &json::Value) -> Result<String, ReceiptError> {
+fn canonical_json_value(value: &JsonValue) -> Result<String, ReceiptError> {
     let mut output = String::new();
     write_canonical_json_value(value, &mut output)?;
     Ok(output)
 }
 
-fn write_canonical_json_value(
-    value: &json::Value,
-    output: &mut String,
-) -> Result<(), ReceiptError> {
+fn write_canonical_json_value(value: &JsonValue, output: &mut String) -> Result<(), ReceiptError> {
     match value {
-        json::Value::Null => output.push_str("null"),
-        json::Value::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
-        json::Value::Number(value) => output.push_str(&value.to_string()),
-        json::Value::String(value) => {
+        JsonValue::Null => output.push_str("null"),
+        JsonValue::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
+        JsonValue::Number(value) => output.push_str(&value.to_string()),
+        JsonValue::String(value) => {
             write_json_string(value, output)?;
         }
-        json::Value::Array(items) => {
+        JsonValue::Array(items) => {
             output.push('[');
             for (index, item) in items.iter().enumerate() {
                 if index > 0 {
@@ -88,11 +88,9 @@ fn write_canonical_json_value(
             }
             output.push(']');
         }
-        json::Value::Object(map) => {
+        JsonValue::Object(map) => {
             output.push('{');
-            let mut entries = map.iter().collect::<Vec<_>>();
-            entries.sort_unstable_by(|left, right| left.0.cmp(right.0));
-            for (index, (key, value)) in entries.into_iter().enumerate() {
+            for (index, (key, value)) in map.iter().enumerate() {
                 if index > 0 {
                     output.push(',');
                 }

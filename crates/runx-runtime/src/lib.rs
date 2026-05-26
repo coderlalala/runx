@@ -3,6 +3,11 @@
 //! The runtime owns impure boundaries: filesystem reads, subprocess execution,
 //! sandbox preparation, host reporting, and receipt emission. Pure
 //! parser/core/receipt crates stay upstream of this crate.
+//!
+//! The root exports are a facade for CLI, SDK, and test consumers. Helper
+//! surfaces stay under their owning modules: harness replay under `harness`,
+//! receipt stores under `receipts`, adapter protocol under `adapter`, and
+//! runtime orchestration under `runner` or `orchestrator`.
 
 pub mod adapter;
 mod adapter_pipeline;
@@ -73,9 +78,8 @@ pub use dev::{
 pub use doctor::{DoctorOptions, default_doctor_options, run_doctor};
 pub use error::RuntimeError;
 pub use harness::{
-    HarnessExpectedStatus, HarnessFixtureCase, HarnessFixtureError, HarnessFixtureKind,
-    HarnessFixtureStepOracle, HarnessReplayError, HarnessReplayOutput, list_cases,
-    load_harness_fixture, parse_harness_fixture, run_harness_fixture,
+    HarnessExpectedStatus, HarnessFixtureError, HarnessFixtureKind, HarnessReplayError,
+    HarnessReplayOutput, load_harness_fixture, parse_harness_fixture, run_harness_fixture,
     run_harness_fixture_with_adapter,
 };
 pub use host::{Host, NoopHost};

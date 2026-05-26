@@ -69,7 +69,7 @@ fn assert_receipt(
     actual: &Receipt,
 ) -> Result<(), HarnessReplayError> {
     assert_receipt_proof(actual)?;
-    if std::env::var("RUNX_REGEN_FIXTURES").is_ok() {
+    if crate::services::process_env_value("RUNX_REGEN_FIXTURES").is_some() {
         let summary = summarize_receipt(actual);
         let body_digest = canonical_receipt_body_digest(actual).map_err(receipt_digest_error)?;
         let receipt_digest = canonical_receipt_digest(actual).map_err(receipt_digest_error)?;

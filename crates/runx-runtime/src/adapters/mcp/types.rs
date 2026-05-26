@@ -7,6 +7,7 @@ use runx_parser::{SkillMcpServer, ValidatedSkill};
 
 use crate::credentials::SecretEnv;
 use crate::sandbox::SandboxPlan;
+use crate::services::process_env_snapshot;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct McpToolCallRequest {
@@ -51,7 +52,7 @@ impl Default for McpServerExecutionOptions {
         Self {
             runner: None,
             receipt_dir: None,
-            env: std::env::vars().collect(),
+            env: process_env_snapshot(),
         }
     }
 }

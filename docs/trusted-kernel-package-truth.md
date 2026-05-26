@@ -82,9 +82,13 @@ The current tiers are:
 - Pure crates: `runx-contracts`, `runx-core`, `runx-parser`, `runx-receipts`,
   and `runx-sdk` may not depend on async runtimes, HTTP clients/servers, MCP
   framework crates, or alternate YAML backends.
-- Runtime and adapter crates: `runx-runtime` and `runx-cli` also have no
-  approved `reqwest`, `hyper`, `tokio`, `rmcp`, `ureq`, `axum`, or
-  `async-std` exception today. A future adapter-side exception must be
+- Runtime and adapter crates: `runx-runtime` may use side-effect-tier
+  dependencies only behind owning feature flags. The current approved
+  exceptions are `reqwest` + `rustls` for adapter-owned HTTPS, `tokio` for
+  MCP/process async supervision, and `rmcp` for MCP protocol handling. These
+  dependencies must not move into pure crates or default features. `runx-cli`
+  consumes runtime surfaces; it must not grow its own parallel HTTP, MCP, or
+  process-supervision stack. New adapter-side exceptions remain
   spec-reviewed, package-scoped, and documented here before the deny entry is
   relaxed.
 - YAML parsing: `serde_norway` is the current parser backend. `serde_yml` and

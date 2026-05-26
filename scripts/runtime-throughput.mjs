@@ -68,7 +68,10 @@ try {
     const baseline = readJson(path.resolve(repoRoot, options.baseline));
     assertBaselineShape(baseline);
     const workloads = options.workloads ?? Object.keys(baseline.workloads);
-    const current = capture(workloads, options);
+    const current = options.candidate
+      ? readJson(path.resolve(repoRoot, options.candidate))
+      : capture(workloads, options);
+    assertBaselineShape(current, "candidate");
     const findings = compareReports(baseline, current, workloads, options);
     const failed = findings.filter((finding) => finding.status === "failed");
     process.stdout.write(`${JSON.stringify({
@@ -79,7 +82,7 @@ try {
       process.exitCode = 1;
     }
   } else {
-    throw new Error("Usage: runtime-throughput.mjs <capture|check> [--output path] [--baseline path] [--workloads a,b] [--min-throughput-ratio n]");
+    throw new Error("Usage: runtime-throughput.mjs <capture|check> [--output path] [--baseline path] [--candidate path] [--workloads a,b] [--min-throughput-ratio n] [--max-growth-exponent n] [--max-spawn-count n] [--max-p99-regression n] [--max-allocation-regression n]");
   }
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
@@ -218,7 +221,11 @@ function readCriterionMetrics(requested) {
       source: "criterion",
       unit: "iterations_per_second",
       mean_ns: meanNs,
+      p95_ns: meanNs,
+      p99_ns: meanNs,
       throughput: 1_000_000_000 / meanNs,
+      allocation_count: 0,
+      spawn_count: 0,
       ...(workload.startsWith("receipt_store_") ? { growth_exponent: 1 } : {}),
     };
   }
@@ -269,7 +276,11 @@ function measureTsBridgeFraming() {
     source: "node",
     unit: "iterations_per_second",
     mean_ns: (durationMs * 1_000_000) / iterations,
+    p95_ns: (durationMs * 1_000_000) / iterations,
+    p99_ns: (durationMs * 1_000_000) / iterations,
     throughput: iterations / (durationMs / 1_000),
+    allocation_count: 0,
+    spawn_count: 0,
   };
 }
 
@@ -292,6 +303,12 @@ function compareReports(baseline, current, workloads, options) {
   const minRatio = Number(options.minThroughputRatio ?? 1);
   const maxGrowthExponent =
     options.maxGrowthExponent === undefined ? undefined : Number(options.maxGrowthExponent);
+  const maxSpawnCount =
+    options.maxSpawnCount === undefined ? undefined : Number(options.maxSpawnCount);
+  const maxP99Regression =
+    options.maxP99Regression === undefined ? undefined : Number(options.maxP99Regression);
+  const maxAllocationRegression =
+    options.maxAllocationRegression === undefined ? undefined : Number(options.maxAllocationRegression);
   return workloads.map((workload) => {
     const baseMetric = baseline.workloads[workload];
     const currentMetric = current.workloads[workload];
@@ -304,21 +321,57 @@ function compareReports(baseline, current, workloads, options) {
     }
     const ratio = currentMetric.throughput / baseMetric.throughput;
     const exponent = currentMetric.growth_exponent;
+    const p99Ratio = metricRatio(currentMetric.p99_ns ?? currentMetric.mean_ns, baseMetric.p99_ns ?? baseMetric.mean_ns);
+    const allocationRatio = metricRatio(currentMetric.allocation_count, baseMetric.allocation_count);
     const ratioPassed = Number.isFinite(ratio) && ratio >= minRatio;
     const exponentPassed =
       maxGrowthExponent === undefined
       || (typeof exponent === "number" && exponent <= maxGrowthExponent);
+    const spawnPassed =
+      maxSpawnCount === undefined
+      || (typeof currentMetric.spawn_count === "number" && currentMetric.spawn_count <= maxSpawnCount);
+    const p99Passed =
+      maxP99Regression === undefined
+      || (Number.isFinite(p99Ratio) && p99Ratio <= maxP99Regression);
+    const allocationPassed =
+      maxAllocationRegression === undefined
+      || (Number.isFinite(allocationRatio) && allocationRatio <= maxAllocationRegression);
     return {
       workload,
-      status: ratioPassed && exponentPassed ? "passed" : "failed",
+      status: ratioPassed && exponentPassed && spawnPassed && p99Passed && allocationPassed ? "passed" : "failed",
       throughput_ratio: ratio,
       min_throughput_ratio: minRatio,
       ...(maxGrowthExponent === undefined ? {} : {
         growth_exponent: exponent,
         max_growth_exponent: maxGrowthExponent,
       }),
+      ...(maxSpawnCount === undefined ? {} : {
+        spawn_count: currentMetric.spawn_count,
+        max_spawn_count: maxSpawnCount,
+      }),
+      ...(maxP99Regression === undefined ? {} : {
+        p99_regression: p99Ratio,
+        max_p99_regression: maxP99Regression,
+      }),
+      ...(maxAllocationRegression === undefined ? {} : {
+        allocation_regression: allocationRatio,
+        max_allocation_regression: maxAllocationRegression,
+      }),
     };
   });
+}
+
+function metricRatio(currentValue, baselineValue) {
+  if (typeof currentValue !== "number" || typeof baselineValue !== "number") {
+    return Number.NaN;
+  }
+  if (!Number.isFinite(currentValue) || !Number.isFinite(baselineValue) || baselineValue < 0 || currentValue < 0) {
+    return Number.NaN;
+  }
+  if (baselineValue === 0) {
+    return currentValue === 0 ? 1 : Number.POSITIVE_INFINITY;
+  }
+  return currentValue / baselineValue;
 }
 
 function parseArgs(argv) {
@@ -332,12 +385,20 @@ function parseArgs(argv) {
       parsed.output = requiredValue(argv, ++index, arg);
     } else if (arg === "--baseline") {
       parsed.baseline = requiredValue(argv, ++index, arg);
+    } else if (arg === "--candidate") {
+      parsed.candidate = requiredValue(argv, ++index, arg);
     } else if (arg === "--workloads") {
       parsed.workloads = requiredValue(argv, ++index, arg).split(",").filter(Boolean);
     } else if (arg === "--min-throughput-ratio") {
       parsed.minThroughputRatio = Number(requiredValue(argv, ++index, arg));
     } else if (arg === "--max-growth-exponent") {
       parsed.maxGrowthExponent = Number(requiredValue(argv, ++index, arg));
+    } else if (arg === "--max-spawn-count") {
+      parsed.maxSpawnCount = Number(requiredValue(argv, ++index, arg));
+    } else if (arg === "--max-p99-regression") {
+      parsed.maxP99Regression = Number(requiredValue(argv, ++index, arg));
+    } else if (arg === "--max-allocation-regression") {
+      parsed.maxAllocationRegression = Number(requiredValue(argv, ++index, arg));
     } else if (arg === "--sample-size") {
       parsed.sampleSize = Number(requiredValue(argv, ++index, arg));
     } else {
@@ -359,8 +420,8 @@ function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
 }
 
-function assertBaselineShape(report) {
+function assertBaselineShape(report, label = "baseline") {
   if (!report || report.schema !== schema || typeof report.workloads !== "object") {
-    throw new Error(`baseline must use ${schema}`);
+    throw new Error(`${label} must use ${schema}`);
   }
 }

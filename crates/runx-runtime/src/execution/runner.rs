@@ -85,7 +85,7 @@ impl RuntimeOptions {
 }
 
 fn safe_default_env() -> BTreeMap<String, String> {
-    safe_default_env_from(|key| std::env::var(key).ok())
+    safe_default_env_from(crate::services::process_env_value)
 }
 
 fn safe_default_env_from(

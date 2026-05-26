@@ -407,16 +407,16 @@ impl GraphExecution {
                 let run_positions = &self.run_positions;
                 let sequence = sequence_base + offset;
                 handles.push(scope.spawn(move || {
-                    let run = execute_parallel_fanout_step(
+                    let run = execute_parallel_fanout_step(ParallelFanoutStepExecution {
                         adapter,
                         options,
                         graph_dir,
                         graph_name,
                         step,
                         attempt,
-                        runs,
+                        prior_runs: runs,
                         run_positions,
-                    )?;
+                    })?;
                     Ok::<ParallelStepRun, RuntimeError>(ParallelStepRun {
                         sequence,
                         step_id,
@@ -800,16 +800,30 @@ impl GraphExecution {
     }
 }
 
-fn execute_parallel_fanout_step(
+struct ParallelFanoutStepExecution<'a> {
     adapter: Box<dyn SkillAdapter + Send + Sync>,
     options: RuntimeOptions,
-    graph_dir: &Path,
-    graph_name: &str,
-    step: &GraphStep,
+    graph_dir: &'a Path,
+    graph_name: &'a str,
+    step: &'a GraphStep,
     attempt: u32,
-    prior_runs: &[StepRun],
-    run_positions: &BTreeMap<String, usize>,
+    prior_runs: &'a [StepRun],
+    run_positions: &'a BTreeMap<String, usize>,
+}
+
+fn execute_parallel_fanout_step(
+    execution: ParallelFanoutStepExecution<'_>,
 ) -> Result<StepRun, RuntimeError> {
+    let ParallelFanoutStepExecution {
+        adapter,
+        options,
+        graph_dir,
+        graph_name,
+        step,
+        attempt,
+        prior_runs,
+        run_positions,
+    } = execution;
     let runtime = Runtime::new(adapter, options);
     let prior_run_index = PriorRunIndex::from_positions(prior_runs, run_positions);
     let mut host = NoopHost;

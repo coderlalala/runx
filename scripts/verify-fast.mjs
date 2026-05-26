@@ -64,7 +64,12 @@ const evalBinEnv = {
   RUNX_KERNEL_EVAL_BIN: rustKernelBin,
   RUNX_PARSER_EVAL_BIN: rustKernelBin,
   RUNX_RUST_CLI_BIN: rustKernelBin,
+  RUNX_DEV_RUST_CLI_BIN: rustKernelBin,
   RUNX_HARNESS_FIXTURE_ORACLE_BIN: rustHarnessFixtureOracleBin,
+  RUNX_RECEIPT_SIGN_KID: process.env.RUNX_RECEIPT_SIGN_KID ?? "verify-fast-test-key",
+  RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64:
+    process.env.RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64 ?? "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=",
+  RUNX_RECEIPT_SIGN_ISSUER_TYPE: process.env.RUNX_RECEIPT_SIGN_ISSUER_TYPE ?? "hosted",
 };
 
 for (const [command, args] of commands) {

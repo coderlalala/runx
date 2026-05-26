@@ -554,9 +554,12 @@ mod tests {
 
     #[test]
     fn material_ref_errors_report_hashes_not_raw_refs() {
-        let missing = InMemoryMaterialResolver::default()
-            .resolve_material("secret://github/main")
-            .expect_err("missing material must fail");
+        let result = InMemoryMaterialResolver::default().resolve_material("secret://github/main");
+        assert!(result.is_err(), "missing material must fail");
+        let missing = match result {
+            Err(error) => error,
+            Ok(_) => return,
+        };
         let message = missing.to_string();
         assert!(message.contains("sha256:"));
         assert!(!message.contains("secret://github/main"));

@@ -28,9 +28,10 @@ fn bench_receipt_canonicalization(c: &mut Criterion) {
 }
 
 fn fixture_receipt() -> Receipt {
-    serde_json::from_str::<Fixture>(SUCCESS_RECEIPT)
-        .map(|fixture| fixture.expected)
-        .unwrap_or_else(|error| panic!("receipt fixture must parse: {error}"))
+    match serde_json::from_str::<Fixture>(SUCCESS_RECEIPT) {
+        Ok(fixture) => fixture.expected,
+        Err(_error) => std::process::exit(2),
+    }
 }
 
 criterion_group!(benches, bench_receipt_canonicalization);

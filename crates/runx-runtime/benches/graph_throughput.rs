@@ -289,17 +289,17 @@ fn synthetic_step_runs(options: &RuntimeOptions, count: usize) -> Vec<StepRun> {
             let output = skill_output(&format!(
                 r#"{{"nested":{{"value":{index}}},"status":"ok"}}"#
             ));
-            let receipt = step_receipt_with_signature_policy(
+            let receipt = match step_receipt_with_signature_policy(
                 "throughput_graph",
                 &step_id,
                 1,
                 &output,
                 CREATED_AT,
                 options.signature_policy(),
-            )
-            .unwrap_or_else(|error| {
-                panic!("synthetic receipt must seal for {step_id}: {error}");
-            });
+            ) {
+                Ok(receipt) => receipt,
+                Err(_error) => std::process::exit(2),
+            };
             StepRun {
                 step_id: step_id.clone(),
                 attempt: 1,
