@@ -410,7 +410,7 @@ runners:
           mutation: true
           context:
             path: scafld-plan.result.path
-            contents: normalize-spec.normalized_spec.data.data.contents
+            contents: normalize-spec.data.contents
         - id: read-draft-spec
           label: read draft spec
           tool: fs.read

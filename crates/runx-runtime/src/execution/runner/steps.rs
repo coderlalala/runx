@@ -112,7 +112,8 @@ where
 
     let mut output = runtime.adapter.invoke(invocation)?;
     route_external_adapter_host_resolution(step, host, &mut output)?;
-    let outputs = step_output_object(step, &output);
+    let mut outputs = step_output_object(step, &output);
+    expose_skill_claim_fields(step, &output, &mut outputs);
     let skill_claim = skill_claim_object(&output);
     attach_payment_supervisor_evidence_before_gate(
         step,
@@ -414,8 +415,46 @@ fn replay_stdout_payload(outputs: &JsonObject) -> JsonObject {
 
 fn step_output_object(step: &GraphStep, output: &SkillOutput) -> JsonObject {
     let mut outputs = output_object(output);
+    expose_declared_run_outputs(step, output, &mut outputs);
     expose_declared_artifacts(step, output, &mut outputs);
     outputs
+}
+
+fn expose_declared_run_outputs(step: &GraphStep, output: &SkillOutput, outputs: &mut JsonObject) {
+    let Some(run) = &step.run else {
+        return;
+    };
+    let Some(JsonValue::Object(declared_outputs)) = run.get("outputs") else {
+        return;
+    };
+    let claim = skill_claim_object(output);
+    if claim.is_empty() {
+        return;
+    }
+
+    for name in declared_outputs.keys() {
+        if is_reserved_output_field(name) {
+            continue;
+        }
+        let Some(value) = claim.get(name).cloned() else {
+            continue;
+        };
+        outputs.insert(name.clone(), value);
+    }
+}
+
+fn expose_skill_claim_fields(_step: &GraphStep, output: &SkillOutput, outputs: &mut JsonObject) {
+    let claim = skill_claim_object(output);
+    if claim.is_empty() {
+        return;
+    }
+
+    for (name, value) in claim {
+        if is_reserved_output_field(&name) || outputs.contains_key(&name) {
+            continue;
+        }
+        outputs.insert(name, value);
+    }
 }
 
 fn expose_declared_artifacts(step: &GraphStep, output: &SkillOutput, outputs: &mut JsonObject) {
@@ -444,6 +483,10 @@ fn expose_declared_artifacts(step: &GraphStep, output: &SkillOutput, outputs: &m
             outputs.insert(name.clone(), artifact_data_wrapper(value));
         }
     }
+}
+
+fn is_reserved_output_field(name: &str) -> bool {
+    matches!(name, "raw" | "skill_claim" | "stdout" | "stderr" | "status")
 }
 
 fn artifact_data_wrapper(value: JsonValue) -> JsonValue {
@@ -722,7 +765,8 @@ where
         };
         let mut output = CatalogAdapter::default().invoke(invocation)?;
         apply_graph_step_artifact_wrappers(&mut output, step)?;
-        let outputs = step_output_object(step, &output);
+        let mut outputs = step_output_object(step, &output);
+        expose_skill_claim_fields(step, &output, &mut outputs);
         let receipt = step_receipt_with_signature_policy(
             graph_name,
             &step.id,

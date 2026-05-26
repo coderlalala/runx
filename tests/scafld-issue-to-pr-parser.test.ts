@@ -92,7 +92,7 @@ describe("scafld issue-to-PR skill contract", () => {
       tool: "fs.write",
       context: {
         path: "scafld-plan.result.path",
-        contents: "normalize-spec.normalized_spec.data.data.contents",
+        contents: "normalize-spec.data.contents",
       },
     });
     expect(graph.steps.find((step) => step.id === "read-approved-spec")).toMatchObject({

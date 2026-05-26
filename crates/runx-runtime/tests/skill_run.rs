@@ -482,6 +482,11 @@ fn native_graph_skill_run_pauses_and_resumes_agent_step() -> Result<(), Box<dyn 
     let decide = object_field(step_outputs, "decide").ok_or("missing decide step output")?;
     assert_eq!(string_field(decide, "status"), Some("success"));
     assert!(object_field(decide, "skill_claim").is_some());
+    let declared_result = object_field(decide, "result").ok_or("missing declared result output")?;
+    assert_eq!(
+        string_field(declared_result, "summary"),
+        Some("Graph fix authored.")
+    );
     assert!(!decide.contains_key("approved"));
     assert!(!decide.contains_key("proof_ref"));
     assert!(!decide.contains_key("receipt_id"));
@@ -915,6 +920,13 @@ fn native_graph_skill_run_executes_nested_cli_tool_skill() -> Result<(), Box<dyn
     let nested_claim = step_claim(payload, "nested").ok_or("missing nested skill claim")?;
     let nested = object_field(nested_claim, "nested").ok_or("missing nested output")?;
     assert_eq!(string_field(nested, "message"), Some("Nested graph bug"));
+    let step_outputs = object_field(payload, "step_outputs").ok_or("missing step outputs")?;
+    let nested_step = object_field(step_outputs, "nested").ok_or("missing nested step output")?;
+    let declared_nested = object_field(nested_step, "nested").ok_or("missing exposed nested output")?;
+    assert_eq!(
+        string_field(declared_nested, "message"),
+        Some("Nested graph bug")
+    );
 
     Ok(())
 }
