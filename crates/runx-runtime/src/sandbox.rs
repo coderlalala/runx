@@ -567,11 +567,12 @@ fn platform_sandbox_runtime(profile: &str) -> SandboxRuntime {
     #[cfg(target_os = "linux")]
     {
         if let Some(path) = find_trusted_executable("bwrap") {
-            return SandboxRuntime::Bubblewrap { path };
+            SandboxRuntime::Bubblewrap { path }
+        } else {
+            SandboxRuntime::DeclaredPolicyOnly {
+                reason: missing_sandbox_backend_reason(profile),
+            }
         }
-        return SandboxRuntime::DeclaredPolicyOnly {
-            reason: missing_sandbox_backend_reason(profile),
-        };
     }
 
     #[cfg(target_os = "macos")]
