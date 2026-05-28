@@ -251,7 +251,7 @@ pub use thread_outbox_provider::{
 };
 pub use tools::{
     RuntimeCommand, ToolCommandInputMode, ToolIdempotencyPolicy, ToolInput, ToolManifest,
-    ToolManifestSchema, ToolMcpServer, ToolOutput, ToolRetryPolicy, ToolSandbox,
+    ToolManifestSchema, ToolMcpServer, ToolOutput, ToolOutputBinding, ToolRetryPolicy, ToolSandbox,
     ToolSandboxCwdPolicy, ToolSandboxProfile, ToolSource, ToolSourceType,
 };
 pub use verification::{

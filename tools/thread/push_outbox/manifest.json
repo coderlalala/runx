@@ -35,40 +35,39 @@
     }
   },
   "inputs": {
-    "thread": {
-      "type": "json",
-      "required": false,
-      "description": "Current hydrated thread for the bounded provider surface."
-    },
-    "outbox_entry": {
-      "type": "json",
-      "required": true,
-      "artifact": true,
-      "description": "Outbox entry to push through the thread adapter."
-    },
     "draft_pull_request": {
       "type": "json",
       "required": false,
-      "artifact": true,
-      "description": "Provider-agnostic draft pull-request packet paired with the outbox entry."
+      "description": "Provider-agnostic draft pull-request packet paired with the outbox entry.",
+      "artifact": true
     },
     "fixture": {
       "type": "string",
       "required": false,
       "description": "Optional governed workspace root inherited from issue-to-pr style lanes."
     },
-    "workspace_path": {
-      "type": "string",
-      "required": false,
-      "description": "Optional workspace root used by adapters that need local git state to publish outputs upstream."
-    },
     "next_status": {
       "type": "string",
       "required": false,
       "description": "Optional status to apply after a successful provider push, such as `draft`."
+    },
+    "outbox_entry": {
+      "type": "json",
+      "required": true,
+      "description": "Outbox entry to push through the thread adapter.",
+      "artifact": true
+    },
+    "thread": {
+      "type": "json",
+      "required": false,
+      "description": "Current hydrated thread for the bounded provider surface."
+    },
+    "workspace_path": {
+      "type": "string",
+      "required": false,
+      "description": "Optional workspace root used by adapters that need local git state to publish outputs upstream."
     }
   },
-  "output": {},
   "scopes": [
     "thread:push"
   ],
@@ -78,7 +77,8 @@
       "./run.mjs"
     ]
   },
-  "source_hash": "sha256:0f9f62f44d48287cd8c7e273485ab77af4832b1a3ee88a97051820db5ec09942",
+  "output": {},
+  "source_hash": "sha256:f6488ce41bdacdcf907379ba1885161219feb9a409278a1ff60b41841203d259",
   "schema_hash": "sha256:5c9657a19edc8d729e5bd37d6ef4f7912f0f060b1fc719bd822b85cc2fddf5dc",
   "toolkit_version": "0.1.4"
 }

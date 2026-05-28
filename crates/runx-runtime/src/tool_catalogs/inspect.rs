@@ -176,6 +176,7 @@ fn fixture_inputs(tool: &FixtureTool) -> BTreeMap<String, ToolInput> {
                     required: input.required,
                     description: input.description.map(str::to_owned),
                     default: None,
+                    artifact: None,
                 },
             )
         })
@@ -289,6 +290,7 @@ fn convert_inputs(
                     required: input.required,
                     description: input.description,
                     default: convert_optional_json(input.default)?,
+                    artifact: None,
                 },
             ))
         })

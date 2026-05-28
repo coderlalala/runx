@@ -68556,6 +68556,9 @@ export const runxSchemaArtifacts = {
         "additionalProperties": {
           "additionalProperties": false,
           "properties": {
+            "artifact": {
+              "type": "boolean"
+            },
             "default": {},
             "description": {
               "type": "string"
@@ -68584,6 +68587,27 @@ export const runxSchemaArtifacts = {
       "output": {
         "additionalProperties": true,
         "properties": {
+          "named_emits": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "outputs": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "properties": {
+                "packet": {
+                  "type": "string"
+                },
+                "wrap_as": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "object"
+          },
           "packet": {
             "type": "string"
           },

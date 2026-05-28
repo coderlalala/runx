@@ -117,11 +117,36 @@ pub struct ToolInput {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<JsonPayload>,
+    /// Marks this input as a structured artifact packet (rather than a scalar
+    /// or free-form blob). Consumers that fanout/dedupe on artifact identity
+    /// honour this flag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, RunxSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ToolOutput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wrap_as: Option<String>,
+    /// Map of named-emit label → output key, when this tool fans out to
+    /// multiple distinct artifact streams. Each label points at an entry in
+    /// `outputs`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub named_emits: BTreeMap<String, String>,
+    /// Per-output packet bindings keyed by output name. Populated alongside
+    /// `named_emits` when a tool emits more than one packet.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub outputs: BTreeMap<String, ToolOutputBinding>,
+    #[serde(flatten)]
+    pub extra: JsonPayloadObject,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, RunxSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ToolOutputBinding {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub packet: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -366,6 +391,8 @@ pub struct ToolInspectProvenance {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::{
         RuntimeCommand, ToolBuildReport, ToolBuildReportSchema, ToolBuildStatus,
         ToolCatalogSearchResult, ToolCommandInputMode, ToolInput, ToolInspectOrigin,
@@ -455,6 +482,7 @@ mod tests {
                     required: true,
                     description: None,
                     default: None,
+                    artifact: None,
                 },
             )]
             .into_iter()
@@ -462,6 +490,8 @@ mod tests {
             output: ToolOutput {
                 packet: None,
                 wrap_as: None,
+                named_emits: BTreeMap::new(),
+                outputs: BTreeMap::new(),
                 extra: Default::default(),
             },
             scopes: Vec::new(),

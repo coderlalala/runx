@@ -14,9 +14,7 @@ harness:
         objective: How is the skill catalog behaving this month, and what should we tighten?
         scope: workspace
         period: 30d
-        history_summary: >-
-          30-day window: 412 runs, 387 sealed, 25 refused. Maturity across 21 skills: 14 alpha, 5 beta,
-          2 stable. One skill, doc-bot, granted repo.write but exercised only repo.read across 40 runs.
+        history_summary: "30-day window: 412 runs, 387 sealed, 25 refused. Maturity across 21 skills: 14 alpha, 5 beta, 2 stable. One skill, doc-bot, granted repo.write but exercised only repo.read across 40 runs."
         objective_focus: Lead with maturity and unused authority.
       caller:
         answers:

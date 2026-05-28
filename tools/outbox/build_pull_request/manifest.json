@@ -10,85 +10,30 @@
     ]
   },
   "inputs": {
-    "task_id": {
-      "type": "string",
-      "required": true,
-      "description": "scafld task id that produced the completed engineering state."
-    },
-    "thread_title": {
+    "base": {
       "type": "string",
       "required": false,
-      "description": "Canonical thread title when the caller already has one."
-    },
-    "thread_body": {
-      "type": "string",
-      "required": false,
-      "description": "Bounded source-thread body used for reviewer context and quality gates."
-    },
-    "thread_locator": {
-      "type": "string",
-      "required": false,
-      "description": "Canonical thread locator for the bounded harness."
-    },
-    "thread": {
-      "type": "json",
-      "required": false,
-      "description": "Optional hydrated thread that may already carry a pull_request outbox entry."
-    },
-    "outbox_entry": {
-      "type": "json",
-      "required": false,
-      "description": "Optional current pull_request outbox entry when refreshing an existing draft."
-    },
-    "harness_context": {
-      "type": "json",
-      "required": false,
-      "description": "Optional captured harness context containing signal and decision state."
-    },
-    "operational_policy": {
-      "type": "json",
-      "required": false,
-      "description": "Optional runx.operational_policy.v1 packet used for request-time admission."
-    },
-    "source_id": {
-      "type": "string",
-      "required": false,
-      "description": "Operational policy source id for request-time admission."
-    },
-    "target_repo": {
-      "type": "string",
-      "required": false,
-      "description": "Intended repository slug when the caller already knows it."
-    },
-    "runner_id": {
-      "type": "string",
-      "required": false,
-      "description": "Operational policy runner id for request-time admission."
-    },
-    "policy_action": {
-      "type": "string",
-      "required": false,
-      "description": "Operational policy action, defaults to issue-to-pr."
-    },
-    "source_thread_locator": {
-      "type": "string",
-      "required": false,
-      "description": "Recoverable source-thread locator for request-time admission."
-    },
-    "repo_context": {
-      "type": "string",
-      "required": false,
-      "description": "Bounded repository context used for reviewer context and quality gates."
-    },
-    "repo_snapshot": {
-      "type": "json",
-      "required": false,
-      "description": "Structured repository snapshot used for reviewer context and quality gates."
+      "description": "Base ref for the draft pull request."
     },
     "branch": {
       "type": "string",
       "required": false,
       "description": "Explicit head branch for provider publication."
+    },
+    "build_result": {
+      "type": "json",
+      "required": true,
+      "description": "Native scafld build result payload."
+    },
+    "completion_result": {
+      "type": "json",
+      "required": true,
+      "description": "Native scafld complete result payload."
+    },
+    "current_branch": {
+      "type": "json",
+      "required": false,
+      "description": "Current git branch packet from git.current_branch."
     },
     "fix_bundle": {
       "type": "json",
@@ -100,49 +45,90 @@
       "required": true,
       "description": "Native markdown emitted by `scafld handoff`."
     },
-    "build_result": {
+    "harness_context": {
       "type": "json",
-      "required": true,
-      "description": "Native scafld build result payload."
+      "required": false,
+      "description": "Optional captured harness context containing signal and decision state."
+    },
+    "operational_policy": {
+      "type": "json",
+      "required": false,
+      "description": "Optional runx.operational_policy.v1 packet used for request-time admission."
+    },
+    "outbox_entry": {
+      "type": "json",
+      "required": false,
+      "description": "Optional current pull_request outbox entry when refreshing an existing draft."
+    },
+    "policy_action": {
+      "type": "string",
+      "required": false,
+      "description": "Operational policy action, defaults to issue-to-pr."
+    },
+    "repo_context": {
+      "type": "string",
+      "required": false,
+      "description": "Bounded repository context used for reviewer context and quality gates."
+    },
+    "repo_snapshot": {
+      "type": "json",
+      "required": false,
+      "description": "Structured repository snapshot used for reviewer context and quality gates."
     },
     "review_result": {
       "type": "json",
       "required": true,
       "description": "Native scafld review result payload."
     },
-    "completion_result": {
-      "type": "json",
-      "required": true,
-      "description": "Native scafld complete result payload."
+    "runner_id": {
+      "type": "string",
+      "required": false,
+      "description": "Operational policy runner id for request-time admission."
+    },
+    "source_id": {
+      "type": "string",
+      "required": false,
+      "description": "Operational policy source id for request-time admission."
+    },
+    "source_thread_locator": {
+      "type": "string",
+      "required": false,
+      "description": "Recoverable source-thread locator for request-time admission."
     },
     "status_snapshot": {
       "type": "json",
       "required": false,
       "description": "Native scafld status result payload."
     },
-    "current_branch": {
-      "type": "json",
-      "required": false,
-      "description": "Current git branch packet from git.current_branch."
-    },
-    "base": {
+    "target_repo": {
       "type": "string",
       "required": false,
-      "description": "Base ref for the draft pull request."
-    }
-  },
-  "output": {
-    "named_emits": {
-      "draft_pull_request": "draft_pull_request_packet",
-      "outbox_entry": "outbox_entry"
+      "description": "Intended repository slug when the caller already knows it."
     },
-    "outputs": {
-      "draft_pull_request": {
-        "packet": "runx.outbox.draft_pull_request.v1"
-      },
-      "outbox_entry": {
-        "packet": "runx.outbox.entry.v1"
-      }
+    "task_id": {
+      "type": "string",
+      "required": true,
+      "description": "scafld task id that produced the completed engineering state."
+    },
+    "thread": {
+      "type": "json",
+      "required": false,
+      "description": "Optional hydrated thread that may already carry a pull_request outbox entry."
+    },
+    "thread_body": {
+      "type": "string",
+      "required": false,
+      "description": "Bounded source-thread body used for reviewer context and quality gates."
+    },
+    "thread_locator": {
+      "type": "string",
+      "required": false,
+      "description": "Canonical thread locator for the bounded harness."
+    },
+    "thread_title": {
+      "type": "string",
+      "required": false,
+      "description": "Canonical thread title when the caller already has one."
     }
   },
   "scopes": [
@@ -162,7 +148,21 @@
       "./run.mjs"
     ]
   },
-  "source_hash": "sha256:c28b0fe0e782aa88cb9dba48821d2c6a03cb68441c7879efb01193df4cfea857",
+  "output": {
+    "named_emits": {
+      "draft_pull_request": "draft_pull_request_packet",
+      "outbox_entry": "outbox_entry"
+    },
+    "outputs": {
+      "draft_pull_request": {
+        "packet": "runx.outbox.draft_pull_request.v1"
+      },
+      "outbox_entry": {
+        "packet": "runx.outbox.entry.v1"
+      }
+    }
+  },
+  "source_hash": "sha256:b6a9775327156c950ae68885b6805bd0d1dadb93e32bd6524680ced04f7f7361",
   "schema_hash": "sha256:acb31a4949db4b76155909a4adda45d2427b5e615d6557f9816482a07a8ce3de",
   "toolkit_version": "0.1.4"
 }

@@ -1,3 +1,6 @@
+// rust-style-allow: large-file because tool-manifest build keeps source/schema
+// hashing, raw payload normalization, output binding shape, and stable JSON
+// emission together so the TS doctor and the rust runtime agree byte-for-byte.
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Read;
@@ -155,6 +158,8 @@ fn normalize_tool_output(runx: Option<&JsonPayloadObject>) -> ToolOutput {
     ToolOutput {
         packet: None,
         wrap_as,
+        named_emits: BTreeMap::new(),
+        outputs: BTreeMap::new(),
         extra,
     }
 }
@@ -216,6 +221,33 @@ fn tool_output_payload(output: &ToolOutput) -> JsonPayload {
         object.insert("packet".to_owned(), JsonPayload::String(packet.clone()));
     }
     if let Some(wrap_as) = &output.wrap_as {
+        object.insert("wrap_as".to_owned(), JsonPayload::String(wrap_as.clone()));
+    }
+    if !output.named_emits.is_empty() {
+        let mut named = JsonPayloadObject::new();
+        for (label, key) in &output.named_emits {
+            named.insert(label.clone(), JsonPayload::String(key.clone()));
+        }
+        object.insert("named_emits".to_owned(), JsonPayload::Object(named));
+    }
+    if !output.outputs.is_empty() {
+        let mut outputs = JsonPayloadObject::new();
+        for (name, binding) in &output.outputs {
+            outputs.insert(name.clone(), tool_output_binding_payload(binding));
+        }
+        object.insert("outputs".to_owned(), JsonPayload::Object(outputs));
+    }
+    JsonPayload::Object(object)
+}
+
+fn tool_output_binding_payload(
+    binding: &runx_contracts::tools::ToolOutputBinding,
+) -> JsonPayload {
+    let mut object = binding.extra.clone();
+    if let Some(packet) = &binding.packet {
+        object.insert("packet".to_owned(), JsonPayload::String(packet.clone()));
+    }
+    if let Some(wrap_as) = &binding.wrap_as {
         object.insert("wrap_as".to_owned(), JsonPayload::String(wrap_as.clone()));
     }
     JsonPayload::Object(object)
