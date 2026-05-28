@@ -6,9 +6,9 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 
+use runx_contracts::schema::NonEmptyString;
 use runx_contracts::{
-    ClosureDisposition, ExecutionEvent, JsonObject, JsonValue, Receipt, ReceiptSubjectKind,
-    ReferenceType,
+    ClosureDisposition, ExecutionEvent, JsonObject, JsonValue, Receipt, ReferenceType,
 };
 use runx_receipts::{ReceiptFindingCode, ReceiptProofContextProvider, verify_receipt_proof};
 use serde::{Deserialize, Serialize};
@@ -987,7 +987,7 @@ fn compare_optional_timestamp_desc(
     }
 }
 
-fn subject_state(_kind: &ReceiptSubjectKind, disposition: &ClosureDisposition) -> String {
+fn subject_state(_kind: &NonEmptyString, disposition: &ClosureDisposition) -> String {
     if matches!(disposition, ClosureDisposition::Closed) {
         return "sealed".to_owned();
     }

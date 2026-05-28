@@ -10,15 +10,16 @@
 use std::fs;
 use std::path::Path;
 
+use runx_contracts::schema::NonEmptyString;
 use runx_contracts::{
     ActForm, AuthorityAttenuation, ChangePlan, ChangeRequest, Closure, ClosureDisposition,
     CriterionBinding, CriterionStatus, Decision, DecisionChoice, DecisionInputs,
     DecisionJustification, HashAlgorithm, Intent, Lineage, RECEIPT_CANONICALIZATION, Receipt,
     ReceiptAct, ReceiptAuthority, ReceiptCommitment, ReceiptCommitmentScope, ReceiptEnforcement,
     ReceiptIdempotency, ReceiptInputContext, ReceiptIssuer, ReceiptIssuerType, ReceiptSchema,
-    ReceiptSignature, ReceiptSubjectKind, Reference, ReferenceType, RevisionDetails, Seal,
-    SignatureAlgorithm, Subject, SuccessCriterion, Verification, VerificationCheck,
-    VerificationDetails, VerificationStatus,
+    ReceiptSignature, Reference, ReferenceType, RevisionDetails, Seal, SignatureAlgorithm, Subject,
+    SuccessCriterion, Verification, VerificationCheck, VerificationDetails, VerificationStatus,
+    receipt_subject_kind,
 };
 use runx_receipts::{
     canonical_receipt_body_digest, canonical_receipt_digest, canonical_receipt_json,
@@ -119,7 +120,7 @@ fn sealed(mut receipt: Receipt) -> Receipt {
     receipt
 }
 
-fn base(id: &str, kind: ReceiptSubjectKind, subject_id: &str) -> Receipt {
+fn base(id: &str, kind: NonEmptyString, subject_id: &str) -> Receipt {
     Receipt {
         schema: ReceiptSchema::V1,
         id: id.into(),
@@ -269,7 +270,7 @@ fn open_decision(act_id: &str) -> Decision {
 fn success_receipt() -> Receipt {
     let mut receipt = base(
         "hrn_rcpt_echo_success",
-        ReceiptSubjectKind::Skill,
+        receipt_subject_kind::SKILL.into(),
         "echo_success",
     );
     receipt.acts = vec![observation_act(
@@ -295,7 +296,7 @@ fn success_receipt() -> Receipt {
 fn abnormal_receipt() -> Receipt {
     let mut receipt = base(
         "hrn_rcpt_echo_abnormal",
-        ReceiptSubjectKind::Skill,
+        receipt_subject_kind::SKILL.into(),
         "echo_abnormal",
     );
     receipt.acts = vec![observation_act(
@@ -322,7 +323,7 @@ fn abnormal_receipt() -> Receipt {
 fn post_merge_receipt() -> Receipt {
     let mut receipt = base(
         "hrn_rcpt_post_merge_nitrosend_77_188",
-        ReceiptSubjectKind::Skill,
+        receipt_subject_kind::SKILL.into(),
         "post_merge_observer",
     );
     receipt.idempotency.intent_key =

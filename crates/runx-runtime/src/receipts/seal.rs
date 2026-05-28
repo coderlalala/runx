@@ -10,13 +10,14 @@ use crate::payment::supervisor::{
     rebind_supervisor_proof_to_receipt,
 };
 use crate::{RuntimeError, StepRun};
+use runx_contracts::schema::NonEmptyString;
 use runx_contracts::{
     ActForm, AuthorityAttenuation, AuthoritySubsetResult, Closure, ClosureDisposition,
     CriterionBinding, CriterionStatus, Decision, DecisionChoice, DecisionInputs,
     DecisionJustification, FanoutReceiptSyncPoint, Intent, JsonObject, Lineage, ProofKind,
     RECEIPT_CANONICALIZATION, Receipt, ReceiptAct, ReceiptAuthority, ReceiptEnforcement,
-    ReceiptIdempotency, ReceiptIssuer, ReceiptSchema, ReceiptSubjectKind, Reference, ReferenceType,
-    Seal, SignatureAlgorithm, Subject, SuccessCriterion, json_string_field,
+    ReceiptIdempotency, ReceiptIssuer, ReceiptSchema, Reference, ReferenceType, Seal,
+    SignatureAlgorithm, Subject, SuccessCriterion, json_string_field, receipt_subject_kind,
 };
 use runx_receipts::{
     ReceiptProofContext, ReceiptProofContextProvider, ReceiptSignature, ReceiptTreeConfig,
@@ -168,7 +169,7 @@ pub(crate) fn step_receipt_with_disposition_projection_and_policy(
         id: step_receipt_id(graph_name, step_id, attempt),
         graph_name,
         node_id: step_id,
-        kind: ReceiptSubjectKind::Skill,
+        kind: receipt_subject_kind::SKILL.into(),
         created_at,
         decisions,
         acts: vec![act],
@@ -287,7 +288,7 @@ pub(crate) fn graph_receipt_with_disposition_and_policy(
             id: format!("hrn_rcpt_{graph_name}"),
             graph_name,
             node_id: "graph",
-            kind: ReceiptSubjectKind::Graph,
+            kind: receipt_subject_kind::GRAPH.into(),
             created_at,
             decisions: Vec::new(),
             acts: Vec::new(),
@@ -365,7 +366,7 @@ struct BuildReceipt<'a> {
     id: String,
     graph_name: &'a str,
     node_id: &'a str,
-    kind: ReceiptSubjectKind,
+    kind: NonEmptyString,
     created_at: &'a str,
     decisions: Vec<Decision>,
     acts: Vec<ReceiptAct>,
@@ -517,7 +518,7 @@ fn seal(
     }
 }
 
-fn subject(graph_name: &str, node_id: &str, kind: ReceiptSubjectKind) -> Subject {
+fn subject(graph_name: &str, node_id: &str, kind: NonEmptyString) -> Subject {
     Subject {
         kind,
         // The subject reference retains the harness identity (`hrn_<graph>_<node>`)

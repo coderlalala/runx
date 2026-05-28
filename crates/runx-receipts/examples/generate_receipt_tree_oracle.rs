@@ -12,8 +12,8 @@ use std::path::Path;
 use runx_contracts::{
     AuthorityAttenuation, ClosureDisposition, Lineage, RECEIPT_CANONICALIZATION, Receipt,
     ReceiptAuthority, ReceiptEnforcement, ReceiptIdempotency, ReceiptIssuer, ReceiptIssuerType,
-    ReceiptSchema, ReceiptSignature, ReceiptSubjectKind, Reference, ReferenceType, Seal,
-    SignatureAlgorithm, Subject,
+    ReceiptSchema, ReceiptSignature, Reference, ReferenceType, Seal, SignatureAlgorithm, Subject,
+    receipt_subject_kind,
 };
 use serde_json::{Value, json};
 
@@ -289,7 +289,7 @@ fn base(id: &str) -> Receipt {
             content_hash: format!("sha256:{}", "3".repeat(64)).into(),
         },
         subject: Subject {
-            kind: ReceiptSubjectKind::Skill,
+            kind: receipt_subject_kind::SKILL.into(),
             reference: Reference::runx(ReferenceType::Harness, id),
             input_context: None,
             commitments: Vec::new(),

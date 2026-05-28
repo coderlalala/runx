@@ -88,11 +88,15 @@ pub struct ReceiptCommitment {
     pub canonicalization: NonEmptyString,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, RunxSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ReceiptSubjectKind {
-    Skill,
-    Graph,
+/// Canonical receipt subject kinds. The wire form on `Subject.kind` is an
+/// open `NonEmptyString` so receipts emitted by new subject categories (e.g.
+/// post-merge observation, target-runner mutation, tool build) do not require
+/// a contract edit.
+pub mod receipt_subject_kind {
+    /// A single skill invocation.
+    pub const SKILL: &str = "skill";
+    /// A graph execution composed of multiple acts.
+    pub const GRAPH: &str = "graph";
 }
 
 /// The input signal for training and inspection: where the run's input came
@@ -108,7 +112,10 @@ pub struct ReceiptInputContext {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, RunxSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Subject {
-    pub kind: ReceiptSubjectKind,
+    /// Open subject kind identifier (e.g. `receipt_subject_kind::SKILL`). Any
+    /// non-empty string is accepted; new subject categories do not need a
+    /// contract edit.
+    pub kind: NonEmptyString,
     #[serde(rename = "ref")]
     pub reference: Reference,
     #[serde(skip_serializing_if = "Option::is_none")]

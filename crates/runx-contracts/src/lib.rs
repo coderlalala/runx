@@ -197,7 +197,7 @@ pub use receipt::{
     RECEIPT_CANONICALIZATION, RECEIPT_SCHEMA, Receipt, ReceiptAct, ReceiptAuthority,
     ReceiptCommitment, ReceiptCommitmentScope, ReceiptEnforcement, ReceiptIdempotency,
     ReceiptInputContext, ReceiptIssuer, ReceiptIssuerType, ReceiptSchema, ReceiptSignature,
-    ReceiptSubjectKind, RunnerProvenance, Seal, SignatureAlgorithm, Subject,
+    RunnerProvenance, Seal, SignatureAlgorithm, Subject, receipt_subject_kind,
 };
 pub use redaction::{HashAlgorithm, HashCommitment, REDACTION_SCHEMA, Redaction, RedactionSchema};
 pub use reference::{ActRef, ProofKind, Reference, ReferenceLink, ReferenceType};

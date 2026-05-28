@@ -44044,16 +44044,8 @@ export const runxSchemaArtifacts = {
             "type": "object"
           },
           "kind": {
-            "anyOf": [
-              {
-                "const": "skill",
-                "type": "string"
-              },
-              {
-                "const": "graph",
-                "type": "string"
-              }
-            ]
+            "minLength": 1,
+            "type": "string"
           },
           "ref": {
             "$id": "https://schemas.runx.dev/runx/reference/v1.json",

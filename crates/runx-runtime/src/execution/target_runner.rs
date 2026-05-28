@@ -11,13 +11,12 @@ use std::fmt::{self, Write as _};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use runx_contracts::operational_policy_source_provider;
 use runx_contracts::{
     ActForm, AuthorityAttenuation, AuthoritySubsetProof, AuthoritySubsetResult, ChangePlan,
     ChangeRequest, Closure, ClosureDisposition, CriterionBinding, CriterionStatus, Intent,
     JsonNumber, JsonObject, JsonValue, Lineage, RECEIPT_CANONICALIZATION, Receipt, ReceiptAct,
-    ReceiptAuthority, ReceiptEnforcement, ReceiptIdempotency, ReceiptSchema, ReceiptSubjectKind,
-    Reference, ReferenceType, RevisionDetails, Seal, SignatureAlgorithm, Subject, SuccessCriterion,
+    ReceiptAuthority, ReceiptEnforcement, ReceiptIdempotency, ReceiptSchema, Reference,
+    ReferenceType, RevisionDetails, Seal, SignatureAlgorithm, Subject, SuccessCriterion,
     TargetRepoRunnerDedupeLookupExecution, TargetRepoRunnerDedupeLookupObservation,
     TargetRepoRunnerDedupeLookupPlan, TargetRepoRunnerDedupeResult, TargetRepoRunnerExecutionPlan,
     TargetRepoRunnerExistingPullRequest, TargetRepoRunnerPlan, TargetRepoRunnerPlanError,
@@ -29,6 +28,7 @@ use runx_contracts::{
     plan_target_repo_runner_pull_request_receipt,
     plan_target_repo_runner_source_publication_receipt,
 };
+use runx_contracts::{operational_policy_source_provider, receipt_subject_kind};
 use runx_receipts::{
     canonical_receipt_body_digest, content_addressed_receipt_id, validate_receipt,
 };
@@ -1286,7 +1286,7 @@ fn target_repo_runner_revision_receipt(
             content_hash: stable_hash(&receipt_id).into(),
         },
         subject: Subject {
-            kind: ReceiptSubjectKind::Skill,
+            kind: receipt_subject_kind::SKILL.into(),
             reference: Reference::runx(ReferenceType::Harness, "target-runner"),
             input_context: None,
             commitments: Vec::new(),
@@ -1468,7 +1468,7 @@ fn target_repo_runner_source_publication_receipt_node(
             content_hash: stable_hash(&receipt_id).into(),
         },
         subject: Subject {
-            kind: ReceiptSubjectKind::Skill,
+            kind: receipt_subject_kind::SKILL.into(),
             reference: Reference::runx(ReferenceType::Harness, "target-runner-source-publication"),
             input_context: None,
             commitments: Vec::new(),
