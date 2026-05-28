@@ -7,10 +7,10 @@ import {
   stringInput,
 } from "@runxhq/authoring";
 import {
-  renderIssueToPrReviewerMarkdown,
   sanitizePublicMarkdown,
   summarizePublicHandoffMarkdown,
-} from "@runxhq/core/knowledge";
+  renderIssueToPrReviewerMarkdown,
+} from "../../markdown.ts";
 import { admitOperationalPolicyRequest } from "@runxhq/contracts";
 
 export default defineTool({

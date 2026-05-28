@@ -9,7 +9,7 @@ import {
 import {
   buildFeedStoryOutboxEntry,
   renderFeedStoryMarkdown,
-} from "@runxhq/core/knowledge";
+} from "../../markdown.ts";
 
 export default defineTool({
   name: "outbox.build_feed_entry",
