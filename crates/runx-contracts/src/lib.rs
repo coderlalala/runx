@@ -42,6 +42,7 @@ pub mod run_summary;
 pub mod schema;
 pub mod schema_artifacts;
 pub mod signal;
+pub mod source_packet;
 pub mod suppression;
 pub mod target_runner;
 pub mod thread_outbox_provider;
@@ -210,8 +211,9 @@ pub use review::{ReviewReceiptImprovementProposal, ReviewReceiptOutput, ReviewRe
 pub use run_summary::{RunSummary, RunSummarySchema, RunSummaryStatus};
 pub use schema_artifacts::{SchemaArtifact, generated_schema_artifacts};
 pub use signal::{
-    SIGNAL_SCHEMA, Signal, SignalAuthenticity, SignalSchema, SignalTrustLevel, SignalType,
+    SIGNAL_SCHEMA, Signal, SignalAuthenticity, SignalSchema, SignalTrustLevel, signal_type,
 };
+pub use source_packet::{SOURCE_PACKET_SCHEMA, SourcePacket, SourcePacketSchema};
 pub use suppression::{SuppressionRecord, SuppressionRecordSchema, SuppressionScope};
 pub use target_runner::{
     TargetRepoRunnerCheckoutPlan, TargetRepoRunnerDedupeComponent,

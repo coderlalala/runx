@@ -16,9 +16,9 @@ use crate::{
     Opportunity, Output, PacketIndex, Question, Receipt, Redaction, Reference, ReferenceLink,
     ReflectionEntry, RegistryBinding, ResolutionRequest, ResolutionResponse, ReviewReceiptOutput,
     RunSummary, RunxListReport, ScopeAdmission, Selection, SelectionCycle, Signal, SkillBinding,
-    SuppressionRecord, Target, TargetTransitionEntry, ThesisAssessment, ThreadOutboxProviderFetch,
-    ThreadOutboxProviderManifest, ThreadOutboxProviderObservation, ThreadOutboxProviderPush,
-    ToolManifest, Verification,
+    SourcePacket, SuppressionRecord, Target, TargetTransitionEntry, ThesisAssessment,
+    ThreadOutboxProviderFetch, ThreadOutboxProviderManifest, ThreadOutboxProviderObservation,
+    ThreadOutboxProviderPush, ToolManifest, Verification,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -76,6 +76,7 @@ pub fn generated_schema_artifacts() -> Vec<SchemaArtifact> {
         artifact::<Authority>("authority.schema.json"),
         artifact::<AuthoritySubsetProof>("authority-subset-proof.schema.json"),
         artifact::<Signal>("signal.schema.json"),
+        artifact::<SourcePacket>("source-packet.schema.json"),
         artifact::<Decision>("decision.schema.json"),
         artifact::<Act>("act.schema.json"),
         artifact::<Verification>("verification.schema.json"),

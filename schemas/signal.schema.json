@@ -3147,52 +3147,8 @@
       "type": "string"
     },
     "signal_type": {
-      "anyOf": [
-        {
-          "const": "issue_opened",
-          "type": "string"
-        },
-        {
-          "const": "issue_comment",
-          "type": "string"
-        },
-        {
-          "const": "pull_request_event",
-          "type": "string"
-        },
-        {
-          "const": "review_event",
-          "type": "string"
-        },
-        {
-          "const": "chat_message",
-          "type": "string"
-        },
-        {
-          "const": "alert",
-          "type": "string"
-        },
-        {
-          "const": "deployment_event",
-          "type": "string"
-        },
-        {
-          "const": "payment_required",
-          "type": "string"
-        },
-        {
-          "const": "schedule_tick",
-          "type": "string"
-        },
-        {
-          "const": "operator_note",
-          "type": "string"
-        },
-        {
-          "const": "system_event",
-          "type": "string"
-        }
-      ]
+      "minLength": 1,
+      "type": "string"
     },
     "source_ref": {
       "$id": "https://schemas.runx.dev/runx/reference/v1.json",

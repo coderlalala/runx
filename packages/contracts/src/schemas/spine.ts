@@ -440,7 +440,25 @@ export const selectionCycleStateSchema = schemaAt<SelectionCycleStateContract>(
 );
 
 export const referenceTypes = enumValues(referenceTypeSchema, "reference.type");
-export const signalTypes = enumValues(signalTypeSchema, "signal.signal_type");
+/**
+ * Canonical signal type identifiers. The wire schema accepts any non-empty
+ * string so adapters can publish their own identifier without a schema edit;
+ * this list mirrors the Rust `signal_type` canonical module.
+ */
+export const signalTypes = [
+  "issue_opened",
+  "issue_comment",
+  "pull_request_event",
+  "review_event",
+  "chat_message",
+  "alert",
+  "deployment_event",
+  "payment_required",
+  "schedule_tick",
+  "operator_note",
+  "system_event",
+  "support_ticket",
+] as const;
 export const signalTrustLevels = enumValues(signalTrustLevelSchema, "signal.authenticity.trust_level");
 export const closureDispositions = enumValues(closureDispositionSchema, "act.closure.disposition");
 export const decisionChoices = enumValues(decisionChoiceSchema, "decision.choice");

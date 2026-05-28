@@ -3578,9 +3578,124 @@ pub(super) fn signal_corpus() -> Vec<(&'static str, Value)> {
             v["title"] = json!("");
             v
         }),
-        ("unknown signal_type variant", {
+        ("adapter-provided signal_type", {
             let mut v = valid.clone();
-            v["signal_type"] = json!("not_a_type");
+            v["signal_type"] = json!("adapter_specific_event");
+            v
+        }),
+        ("empty signal_type rejected", {
+            let mut v = valid.clone();
+            v["signal_type"] = json!("");
+            v
+        }),
+        ("malformed observed_at", {
+            let mut v = valid.clone();
+            v["observed_at"] = json!("not-a-timestamp");
+            v
+        }),
+        ("additional property", {
+            let mut v = valid.clone();
+            v["bogus"] = json!(true);
+            v
+        }),
+    ]
+}
+
+pub(super) fn source_packet_corpus() -> Vec<(&'static str, Value)> {
+    let valid = json!({
+        "schema": "runx.source_packet.v1",
+        "packet_id": "src_pkt_001",
+        "source_ref": a_ref(),
+        "signal_type": "chat_message",
+        "title": "Incoming customer message",
+        "observed_at": "2026-05-28T12:00:00Z",
+        "redaction_status": "redacted",
+    });
+    let full = json!({
+        "schema": "runx.source_packet.v1",
+        "packet_id": "src_pkt_full",
+        "source_ref": a_ref(),
+        "authenticity": {
+            "host_ref": a_ref(),
+            "trust_level": "verified_signature",
+        },
+        "signal_type": "alert",
+        "title": "Production alert observed",
+        "observed_at": "2026-05-28T12:05:00Z",
+        "body_preview": "Latency spike on /charges",
+        "redaction_status": "redacted",
+        "workflow_inputs": { "severity": "high", "service": "charges" },
+        "adapter_payload": { "raw_id": "1234", "channel": "ops" },
+        "fingerprint": {
+            "algorithm": "sha256",
+            "canonicalization": "json-c14n",
+            "value": "abc",
+            "derived_from": [a_ref()],
+        },
+        "related_refs": [a_ref()],
+        "extensions": { "trace": "t-1" },
+    });
+    vec![
+        ("minimal valid", valid.clone()),
+        ("full valid", full),
+        ("adapter-provided signal_type", {
+            let mut v = valid.clone();
+            v["signal_type"] = json!("adapter_specific_event");
+            v
+        }),
+        ("missing schema", {
+            let mut v = valid.clone();
+            remove_field(&mut v, "schema");
+            v
+        }),
+        ("missing packet_id", {
+            let mut v = valid.clone();
+            remove_field(&mut v, "packet_id");
+            v
+        }),
+        ("missing source_ref", {
+            let mut v = valid.clone();
+            remove_field(&mut v, "source_ref");
+            v
+        }),
+        ("missing signal_type", {
+            let mut v = valid.clone();
+            remove_field(&mut v, "signal_type");
+            v
+        }),
+        ("missing title", {
+            let mut v = valid.clone();
+            remove_field(&mut v, "title");
+            v
+        }),
+        ("missing observed_at", {
+            let mut v = valid.clone();
+            remove_field(&mut v, "observed_at");
+            v
+        }),
+        ("missing redaction_status", {
+            let mut v = valid.clone();
+            remove_field(&mut v, "redaction_status");
+            v
+        }),
+        ("empty packet_id rejected", {
+            let mut v = valid.clone();
+            v["packet_id"] = json!("");
+            v
+        }),
+        ("empty signal_type rejected", {
+            let mut v = valid.clone();
+            v["signal_type"] = json!("");
+            v
+        }),
+        ("empty title rejected", {
+            let mut v = valid.clone();
+            v["title"] = json!("");
+            v
+        }),
+        ("unknown redaction_status", {
+            let mut v = valid.clone();
+            v["redaction_status"] = json!("not_a_status");
             v
         }),
         ("malformed observed_at", {

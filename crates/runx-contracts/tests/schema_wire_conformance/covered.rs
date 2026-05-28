@@ -40,6 +40,7 @@ use runx_contracts::review::ReviewReceiptOutput;
 use runx_contracts::run_summary::RunSummary;
 use runx_contracts::schema::RunxSchema;
 use runx_contracts::signal::Signal;
+use runx_contracts::source_packet::SourcePacket;
 use runx_contracts::suppression::SuppressionRecord;
 use runx_contracts::thread_outbox_provider::{
     ThreadOutboxProviderFetch, ThreadOutboxProviderManifest, ThreadOutboxProviderObservation,
@@ -94,6 +95,11 @@ pub(super) fn covered() -> Vec<Covered> {
             file_name: "signal.schema.json",
             emitted: Signal::json_schema(),
             corpus: signal_corpus(),
+        },
+        Covered {
+            file_name: "source-packet.schema.json",
+            emitted: SourcePacket::json_schema(),
+            corpus: source_packet_corpus(),
         },
         Covered {
             file_name: "external-adapter-response.schema.json",
