@@ -4,6 +4,15 @@
 # reviewed exception path as default dependencies.
 all-features = true
 
+[advisories]
+# Fail the supply-chain check on known security vulnerabilities (RUSTSEC) in the
+# dependency graph. In the cargo-deny v2 advisories format vulnerabilities are
+# denied by default; this section makes that explicit and also rejects yanked
+# crates. Add reviewed, time-boxed exceptions to `ignore` with a tracking note.
+version = 2
+yanked = "deny"
+ignore = []
+
 [bans]
 multiple-versions = "allow"
 # Default workspace ban for heavy async/network/application frameworks and
