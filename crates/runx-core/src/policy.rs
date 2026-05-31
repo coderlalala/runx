@@ -5,7 +5,6 @@ mod graph_scope;
 mod interpreter;
 mod local;
 mod maturity;
-mod payment_authority;
 pub(crate) mod posix_basename;
 pub mod public_work;
 mod retry;
@@ -14,6 +13,7 @@ pub mod sandbox;
 pub mod scope;
 mod types;
 
+pub use authority_algebra::authority_term_has_verb;
 pub use authority_proof::{
     build_authority_proof, build_authority_proof_metadata, build_local_scope_admission,
     validate_credential_binding,
@@ -21,13 +21,6 @@ pub use authority_proof::{
 pub use graph_scope::admit_graph_step_scopes;
 pub use local::admit_local_skill;
 pub use maturity::compute_maturity;
-pub use payment_authority::{
-    PaymentAuthorityError, PaymentSpendCapabilityBinding, StepAuthorityAdmission,
-    StepAuthorityAdmissionDecision, admit_step_authority, authority_effect_family,
-    authority_effect_proof_kinds, authority_requires_effect_non_replay,
-    authority_requires_effect_receipt_before_success, authority_term_has_verb,
-    is_payment_authority_subset,
-};
 pub use public_work::{
     default_public_work_policy, evaluate_public_comment_opportunity,
     evaluate_public_pull_request_candidate, normalize_public_work_policy,

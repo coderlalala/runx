@@ -8,8 +8,8 @@ use crate::policy::{
     admit_graph_step_scopes, admit_local_skill, admit_retry_policy, admit_sandbox,
     build_authority_proof_metadata, build_local_scope_admission,
     evaluate_public_comment_opportunity, evaluate_public_pull_request_candidate,
-    is_payment_authority_subset, normalize_public_work_policy, normalize_sandbox_declaration,
-    sandbox_requires_approval, validate_credential_binding,
+    normalize_public_work_policy, normalize_sandbox_declaration, sandbox_requires_approval,
+    validate_credential_binding,
 };
 use crate::state_machine::{
     create_sequential_graph_state, create_single_step_state, evaluate_fanout_sync,
@@ -31,8 +31,7 @@ pub(super) fn evaluate_kernel_input(input: KernelDocument) -> Result<JsonValue, 
         | KernelInput::ValidateCredentialBinding { .. }
         | KernelInput::EvaluatePublicPullRequestCandidate { .. }
         | KernelInput::EvaluatePublicCommentOpportunity { .. }
-        | KernelInput::NormalizePublicWorkPolicy { .. }
-        | KernelInput::IsPaymentAuthoritySubset { .. } => evaluate_policy_input(input),
+        | KernelInput::NormalizePublicWorkPolicy { .. } => evaluate_policy_input(input),
         KernelInput::CreateSingleStepState { .. }
         | KernelInput::TransitionSingleStep { .. }
         | KernelInput::CreateSequentialGraphState { .. }
@@ -84,9 +83,6 @@ fn evaluate_policy_input(input: KernelInput) -> Result<JsonValue, KernelEvalErro
         }
         KernelInput::NormalizePublicWorkPolicy { policy } => {
             to_value(normalize_public_work_policy(&policy))
-        }
-        KernelInput::IsPaymentAuthoritySubset { child, parent } => {
-            to_value(is_payment_authority_subset(&child, &parent))
         }
         _ => unreachable!("policy dispatch only receives policy inputs"),
     }

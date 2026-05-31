@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use runx_contracts::{AuthorityTerm, JsonValue, json_string_field};
+use runx_contracts::{JsonValue, json_string_field};
 use serde::Deserialize;
 
 use crate::policy::{
@@ -85,11 +85,6 @@ pub(super) enum KernelInput {
         #[serde(default)]
         policy: PublicWorkPolicy,
     },
-    #[serde(rename = "policy.isPaymentAuthoritySubset")]
-    IsPaymentAuthoritySubset {
-        child: Box<AuthorityTerm>,
-        parent: Box<AuthorityTerm>,
-    },
     #[serde(rename = "state-machine.createSingleStepState")]
     CreateSingleStepState { step_id: String },
     #[serde(rename = "state-machine.transitionSingleStep")]
@@ -157,7 +152,6 @@ pub(super) fn is_supported_kernel_kind(kind: &str) -> bool {
             | "policy.evaluatePublicPullRequestCandidate"
             | "policy.evaluatePublicCommentOpportunity"
             | "policy.normalizePublicWorkPolicy"
-            | "policy.isPaymentAuthoritySubset"
             | "state-machine.createSingleStepState"
             | "state-machine.transitionSingleStep"
             | "state-machine.createSequentialGraphState"

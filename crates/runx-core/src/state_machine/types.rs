@@ -97,7 +97,7 @@ pub struct AuthorityAdmissionWitness {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub spend_capability_ref: Option<Reference>,
+    pub capability_ref: Option<Reference>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

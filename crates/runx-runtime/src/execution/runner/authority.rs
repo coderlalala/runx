@@ -7,10 +7,10 @@ use std::path::Path;
 use runx_contracts::{AuthoritySubsetProof, AuthorityTerm, AuthorityVerb, Decision, JsonObject};
 use runx_core::policy::authority_term_has_verb;
 use runx_core::state_machine::AuthorityAdmissionWitness;
+use runx_parser::GraphStep;
 use runx_payments::authority::{
     PaymentSpendCapabilityBinding, StepAuthorityAdmission, admit_step_authority,
 };
-use runx_parser::GraphStep;
 
 use super::inputs::{
     optional_typed_input, optional_typed_vec_input, require_non_empty_string_field,
@@ -256,7 +256,7 @@ pub(super) fn enforce_step_authority_admission(
             parent_term_id: decision.parent_term_id.to_owned(),
             child_term_id: decision.child_term_id.to_owned(),
             idempotency_key: decision.idempotency_key.map(str::to_owned),
-            spend_capability_ref: decision.spend_capability_ref.cloned(),
+            capability_ref: decision.spend_capability_ref.cloned(),
         };
         let payment = if verb == AuthorityVerb::Spend {
             payment

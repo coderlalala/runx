@@ -1,8 +1,13 @@
-use runx_contracts::Reference;
+use runx_contracts::{AuthorityTerm, AuthorityVerb, Reference};
 
 #[must_use]
 pub fn same_reference_address(child: &Reference, parent: &Reference) -> bool {
     child.reference_type == parent.reference_type && child.uri == parent.uri
+}
+
+#[must_use]
+pub fn authority_term_has_verb(term: &AuthorityTerm, verb: AuthorityVerb) -> bool {
+    term.verbs.iter().any(|candidate| candidate == &verb)
 }
 
 #[must_use]
@@ -44,13 +49,37 @@ pub fn optional_ref_bound_subset<T: Ord>(child: Option<&T>, parent: Option<&T>) 
 
 #[cfg(test)]
 mod tests {
-    use super::{items_subset, optional_bound_subset, parent_items_preserved};
+    use super::{
+        authority_term_has_verb, items_subset, optional_bound_subset, parent_items_preserved,
+    };
+    use runx_contracts::{AuthorityTerm, AuthorityVerb, Reference, ReferenceType};
 
     #[test]
     fn item_subset_is_reflexive() {
         let values = ["read", "write", "verify"];
 
         assert!(items_subset(&values, &values));
+    }
+
+    #[test]
+    fn authority_term_verb_lookup_is_exact() {
+        let term = AuthorityTerm {
+            term_id: "deployment".to_owned().into(),
+            principal_ref: Reference::with_uri(ReferenceType::Principal, "runx:principal:agent"),
+            resource_ref: Reference::with_uri(ReferenceType::Grant, "runx:grant:deploy"),
+            resource_family: runx_contracts::AuthorityResourceFamily::Deployment,
+            verbs: vec![AuthorityVerb::Read, AuthorityVerb::Verify],
+            bounds: Default::default(),
+            conditions: Vec::new(),
+            approvals: Vec::new(),
+            capabilities: Vec::new(),
+            expires_at: None,
+            issued_by_ref: Reference::with_uri(ReferenceType::Principal, "runx:principal:issuer"),
+            credential_ref: None,
+        };
+
+        assert!(authority_term_has_verb(&term, AuthorityVerb::Verify));
+        assert!(!authority_term_has_verb(&term, AuthorityVerb::Spend));
     }
 
     #[test]
