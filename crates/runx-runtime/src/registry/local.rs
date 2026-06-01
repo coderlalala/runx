@@ -355,6 +355,7 @@ pub fn search_registry_with_options(
         .list_skills()?
         .into_iter()
         .filter_map(|skill| skill.versions.last().cloned())
+        .filter(registry_version_is_public)
         .filter(|version| {
             normalized_query.is_empty() || searchable_text(version).contains(&normalized_query)
         })
@@ -365,6 +366,10 @@ pub fn search_registry_with_options(
         .iter()
         .map(|version| search_result_for_version(version, options.registry_url.as_deref()))
         .collect())
+}
+
+fn registry_version_is_public(version: &RegistrySkillVersion) -> bool {
+    version.catalog_visibility.as_deref() != Some("private")
 }
 
 pub fn resolve_registry_skill(

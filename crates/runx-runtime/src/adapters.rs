@@ -15,3 +15,6 @@ pub mod external_adapter;
 
 #[cfg(feature = "mcp")]
 pub mod mcp;
+
+#[cfg(feature = "payment-rails")]
+pub mod payment_supervisor;

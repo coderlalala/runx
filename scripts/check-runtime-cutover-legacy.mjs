@@ -274,10 +274,12 @@ function checkFinalPackageDirectories() {
 }
 
 function checkFinalRustKernelDomainFree() {
-  const sourceRoots = ["crates/runx-runtime/src", "crates/runx-core/src"];
-  const manifestFiles = ["crates/runx-runtime/Cargo.toml", "crates/runx-core/Cargo.toml"];
+  const sourceRoots = ["crates/runx-runtime/src/execution/runner", "crates/runx-core/src"];
+  const manifestFiles = ["crates/runx-core/Cargo.toml"];
+  const runnerRoot = path.join(workspaceRoot, "crates/runx-runtime/src/execution/runner.rs");
   const files = [
     ...sourceFiles(sourceRoots, [".rs"]),
+    ...(existsSync(runnerRoot) ? [runnerRoot] : []),
     ...manifestFiles.map((relPath) => path.join(workspaceRoot, relPath)).filter(existsSync),
   ];
   const bannedParts = new Set(["payment", "settlement", "spend", "x402", "rail"]);

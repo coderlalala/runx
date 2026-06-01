@@ -127,6 +127,14 @@ impl RuntimeReceiptSignatureConfig {
             None => RuntimeReceiptSignaturePolicy::local_development(),
         }
     }
+
+    #[must_use]
+    pub fn production_key_for_kid(&self, kid: &str) -> Option<ProductionReceiptKey> {
+        self.production
+            .as_ref()
+            .map(|production| production.signer.production_key())
+            .filter(|key| key.kid() == kid)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -1,12 +1,18 @@
 use std::collections::BTreeMap;
+use std::path::Path;
+use std::process::Command;
 
+use runx_contracts::EffectSettlementPhase;
 use runx_contracts::{JsonObject, JsonValue, Receipt};
 use runx_pay::PAYMENT_EFFECT_FAMILY;
 use runx_pay::state::{
     EffectCapabilityConsumption, EffectIdempotencyEntry, EffectIdempotencyKey, EffectMutation,
-    EffectMutationStatus, EffectRecoveryState, EffectStepStateInput, FileBackedEffectStateStore,
+    EffectMutationStatus, EffectRecoveryState, EffectRunSpendReservation,
+    EffectSettlementEventRecord, EffectSettlementFinalityRecord, EffectSettlementIntent,
+    EffectSettlementIntentStatus, EffectStepStateInput, FileBackedEffectStateStore,
     RUNX_EFFECT_STATE_PATH_ENV, consumed_spend_capability_recorded, escalate_effect_mutation,
     lookup_effect_idempotency_entry, lookup_effect_mutation, persist_effect_step_state,
+    record_effect_settlement_intent,
 };
 use runx_pay::supervisor::{PAYMENT_RAIL_SUPERVISOR_VERIFIER_ID, PaymentSupervisorProof};
 use runx_runtime::RUNX_RECEIPT_DIR_ENV;
@@ -15,6 +21,438 @@ use runx_runtime::{InvocationStatus, SkillOutput};
 use serde_json::json;
 
 const MESSAGE_EFFECT_FAMILY: &str = "message";
+
+#[test]
+fn records_settlement_intent_before_rail_mutation() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let env = BTreeMap::from([(
+        RUNX_EFFECT_STATE_PATH_ENV.to_owned(),
+        temp.path().join("effect-state.json").display().to_string(),
+    )]);
+    let idempotency_key = EffectIdempotencyKey::new("mock", "merchant:paid-echo", "money-move-001");
+    let input = EffectStepStateInput {
+        idempotency_key: idempotency_key.clone(),
+        act_id: "act_pay".to_owned(),
+        ..payment_step_input()
+    };
+
+    record_effect_settlement_intent(&env, temp.path(), &input)?;
+    // Admission retries are safe: the same intent is idempotent, not a second
+    // mutation and not a conflict.
+    record_effect_settlement_intent(&env, temp.path(), &input)?;
+
+    let store = FileBackedEffectStateStore::open(temp.path().join("effect-state.json"))?;
+    assert_eq!(
+        store.lookup_settlement_intent(PAYMENT_EFFECT_FAMILY, &idempotency_key),
+        Some(&EffectSettlementIntent {
+            idempotency_key,
+            rail: "mock".to_owned(),
+            amount_minor: 125,
+            currency: "USD".to_owned(),
+            counterparty: "merchant:paid-echo".to_owned(),
+            spend_capability_ref: "runx:payment-capability:paid-echo-spend-1".to_owned(),
+            act_id: "act_pay".to_owned(),
+            status: EffectSettlementIntentStatus::Open,
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn reserves_run_spend_and_refuses_over_aggregate_cap() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let state_path = temp.path().join("effect-state.json");
+    let env = BTreeMap::from([(
+        RUNX_EFFECT_STATE_PATH_ENV.to_owned(),
+        state_path.display().to_string(),
+    )]);
+
+    let first = run_spend_input("payment:run-cap-001", 125, 250);
+    let second = run_spend_input("payment:run-cap-002", 125, 250);
+    let third = run_spend_input("payment:run-cap-003", 1, 250);
+
+    record_effect_settlement_intent(&env, temp.path(), &first)?;
+    record_effect_settlement_intent(&env, temp.path(), &second)?;
+    let error = record_effect_settlement_intent(&env, temp.path(), &third)
+        .expect_err("third under-call act must be refused at aggregate run cap");
+
+    assert!(
+        error.to_string().contains("would exceed max_per_run_minor"),
+        "unexpected error: {error}"
+    );
+    let state = std::fs::read_to_string(state_path)?;
+    assert!(state.contains("\"reserved_minor\": 250"));
+    assert!(!state.contains("payment:run-cap-003"));
+
+    Ok(())
+}
+
+#[test]
+fn run_spend_reservation_is_idempotent_for_same_key() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let state_path = temp.path().join("effect-state.json");
+    let env = BTreeMap::from([(
+        RUNX_EFFECT_STATE_PATH_ENV.to_owned(),
+        state_path.display().to_string(),
+    )]);
+    let input = run_spend_input("payment:run-cap-replay", 125, 125);
+
+    record_effect_settlement_intent(&env, temp.path(), &input)?;
+    record_effect_settlement_intent(&env, temp.path(), &input)?;
+
+    let state = std::fs::read_to_string(state_path)?;
+    assert!(state.contains("\"reserved_minor\": 125"));
+
+    Ok(())
+}
+
+#[test]
+fn old_effect_state_without_run_spend_ledger_loads_and_writes_back()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let state_path = temp.path().join("effect-state.json");
+    std::fs::write(
+        &state_path,
+        r#"{
+  "schema_version": "runx.effect_state.v1",
+  "families": {
+    "payment": {
+      "settlement_intents": {},
+      "idempotency_entries": {},
+      "consumed_spend_capabilities": {},
+      "rail_mutations": {}
+    }
+  }
+}
+"#,
+    )?;
+
+    let mut store = FileBackedEffectStateStore::open(&state_path)?;
+    store.record_settlement_intent(
+        PAYMENT_EFFECT_FAMILY,
+        EffectSettlementIntent {
+            idempotency_key: payment_step_input().idempotency_key,
+            rail: "mock".to_owned(),
+            amount_minor: 125,
+            currency: "USD".to_owned(),
+            counterparty: "merchant:paid-echo".to_owned(),
+            spend_capability_ref: "runx:payment-capability:paid-echo-spend-1".to_owned(),
+            act_id: "act_fulfill".to_owned(),
+            status: EffectSettlementIntentStatus::Open,
+        },
+        None,
+    )?;
+
+    let written = std::fs::read_to_string(state_path)?;
+    assert!(
+        written.contains("\"run_spend_ledger\": {}"),
+        "old state documents must round-trip with the additive run spend ledger field"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn old_effect_state_without_finality_maps_loads_and_writes_back()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let state_path = temp.path().join("effect-state.json");
+    std::fs::write(
+        &state_path,
+        r#"{
+  "schema_version": "runx.effect_state.v1",
+  "families": {
+    "payment": {
+      "settlement_intents": {
+        "intent": {
+          "idempotency_key": { "rail": "mock", "counterparty": "merchant", "key": "key" },
+          "rail": "mock",
+          "amount_minor": 125,
+          "currency": "USD",
+          "counterparty": "merchant",
+          "spend_capability_ref": "capability",
+          "act_id": "act_pay",
+          "status": "open"
+        }
+      },
+      "run_spend_ledger": {},
+      "idempotency_entries": {},
+      "consumed_spend_capabilities": {},
+      "rail_mutations": {}
+    }
+  }
+}
+"#,
+    )?;
+
+    let mut store = FileBackedEffectStateStore::open(&state_path)?;
+    let record = finality_record(
+        "money-movement-001",
+        EffectSettlementPhase::InFlight,
+        Some(1),
+        "receipt:settlement:in-flight",
+    );
+    store.record_settlement_finality(PAYMENT_EFFECT_FAMILY, record.clone())?;
+    store.record_settlement_event(
+        PAYMENT_EFFECT_FAMILY,
+        EffectSettlementEventRecord {
+            provider_event_id: "evt_depth_1".to_owned(),
+            rail: "mpp-tempo".to_owned(),
+            event_kind: "confirmation_depth".to_owned(),
+            received_at: "2026-06-01T00:00:10Z".to_owned(),
+            signature_digest: "sha256:event-depth-1".to_owned(),
+            settlement_key: record.money_movement_id.clone(),
+            result_phase: EffectSettlementPhase::InFlight,
+        },
+    )?;
+
+    let reopened = FileBackedEffectStateStore::open(&state_path)?;
+    assert_eq!(
+        reopened.lookup_settlement_finality(PAYMENT_EFFECT_FAMILY, "money-movement-001"),
+        Some(&record)
+    );
+    assert!(
+        reopened
+            .lookup_settlement_event(PAYMENT_EFFECT_FAMILY, "mpp-tempo", "evt_depth_1")
+            .is_some()
+    );
+    let written: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(state_path)?)?;
+    let family = written
+        .get("families")
+        .and_then(|families| families.get("payment"))
+        .ok_or("missing payment family")?;
+    assert!(family.get("settlement_finality").is_some());
+    assert!(family.get("settlement_events").is_some());
+    assert!(family.get("settlement_intents").is_some());
+    assert!(family.get("idempotency_entries").is_some());
+    assert!(family.get("consumed_spend_capabilities").is_some());
+    assert!(family.get("run_spend_ledger").is_some());
+    assert!(family.get("rail_mutations").is_some());
+
+    Ok(())
+}
+
+#[test]
+fn finality_records_update_depth_and_reject_immutable_conflicts()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("effect-state.json");
+    let mut store = FileBackedEffectStateStore::open(&path)?;
+    let first = finality_record(
+        "money-movement-001",
+        EffectSettlementPhase::InFlight,
+        Some(1),
+        "receipt:settlement:depth-1",
+    );
+    let sealed = finality_record(
+        "money-movement-001",
+        EffectSettlementPhase::Sealed,
+        Some(3),
+        "receipt:settlement:sealed",
+    );
+
+    store.record_settlement_finality(PAYMENT_EFFECT_FAMILY, first)?;
+    store.record_settlement_finality(PAYMENT_EFFECT_FAMILY, sealed.clone())?;
+    assert_eq!(
+        store
+            .lookup_settlement_finality(PAYMENT_EFFECT_FAMILY, "money-movement-001")
+            .map(|record| (&record.phase, record.confirmation_depth)),
+        Some((&EffectSettlementPhase::Sealed, Some(3)))
+    );
+
+    let mut conflict = sealed;
+    conflict.rail = "stripe-spt".to_owned();
+    let error = store
+        .record_settlement_finality(PAYMENT_EFFECT_FAMILY, conflict)
+        .expect_err("same money movement on a different rail must conflict");
+    assert!(
+        error
+            .to_string()
+            .contains("conflicts with existing finality state")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn finality_events_are_idempotent_and_conflict_on_drift() -> Result<(), Box<dyn std::error::Error>>
+{
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("effect-state.json");
+    let mut store = FileBackedEffectStateStore::open(&path)?;
+    let event = EffectSettlementEventRecord {
+        provider_event_id: "evt_depth_1".to_owned(),
+        rail: "mpp-tempo".to_owned(),
+        event_kind: "confirmation_depth".to_owned(),
+        received_at: "2026-06-01T00:00:10Z".to_owned(),
+        signature_digest: "sha256:event-depth-1".to_owned(),
+        settlement_key: "money-movement-001".to_owned(),
+        result_phase: EffectSettlementPhase::InFlight,
+    };
+
+    store.record_settlement_event(PAYMENT_EFFECT_FAMILY, event.clone())?;
+    store.record_settlement_event(PAYMENT_EFFECT_FAMILY, event.clone())?;
+    let mut drifted = event;
+    drifted.result_phase = EffectSettlementPhase::Reversed;
+    let error = store
+        .record_settlement_event(PAYMENT_EFFECT_FAMILY, drifted)
+        .expect_err("same provider event id cannot change result");
+    assert!(
+        error
+            .to_string()
+            .contains("conflicts with existing event state")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn repair_script_strips_only_run_spend_ledger() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let state_path = temp.path().join("effect-state.json");
+    let original = json!({
+        "schema_version": "runx.effect_state.v1",
+        "families": {
+            "payment": {
+                "settlement_intents": {
+                    "intent": { "kept": "settlement_intents" }
+                },
+                "run_spend_ledger": {
+                    "ledger": { "removed": true }
+                },
+                "idempotency_entries": {
+                    "idempotency": { "kept": "idempotency_entries" }
+                },
+                "consumed_spend_capabilities": {
+                    "capability": { "kept": "consumed_spend_capabilities" }
+                },
+                "rail_mutations": {
+                    "mutation": { "kept": "rail_mutations" }
+                }
+            }
+        }
+    });
+    std::fs::write(&state_path, serde_json::to_string_pretty(&original)?)?;
+    let script_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/repair-effect-state.mjs")
+        .canonicalize()?;
+
+    let output = Command::new("node")
+        .arg(script_path)
+        .arg("--strip-run-spend-ledger")
+        .arg("--path")
+        .arg(&state_path)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "repair script failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let repaired: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(state_path)?)?;
+    let payment = repaired
+        .get("families")
+        .and_then(|families| families.get("payment"))
+        .and_then(|family| family.as_object())
+        .ok_or("missing payment family after repair")?;
+    assert!(!payment.contains_key("run_spend_ledger"));
+    for key in [
+        "settlement_intents",
+        "idempotency_entries",
+        "consumed_spend_capabilities",
+        "rail_mutations",
+    ] {
+        assert_eq!(
+            payment.get(key),
+            original
+                .get("families")
+                .and_then(|families| families.get("payment"))
+                .and_then(|family| family.get(key)),
+            "repair script must preserve {key}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn repair_script_strips_only_finality_ledger() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let state_path = temp.path().join("effect-state.json");
+    let original = json!({
+        "schema_version": "runx.effect_state.v1",
+        "families": {
+            "payment": {
+                "settlement_intents": {
+                    "intent": { "kept": "settlement_intents" }
+                },
+                "settlement_finality": {
+                    "finality": { "removed": true }
+                },
+                "settlement_events": {
+                    "event": { "removed": true }
+                },
+                "run_spend_ledger": {
+                    "ledger": { "kept": "run_spend_ledger" }
+                },
+                "idempotency_entries": {
+                    "idempotency": { "kept": "idempotency_entries" }
+                },
+                "consumed_spend_capabilities": {
+                    "capability": { "kept": "consumed_spend_capabilities" }
+                },
+                "rail_mutations": {
+                    "mutation": { "kept": "rail_mutations" }
+                }
+            }
+        }
+    });
+    std::fs::write(&state_path, serde_json::to_string_pretty(&original)?)?;
+    let script_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/repair-effect-state.mjs")
+        .canonicalize()?;
+
+    let output = Command::new("node")
+        .arg(script_path)
+        .arg("--strip-finality-ledger")
+        .arg("--path")
+        .arg(&state_path)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "repair script failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let repaired: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(state_path)?)?;
+    let payment = repaired
+        .get("families")
+        .and_then(|families| families.get("payment"))
+        .and_then(|family| family.as_object())
+        .ok_or("missing payment family after repair")?;
+    assert!(!payment.contains_key("settlement_finality"));
+    assert!(!payment.contains_key("settlement_events"));
+    for key in [
+        "settlement_intents",
+        "run_spend_ledger",
+        "idempotency_entries",
+        "consumed_spend_capabilities",
+        "rail_mutations",
+    ] {
+        assert_eq!(
+            payment.get(key),
+            original
+                .get("families")
+                .and_then(|families| families.get("payment"))
+                .and_then(|family| family.get(key)),
+            "repair script must preserve {key}"
+        );
+    }
+
+    Ok(())
+}
 
 #[test]
 fn persists_effect_state_across_fresh_store() -> Result<(), Box<dyn std::error::Error>> {
@@ -556,6 +994,43 @@ fn payment_step_input() -> EffectStepStateInput {
         amount_minor: 125,
         currency: "USD".to_owned(),
         act_id: "act_fulfill".to_owned(),
+        run_spend: None,
+    }
+}
+
+fn run_spend_input(
+    idempotency_key: &str,
+    amount_minor: u64,
+    max_per_run_minor: u64,
+) -> EffectStepStateInput {
+    EffectStepStateInput {
+        idempotency_key: EffectIdempotencyKey::new("mock", "merchant:paid-echo", idempotency_key),
+        amount_minor,
+        run_spend: Some(EffectRunSpendReservation {
+            run_id: "run:demo-cap".to_owned(),
+            authority_ref: "runx:payment-grant:paid-echo".to_owned(),
+            max_per_run_minor,
+        }),
+        ..payment_step_input()
+    }
+}
+
+fn finality_record(
+    money_movement_id: &str,
+    phase: EffectSettlementPhase,
+    confirmation_depth: Option<u64>,
+    latest_receipt_ref: &str,
+) -> EffectSettlementFinalityRecord {
+    EffectSettlementFinalityRecord {
+        money_movement_id: money_movement_id.to_owned(),
+        rail: "mpp-tempo".to_owned(),
+        phase,
+        confirmation_depth,
+        finality_threshold: Some(3),
+        original_receipt_ref: "receipt:payment:original".to_owned(),
+        latest_receipt_ref: latest_receipt_ref.to_owned(),
+        terminal_reason: None,
+        updated_at: "2026-06-01T00:00:10Z".to_owned(),
     }
 }
 

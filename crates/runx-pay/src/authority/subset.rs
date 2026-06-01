@@ -48,11 +48,8 @@ fn payment_bounds_subset(child: &AuthorityTerm, parent: &AuthorityTerm) -> bool 
             child_payment.approval_threshold_minor,
             parent_payment.approval_threshold_minor,
         )
-        && optional_exact_or_narrower(
-            &child_payment.credential_form,
-            &parent_payment.credential_form,
-        )
-        && single_use_spend_capability_for_reserve_or_spend(child, parent)
+        && credential_form_exact_match(child_payment, parent_payment)
+        && spend_credential_form_granted(child, parent)
 }
 
 fn required_currency_equal(
@@ -129,33 +126,137 @@ fn required_booleans_subset(
         && (!parent.receipt_before_success || child.receipt_before_success)
 }
 
-fn single_use_spend_capability_for_reserve_or_spend(
-    child: &AuthorityTerm,
-    parent: &AuthorityTerm,
+fn credential_form_exact_match(
+    child: &PaymentAuthorityBounds,
+    parent: &PaymentAuthorityBounds,
 ) -> bool {
-    if !requires_single_use_capability(child) {
+    child.credential_form == parent.credential_form
+}
+
+fn spend_credential_form_granted(child: &AuthorityTerm, parent: &AuthorityTerm) -> bool {
+    if !payment_authority_spends(child) {
         return true;
     }
     let child_payment = child.bounds.payment.as_ref();
     let parent_payment = parent.bounds.payment.as_ref();
-    child_payment.is_some_and(|payment| payment.single_use_spend)
-        && parent_payment.is_some_and(|payment| payment.single_use_spend)
-        && child
-            .capabilities
-            .contains(&AuthorityCapability::PaymentSingleUseSpend)
-        && parent
-            .capabilities
-            .contains(&AuthorityCapability::PaymentSingleUseSpend)
-        && child
-            .bounds
-            .payment
-            .as_ref()
-            .and_then(|payment| payment.credential_form.as_ref())
-            == Some(&PaymentCredentialForm::SingleUseSpendCapability)
+    let (Some(child_payment), Some(parent_payment)) = (child_payment, parent_payment) else {
+        return false;
+    };
+
+    match child_payment.credential_form.as_ref() {
+        Some(PaymentCredentialForm::SingleUseSpendCapability) => {
+            child_payment.single_use_spend
+                && parent_payment.single_use_spend
+                && child
+                    .capabilities
+                    .contains(&AuthorityCapability::PaymentSingleUseSpend)
+                && parent
+                    .capabilities
+                    .contains(&AuthorityCapability::PaymentSingleUseSpend)
+        }
+        Some(PaymentCredentialForm::ExternalSigner) => true,
+        None => false,
+    }
 }
 
-fn requires_single_use_capability(term: &AuthorityTerm) -> bool {
-    term.verbs
-        .iter()
-        .any(|verb| matches!(verb, AuthorityVerb::Spend))
+#[cfg(test)]
+mod tests {
+    use super::is_payment_authority_subset;
+    use runx_contracts::{
+        AuthorityBounds, AuthorityCapability, AuthorityResourceFamily, AuthorityTerm,
+        AuthorityVerb, PaymentAuthorityBounds, PaymentCredentialForm, Reference, ReferenceType,
+    };
+
+    const COUNTERPARTY: &str = "merchant:bridge";
+
+    #[test]
+    fn accepts_external_signer_when_parent_grants_same_form() {
+        let parent = payment_term("parent", PaymentCredentialForm::ExternalSigner);
+        let child = payment_term("child", PaymentCredentialForm::ExternalSigner);
+
+        assert!(is_payment_authority_subset(&child, &parent));
+    }
+
+    #[test]
+    fn denies_external_signer_child_when_parent_grants_single_use_form() {
+        let parent = payment_term("parent", PaymentCredentialForm::SingleUseSpendCapability);
+        let child = payment_term("child", PaymentCredentialForm::ExternalSigner);
+
+        assert!(!is_payment_authority_subset(&child, &parent));
+    }
+
+    #[test]
+    fn denies_single_use_child_when_parent_grants_external_signer_form() {
+        let mut parent = payment_term("parent", PaymentCredentialForm::ExternalSigner);
+        parent.capabilities = vec![AuthorityCapability::PaymentSingleUseSpend];
+        if let Some(payment) = parent.bounds.payment.as_mut() {
+            payment.single_use_spend = true;
+        }
+        let child = payment_term("child", PaymentCredentialForm::SingleUseSpendCapability);
+
+        assert!(!is_payment_authority_subset(&child, &parent));
+    }
+
+    fn payment_term(term_id: &str, credential_form: PaymentCredentialForm) -> AuthorityTerm {
+        let uses_single_use = matches!(
+            &credential_form,
+            PaymentCredentialForm::SingleUseSpendCapability
+        );
+
+        AuthorityTerm {
+            term_id: term_id.into(),
+            principal_ref: reference(ReferenceType::Principal, "runx:principal:bridge-agent"),
+            resource_ref: reference(ReferenceType::Grant, "runx:payment-grant:bridge"),
+            resource_family: AuthorityResourceFamily::Payment,
+            verbs: vec![AuthorityVerb::Reserve, AuthorityVerb::Spend],
+            bounds: AuthorityBounds {
+                payment: Some(PaymentAuthorityBounds {
+                    currency: "USD".into(),
+                    max_per_call_minor: Some(1_000),
+                    max_per_run_minor: Some(5_000),
+                    max_per_period_minor: None,
+                    period: None,
+                    rails: vec!["stripe".into()],
+                    realm: None,
+                    counterparty: Some(COUNTERPARTY.into()),
+                    operation: Some("bridge.spend".into()),
+                    quote_ttl_ms: Some(120_000),
+                    approval_threshold_minor: None,
+                    credential_form: Some(credential_form),
+                    quote_required: true,
+                    reservation_required: true,
+                    idempotency_required: true,
+                    recovery_required: true,
+                    receipt_before_success: true,
+                    single_use_spend: uses_single_use,
+                }),
+                ..AuthorityBounds::default()
+            },
+            conditions: Vec::new(),
+            approvals: Vec::new(),
+            capabilities: if uses_single_use {
+                vec![AuthorityCapability::PaymentSingleUseSpend]
+            } else {
+                Vec::new()
+            },
+            expires_at: Some("2026-05-22T00:00:00Z".into()),
+            issued_by_ref: reference(ReferenceType::Grant, "runx:grant:bridge-issuer"),
+            credential_ref: Some(reference(
+                ReferenceType::Credential,
+                "runx:credential:bridge-session",
+            )),
+        }
+    }
+
+    fn reference(reference_type: ReferenceType, uri: &str) -> Reference {
+        Reference {
+            reference_type,
+            uri: uri.to_owned().into(),
+            provider: None,
+            locator: None,
+            label: None,
+            observed_at: None,
+            proof_kind: None,
+        }
+    }
 }

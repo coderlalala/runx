@@ -22,8 +22,8 @@ use runx_pay::{PaymentRailSupervisor, PaymentRuntimeEffect};
 use runx_receipts::ReceiptTreeConfig;
 use runx_runtime::effects::RuntimeEffectRegistry;
 use runx_runtime::{
-    Host, InvocationStatus, Runtime, RuntimeError, RuntimeOptions, SkillAdapter, SkillInvocation,
-    SkillOutput, validate_runtime_receipt_tree,
+    Host, InvocationStatus, RUNX_RUN_ID_ENV, Runtime, RuntimeError, RuntimeOptions, SkillAdapter,
+    SkillInvocation, SkillOutput, validate_runtime_receipt_tree,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -457,6 +457,10 @@ fn x402_paid_echo_replays_sealed_idempotency_without_second_rail()
         RUNX_EFFECT_STATE_PATH_ENV.to_owned(),
         effect_state_path.to_string_lossy().into_owned(),
     );
+    env.insert(
+        RUNX_RUN_ID_ENV.to_owned(),
+        "run:test-payment-replay".to_owned(),
+    );
     let adapter = PaidEchoAdapter::new(PaidEchoRailProof::Present);
     let invocations = adapter.invocations();
     let runtime = Runtime::new(
@@ -535,6 +539,10 @@ fn x402_paid_echo_replay_with_mismatched_amount_denies_before_second_rail()
         RUNX_EFFECT_STATE_PATH_ENV.to_owned(),
         effect_state_path.to_string_lossy().into_owned(),
     );
+    env.insert(
+        RUNX_RUN_ID_ENV.to_owned(),
+        "run:test-payment-replay".to_owned(),
+    );
     let adapter = PaidEchoAdapter::with_idempotency_keys_and_amounts(
         PaidEchoRailProof::Present,
         [PAID_ECHO_IDEMPOTENCY_KEY, PAID_ECHO_IDEMPOTENCY_KEY],
@@ -606,6 +614,10 @@ fn x402_paid_echo_reused_spend_capability_with_new_idempotency_denied_from_persi
         RUNX_EFFECT_STATE_PATH_ENV.to_owned(),
         effect_state_path.to_string_lossy().into_owned(),
     );
+    env.insert(
+        RUNX_RUN_ID_ENV.to_owned(),
+        "run:test-payment-reuse".to_owned(),
+    );
     let adapter = PaidEchoAdapter::with_idempotency_keys(
         PaidEchoRailProof::Present,
         [PAID_ECHO_IDEMPOTENCY_KEY, "payment:paid-echo-002"],
@@ -666,6 +678,91 @@ fn x402_paid_echo_reused_spend_capability_with_new_idempotency_denied_from_persi
 }
 
 #[test]
+fn x402_paid_echo_run_cap_exhaustion_is_governed_denial_before_second_rail()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = PaidEchoFixture::new()?;
+    let state_dir = tempfile::tempdir()?;
+    let effect_state_path = state_dir.path().join("effect-state.json");
+    let mut env = BTreeMap::new();
+    env.insert(
+        RUNX_EFFECT_STATE_PATH_ENV.to_owned(),
+        effect_state_path.to_string_lossy().into_owned(),
+    );
+    env.insert(
+        RUNX_RUN_ID_ENV.to_owned(),
+        "run:test-payment-run-cap".to_owned(),
+    );
+    let adapter = PaidEchoAdapter::with_run_cap_and_spend_capability_refs(
+        PaidEchoRailProof::Present,
+        [PAID_ECHO_IDEMPOTENCY_KEY, "payment:paid-echo-run-cap-002"],
+        [125, 125],
+        [
+            "runx:payment-capability:paid-echo-spend-1",
+            "runx:payment-capability:paid-echo-spend-2",
+        ],
+        200,
+    );
+    let invocations = adapter.invocations();
+    let runtime = Runtime::new(
+        adapter,
+        RuntimeOptions {
+            env,
+            effects: runtime_effects(vec![paid_echo_supervisor_evidence(
+                PAID_ECHO_IDEMPOTENCY_KEY,
+            )]),
+            ..RuntimeOptions::local_development()
+        },
+    );
+
+    let mut first_host = ApprovalHost::approved(true);
+    let first = runtime.run_graph_file_with_host(fixture.graph_path(), &mut first_host)?;
+    assert_eq!(first.state.status, GraphStatus::Succeeded);
+
+    let mut second_host = ApprovalHost::approved(true);
+    let second = runtime.run_graph_file_with_host(fixture.graph_path(), &mut second_host);
+    match second {
+        Err(RuntimeError::AuthorityDenied {
+            verb,
+            step_id,
+            reason,
+        }) => {
+            assert_eq!(verb, AuthorityVerb::Spend);
+            assert_eq!(step_id, "fulfill");
+            assert!(
+                reason.contains("max_per_run_minor")
+                    && reason.contains("attempted 250")
+                    && reason.contains("max 200"),
+                "run cap denial should be a governed authority refusal, got: {reason}"
+            );
+        }
+        Ok(run) => {
+            return Err(std::io::Error::other(format!(
+                "run cap exhaustion should deny the second run, ran {:?}",
+                step_ids(&run.steps)
+            ))
+            .into());
+        }
+        Err(error) => {
+            return Err(std::io::Error::other(format!("unexpected runtime error: {error}")).into());
+        }
+    }
+
+    let fulfill_count = invocations
+        .borrow()
+        .iter()
+        .filter(|invocation| invocation.skill_name == "pay-fulfill-rail")
+        .count();
+    assert_eq!(
+        fulfill_count, 1,
+        "aggregate run cap denial must happen before a second rail call"
+    );
+    let state_text = std::fs::read_to_string(effect_state_path)?;
+    assert!(state_text.contains("\"reserved_minor\": 125"));
+    assert!(!state_text.contains("payment:paid-echo-run-cap-002"));
+    Ok(())
+}
+
+#[test]
 fn x402_paid_echo_partial_mutation_escalates_without_second_rail()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = PaidEchoFixture::new()?;
@@ -675,6 +772,10 @@ fn x402_paid_echo_partial_mutation_escalates_without_second_rail()
     env.insert(
         RUNX_EFFECT_STATE_PATH_ENV.to_owned(),
         effect_state_path.to_string_lossy().into_owned(),
+    );
+    env.insert(
+        RUNX_RUN_ID_ENV.to_owned(),
+        "run:test-payment-partial".to_owned(),
     );
     let adapter = PaidEchoAdapter::new(PaidEchoRailProof::Partial);
     let invocations = adapter.invocations();
@@ -901,7 +1002,13 @@ fn assert_payment_admission_denied_before_adapter(
 fn runtime_options_with_effects(
     evidence: Vec<PaymentSupervisorSettlementEvidence>,
 ) -> RuntimeOptions {
+    let mut env = BTreeMap::new();
+    env.insert(
+        RUNX_RUN_ID_ENV.to_owned(),
+        "run:test-payment-execution".to_owned(),
+    );
     RuntimeOptions {
+        env,
         effects: runtime_effects(evidence),
         ..RuntimeOptions::local_development()
     }
@@ -1029,6 +1136,8 @@ fn payment_supervisor_evidence(
         idempotency_key: idempotency_key.to_owned(),
         settlement_status: Some("fulfilled".to_owned()),
         provider_event_ref: Some(format!("provider:event:{idempotency_key}")),
+        shared_payment_token_ref: None,
+        admission_token_digest: None,
     }
 }
 
@@ -1102,6 +1211,9 @@ struct PaidEchoAdapter {
     current_idempotency_key: Rc<RefCell<String>>,
     amount_minor_by_run: Rc<RefCell<VecDeque<u64>>>,
     current_amount_minor: Rc<RefCell<u64>>,
+    spend_capability_refs: Rc<RefCell<VecDeque<String>>>,
+    current_spend_capability_ref: Rc<RefCell<String>>,
+    max_per_run_minor: u64,
 }
 
 impl PaidEchoAdapter {
@@ -1121,6 +1233,31 @@ impl PaidEchoAdapter {
         idempotency_keys: [&str; K],
         amount_minor_by_run: [u64; A],
     ) -> Self {
+        Self::with_run_cap(rail_proof, idempotency_keys, amount_minor_by_run, 25_000)
+    }
+
+    fn with_run_cap<const K: usize, const A: usize>(
+        rail_proof: PaidEchoRailProof,
+        idempotency_keys: [&str; K],
+        amount_minor_by_run: [u64; A],
+        max_per_run_minor: u64,
+    ) -> Self {
+        Self::with_run_cap_and_spend_capability_refs(
+            rail_proof,
+            idempotency_keys,
+            amount_minor_by_run,
+            ["runx:payment-capability:paid-echo-spend-1"],
+            max_per_run_minor,
+        )
+    }
+
+    fn with_run_cap_and_spend_capability_refs<const K: usize, const A: usize, const C: usize>(
+        rail_proof: PaidEchoRailProof,
+        idempotency_keys: [&str; K],
+        amount_minor_by_run: [u64; A],
+        spend_capability_refs: [&str; C],
+        max_per_run_minor: u64,
+    ) -> Self {
         Self {
             invocations: Rc::new(RefCell::new(Vec::new())),
             rail_proof,
@@ -1130,6 +1267,13 @@ impl PaidEchoAdapter {
             current_idempotency_key: Rc::new(RefCell::new(PAID_ECHO_IDEMPOTENCY_KEY.to_owned())),
             amount_minor_by_run: Rc::new(RefCell::new(VecDeque::from(amount_minor_by_run))),
             current_amount_minor: Rc::new(RefCell::new(125)),
+            spend_capability_refs: Rc::new(RefCell::new(VecDeque::from(
+                spend_capability_refs.map(str::to_owned),
+            ))),
+            current_spend_capability_ref: Rc::new(RefCell::new(
+                "runx:payment-capability:paid-echo-spend-1".to_owned(),
+            )),
+            max_per_run_minor,
         }
     }
 
@@ -1155,6 +1299,16 @@ impl PaidEchoAdapter {
             .unwrap_or_else(|| *self.current_amount_minor.borrow());
         *self.current_amount_minor.borrow_mut() = amount_minor;
         amount_minor
+    }
+
+    fn reserve_spend_capability_ref(&self) -> String {
+        let capability_ref = self
+            .spend_capability_refs
+            .borrow_mut()
+            .pop_front()
+            .unwrap_or_else(|| self.current_spend_capability_ref.borrow().clone());
+        *self.current_spend_capability_ref.borrow_mut() = capability_ref.clone();
+        capability_ref
     }
 }
 
@@ -1195,15 +1349,19 @@ impl SkillAdapter for PaidEchoAdapter {
             "pay-reserve" => {
                 let idempotency_key = self.reserve_idempotency_key();
                 let amount_minor = self.reserve_amount_minor();
+                let spend_capability_ref = self.reserve_spend_capability_ref();
                 skill_success(json!({
                     "payment_reservation_packet": {
                         "data": {
                             "payment_decision": paid_echo_reservation_decision(),
                             "reserved_payment_authority": paid_echo_reserved_payment_authority(
                                 &idempotency_key,
-                                amount_minor
+                                amount_minor,
+                                self.max_per_run_minor
                             ),
-                            "spend_capability_ref": paid_echo_spend_capability_ref(),
+                            "spend_capability_ref": paid_echo_spend_capability_ref(
+                                &spend_capability_ref
+                            ),
                             "idempotency": { "key": idempotency_key }
                         }
                     }
@@ -1741,10 +1899,14 @@ fn reservation_decision() -> Value {
     })
 }
 
-fn paid_echo_reserved_payment_authority(idempotency_key: &str, amount_minor: u64) -> Value {
+fn paid_echo_reserved_payment_authority(
+    idempotency_key: &str,
+    amount_minor: u64,
+    max_per_run_minor: u64,
+) -> Value {
     json!({
-        "parent_authority": paid_echo_payment_term("paid-echo-parent", ["quote", "reserve", "spend", "verify"], 10_000),
-        "child_authority": paid_echo_payment_term("paid-echo-child", ["reserve", "spend"], 2_500),
+        "parent_authority": paid_echo_payment_term("paid-echo-parent", ["quote", "reserve", "spend", "verify"], 10_000, max_per_run_minor),
+        "child_authority": paid_echo_payment_term("paid-echo-child", ["reserve", "spend"], 2_500, max_per_run_minor),
         "reservation_decision": paid_echo_reservation_decision(),
         "subset_proof": paid_echo_subset_proof("paid-echo-child", "paid-echo-parent"),
         "child_harness_ref": paid_echo_child_harness_ref(),
@@ -1782,6 +1944,7 @@ fn paid_echo_payment_term<const N: usize>(
     term_id: &str,
     verbs: [&str; N],
     max_per_call_minor: u64,
+    max_per_run_minor: u64,
 ) -> Value {
     let verbs = verbs.as_slice();
     json!({
@@ -1794,7 +1957,7 @@ fn paid_echo_payment_term<const N: usize>(
             "payment": {
                 "currency": "USD",
                 "max_per_call_minor": max_per_call_minor,
-                "max_per_run_minor": 25_000,
+                "max_per_run_minor": max_per_run_minor,
                 "rails": ["mock"],
                 "counterparty": "merchant:paid-echo",
                 "operation": "paid.echo",
@@ -1846,8 +2009,8 @@ fn paid_echo_child_harness_ref() -> Value {
     reference("harness", "runx:harness:x402-pay-paid-echo_fulfill")
 }
 
-fn paid_echo_spend_capability_ref() -> Value {
-    reference("credential", "runx:payment-capability:paid-echo-spend-1")
+fn paid_echo_spend_capability_ref(capability_ref: &str) -> Value {
+    reference("credential", capability_ref)
 }
 
 fn child_harness_ref() -> Value {

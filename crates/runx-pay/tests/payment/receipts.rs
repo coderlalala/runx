@@ -23,6 +23,8 @@ fn payment_rail_receipts_carry_supervisor_evidence_refs() -> Result<(), Box<dyn 
         idempotency_key: "payment:demo-search-001".to_owned(),
         settlement_status: Some("fulfilled".to_owned()),
         provider_event_ref: Some("provider:event:demo-search-001".to_owned()),
+        shared_payment_token_ref: None,
+        admission_token_digest: None,
     };
     metadata.insert(
         PAYMENT_RAIL_SUPERVISOR_EVIDENCE_METADATA.to_owned(),

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use runx_contracts::{JsonObject, JsonValue};
+use runx_contracts::{EffectSettlementPhase, JsonObject, JsonValue};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -102,6 +102,89 @@ pub enum EffectMutationStatus {
     Escalated,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectSettlementIntent {
+    pub idempotency_key: EffectIdempotencyKey,
+    pub rail: String,
+    pub amount_minor: u64,
+    pub currency: String,
+    pub counterparty: String,
+    pub spend_capability_ref: String,
+    pub act_id: String,
+    pub status: EffectSettlementIntentStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectSettlementFinalityRecord {
+    pub money_movement_id: String,
+    pub rail: String,
+    pub phase: EffectSettlementPhase,
+    pub confirmation_depth: Option<u64>,
+    pub finality_threshold: Option<u64>,
+    pub original_receipt_ref: String,
+    pub latest_receipt_ref: String,
+    pub terminal_reason: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectSettlementEventRecord {
+    pub provider_event_id: String,
+    pub rail: String,
+    pub event_kind: String,
+    pub received_at: String,
+    pub signature_digest: String,
+    pub settlement_key: String,
+    pub result_phase: EffectSettlementPhase,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectSettlementIntentStatus {
+    Open,
+    Sealed,
+    Escalated,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectRunSpendLedgerEntry {
+    pub run_id: String,
+    pub authority_ref: String,
+    pub currency: String,
+    pub max_per_run_minor: u64,
+    pub reserved_minor: u64,
+    pub sealed_minor: u64,
+    pub entries: BTreeMap<String, EffectRunSpendLedgerItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectRunSpendLedgerItem {
+    pub idempotency_key: EffectIdempotencyKey,
+    pub amount_minor: u64,
+    pub status: EffectRunSpendStatus,
+    pub receipt_ref: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectRunSpendStatus {
+    Reserved,
+    Sealed,
+    Escalated,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EffectRunSpendReservation {
+    pub run_id: String,
+    pub authority_ref: String,
+    pub max_per_run_minor: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EffectStepStateInput {
     pub family: &'static str,
@@ -112,6 +195,7 @@ pub struct EffectStepStateInput {
     pub amount_minor: u64,
     pub currency: String,
     pub act_id: String,
+    pub run_spend: Option<EffectRunSpendReservation>,
 }
 
 #[derive(Debug)]
@@ -136,6 +220,14 @@ struct EffectStateDocument {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EffectFamilyState {
+    #[serde(default)]
+    settlement_intents: BTreeMap<String, EffectSettlementIntent>,
+    #[serde(default)]
+    settlement_finality: BTreeMap<String, EffectSettlementFinalityRecord>,
+    #[serde(default)]
+    settlement_events: BTreeMap<String, EffectSettlementEventRecord>,
+    #[serde(default)]
+    run_spend_ledger: BTreeMap<String, EffectRunSpendLedgerEntry>,
     idempotency_entries: BTreeMap<String, EffectIdempotencyEntry>,
     consumed_spend_capabilities: BTreeMap<String, EffectCapabilityConsumption>,
     rail_mutations: BTreeMap<String, EffectMutation>,
@@ -202,6 +294,28 @@ pub enum EffectStateError {
     IdempotencyAlreadyRecorded { idempotency_key: String },
     #[error("rail mutation for idempotency key {idempotency_key} was already recorded")]
     EffectMutationAlreadyRecorded { idempotency_key: String },
+    #[error(
+        "settlement intent for idempotency key {idempotency_key} conflicts with an existing intent"
+    )]
+    SettlementIntentConflict { idempotency_key: String },
+    #[error(
+        "run {run_id} would exceed max_per_run_minor for {authority_ref}/{currency}: attempted {attempted_minor}, max {max_per_run_minor}"
+    )]
+    RunSpendCapExceeded {
+        run_id: String,
+        authority_ref: String,
+        currency: String,
+        attempted_minor: u64,
+        max_per_run_minor: u64,
+    },
+    #[error("run spend ledger key {ledger_key} conflicts with existing run spend state")]
+    RunSpendLedgerConflict { ledger_key: String },
+    #[error(
+        "settlement finality record for {settlement_key} conflicts with existing finality state"
+    )]
+    SettlementFinalityConflict { settlement_key: String },
+    #[error("settlement event {event_key} conflicts with existing event state")]
+    SettlementEventConflict { event_key: String },
     #[error("spend capability {capability_ref} was already consumed")]
     SpendCapabilityAlreadyConsumed { capability_ref: String },
     #[error("failed to serialize replay-safe payment outputs: {source}")]
@@ -311,6 +425,164 @@ impl FileBackedEffectStateStore {
             .and_then(|state| state.rail_mutations.get(&key.index_key()))
     }
 
+    pub fn lookup_settlement_intent(
+        &self,
+        family: &str,
+        key: &EffectIdempotencyKey,
+    ) -> Option<&EffectSettlementIntent> {
+        self.state
+            .family(family)
+            .and_then(|state| state.settlement_intents.get(&key.index_key()))
+    }
+
+    pub fn lookup_settlement_finality(
+        &self,
+        family: &str,
+        settlement_key: &str,
+    ) -> Option<&EffectSettlementFinalityRecord> {
+        self.state
+            .family(family)
+            .and_then(|state| state.settlement_finality.get(settlement_key))
+    }
+
+    pub fn record_settlement_finality(
+        &mut self,
+        family: &'static str,
+        record: EffectSettlementFinalityRecord,
+    ) -> Result<(), EffectStateError> {
+        let settlement_key = record.money_movement_id.clone();
+        if let Some(existing) = self
+            .state
+            .family(family)
+            .and_then(|state| state.settlement_finality.get(&settlement_key))
+            && finality_record_conflicts(existing, &record)
+        {
+            return Err(EffectStateError::SettlementFinalityConflict { settlement_key });
+        }
+        self.with_locked_state(|state| {
+            let state = state.family_mut(family);
+            if let Some(existing) = state.settlement_finality.get(&settlement_key)
+                && finality_record_conflicts(existing, &record)
+            {
+                return Err(EffectStateError::SettlementFinalityConflict {
+                    settlement_key: settlement_key.clone(),
+                });
+            }
+            state.settlement_finality.insert(settlement_key, record);
+            Ok(())
+        })
+    }
+
+    pub fn lookup_settlement_event(
+        &self,
+        family: &str,
+        rail: &str,
+        provider_event_id: &str,
+    ) -> Option<&EffectSettlementEventRecord> {
+        self.state.family(family).and_then(|state| {
+            state
+                .settlement_events
+                .get(&settlement_event_key(rail, provider_event_id))
+        })
+    }
+
+    pub fn record_settlement_event(
+        &mut self,
+        family: &'static str,
+        event: EffectSettlementEventRecord,
+    ) -> Result<(), EffectStateError> {
+        let event_key = settlement_event_key(&event.rail, &event.provider_event_id);
+        if let Some(existing) = self
+            .state
+            .family(family)
+            .and_then(|state| state.settlement_events.get(&event_key))
+        {
+            if existing == &event {
+                return Ok(());
+            }
+            return Err(EffectStateError::SettlementEventConflict { event_key });
+        }
+        self.with_locked_state(|state| {
+            let state = state.family_mut(family);
+            if let Some(existing) = state.settlement_events.get(&event_key) {
+                if existing == &event {
+                    return Ok(());
+                }
+                return Err(EffectStateError::SettlementEventConflict {
+                    event_key: event_key.clone(),
+                });
+            }
+            state.settlement_events.insert(event_key, event);
+            Ok(())
+        })
+    }
+
+    pub fn record_settlement_intent(
+        &mut self,
+        family: &'static str,
+        intent: EffectSettlementIntent,
+        run_spend: Option<&EffectRunSpendReservation>,
+    ) -> Result<(), EffectStateError> {
+        let index_key = intent.idempotency_key.index_key();
+        if let Some(existing) = self
+            .state
+            .family(family)
+            .and_then(|state| state.settlement_intents.get(&index_key))
+        {
+            if existing == &intent {
+                return Ok(());
+            }
+            return Err(EffectStateError::SettlementIntentConflict {
+                idempotency_key: index_key,
+            });
+        }
+        self.with_locked_state(|state| {
+            let state = state.family_mut(family);
+            if let Some(existing) = state.settlement_intents.get(&index_key) {
+                if existing == &intent {
+                    return Ok(());
+                }
+                return Err(EffectStateError::SettlementIntentConflict {
+                    idempotency_key: index_key.clone(),
+                });
+            }
+            reserve_run_spend(state, family, &intent, run_spend)?;
+            state.settlement_intents.insert(index_key, intent);
+            Ok(())
+        })
+    }
+
+    pub fn seal_run_spend(
+        &mut self,
+        family: &'static str,
+        input: &EffectStepStateInput,
+        receipt_ref: &str,
+    ) -> Result<(), EffectStateError> {
+        let Some(run_spend) = input.run_spend.as_ref() else {
+            return Ok(());
+        };
+        let ledger_key = run_spend_ledger_key(family, run_spend, &input.currency);
+        let entry_key = input.idempotency_key.index_key();
+        self.with_locked_state(|state| {
+            let Some(ledger) = state
+                .family_mut(family)
+                .run_spend_ledger
+                .get_mut(&ledger_key)
+            else {
+                return Ok(());
+            };
+            let Some(item) = ledger.entries.get_mut(&entry_key) else {
+                return Ok(());
+            };
+            if item.status != EffectRunSpendStatus::Sealed {
+                ledger.sealed_minor = ledger.sealed_minor.saturating_add(item.amount_minor);
+            }
+            item.status = EffectRunSpendStatus::Sealed;
+            item.receipt_ref = Some(receipt_ref.to_owned());
+            Ok(())
+        })
+    }
+
     pub fn escalate_mutation(
         &mut self,
         family: &'static str,
@@ -355,6 +627,9 @@ impl FileBackedEffectStateStore {
                 return Err(EffectStateError::EffectMutationAlreadyRecorded {
                     idempotency_key: index_key.clone(),
                 });
+            }
+            if let Some(intent) = state.settlement_intents.get_mut(&index_key) {
+                intent.status = settlement_intent_status_for_recovery(&mutation.recovery_state);
             }
             state.rail_mutations.insert(index_key, mutation);
             Ok(())
@@ -423,6 +698,94 @@ impl Drop for EffectStateLock {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
     }
+}
+
+fn reserve_run_spend(
+    state: &mut EffectFamilyState,
+    family: &'static str,
+    intent: &EffectSettlementIntent,
+    reservation: Option<&EffectRunSpendReservation>,
+) -> Result<(), EffectStateError> {
+    let Some(reservation) = reservation else {
+        return Ok(());
+    };
+    let ledger_key = run_spend_ledger_key(family, reservation, &intent.currency);
+    let entry_key = intent.idempotency_key.index_key();
+    let ledger = state
+        .run_spend_ledger
+        .entry(ledger_key.clone())
+        .or_insert_with(|| EffectRunSpendLedgerEntry {
+            run_id: reservation.run_id.clone(),
+            authority_ref: reservation.authority_ref.clone(),
+            currency: intent.currency.clone(),
+            max_per_run_minor: reservation.max_per_run_minor,
+            reserved_minor: 0,
+            sealed_minor: 0,
+            entries: BTreeMap::new(),
+        });
+
+    if ledger.run_id != reservation.run_id
+        || ledger.authority_ref != reservation.authority_ref
+        || ledger.currency != intent.currency
+        || ledger.max_per_run_minor != reservation.max_per_run_minor
+    {
+        return Err(EffectStateError::RunSpendLedgerConflict { ledger_key });
+    }
+
+    if let Some(existing) = ledger.entries.get(&entry_key) {
+        if existing.amount_minor == intent.amount_minor {
+            return Ok(());
+        }
+        return Err(EffectStateError::RunSpendLedgerConflict { ledger_key });
+    }
+
+    let attempted_minor = ledger.reserved_minor.saturating_add(intent.amount_minor);
+    if attempted_minor > ledger.max_per_run_minor {
+        return Err(EffectStateError::RunSpendCapExceeded {
+            run_id: ledger.run_id.clone(),
+            authority_ref: ledger.authority_ref.clone(),
+            currency: ledger.currency.clone(),
+            attempted_minor,
+            max_per_run_minor: ledger.max_per_run_minor,
+        });
+    }
+
+    ledger.reserved_minor = attempted_minor;
+    ledger.entries.insert(
+        entry_key,
+        EffectRunSpendLedgerItem {
+            idempotency_key: intent.idempotency_key.clone(),
+            amount_minor: intent.amount_minor,
+            status: EffectRunSpendStatus::Reserved,
+            receipt_ref: None,
+        },
+    );
+    Ok(())
+}
+
+fn finality_record_conflicts(
+    existing: &EffectSettlementFinalityRecord,
+    next: &EffectSettlementFinalityRecord,
+) -> bool {
+    existing.money_movement_id != next.money_movement_id
+        || existing.rail != next.rail
+        || existing.finality_threshold != next.finality_threshold
+        || existing.original_receipt_ref != next.original_receipt_ref
+}
+
+fn settlement_event_key(rail: &str, provider_event_id: &str) -> String {
+    format!("{rail}\u{1f}{provider_event_id}")
+}
+
+fn run_spend_ledger_key(
+    family: &'static str,
+    reservation: &EffectRunSpendReservation,
+    currency: &str,
+) -> String {
+    format!(
+        "{}\u{1f}{}\u{1f}{}\u{1f}{}",
+        family, reservation.run_id, reservation.authority_ref, currency
+    )
 }
 
 fn load_effect_state(path: &Path) -> Result<EffectStateDocument, EffectStateError> {
@@ -512,6 +875,31 @@ pub fn lookup_effect_mutation(
     };
     let store = FileBackedEffectStateStore::open(&path)?;
     Ok(store.lookup_mutation(family, key).cloned())
+}
+
+pub fn record_effect_settlement_intent(
+    env: &BTreeMap<String, String>,
+    cwd: &Path,
+    input: &EffectStepStateInput,
+) -> Result<(), EffectStateError> {
+    let Some(path) = resolve_effect_state_path(env, cwd) else {
+        return Ok(());
+    };
+    let mut store = FileBackedEffectStateStore::open(&path)?;
+    store.record_settlement_intent(
+        input.family,
+        EffectSettlementIntent {
+            idempotency_key: input.idempotency_key.clone(),
+            rail: input.rail.clone(),
+            amount_minor: input.amount_minor,
+            currency: input.currency.clone(),
+            counterparty: input.counterparty.clone(),
+            spend_capability_ref: input.spend_capability_ref.clone(),
+            act_id: input.act_id.clone(),
+            status: EffectSettlementIntentStatus::Open,
+        },
+        input.run_spend.as_ref(),
+    )
 }
 
 pub fn escalate_effect_mutation(
@@ -604,6 +992,7 @@ pub fn persist_effect_step_state(
                 outputs: replay_safe_outputs(outputs)?,
             },
         )?;
+        store.seal_run_spend(input.family, input, &receipt.id)?;
     }
 
     if rail_touched
@@ -735,6 +1124,16 @@ fn rail_mutation_status(recovery_state: &EffectRecoveryState) -> EffectMutationS
         EffectRecoveryState::Sealed => EffectMutationStatus::Fulfilled,
         EffectRecoveryState::Escalated => EffectMutationStatus::Escalated,
         EffectRecoveryState::InFlight => EffectMutationStatus::Partial,
+    }
+}
+
+fn settlement_intent_status_for_recovery(
+    recovery_state: &EffectRecoveryState,
+) -> EffectSettlementIntentStatus {
+    match recovery_state {
+        EffectRecoveryState::Sealed => EffectSettlementIntentStatus::Sealed,
+        EffectRecoveryState::Escalated => EffectSettlementIntentStatus::Escalated,
+        EffectRecoveryState::InFlight => EffectSettlementIntentStatus::Open,
     }
 }
 

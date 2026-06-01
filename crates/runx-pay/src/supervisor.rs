@@ -28,6 +28,10 @@ pub struct PaymentSupervisorSettlementEvidence {
     pub settlement_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_event_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shared_payment_token_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_token_digest: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

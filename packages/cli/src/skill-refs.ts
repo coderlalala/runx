@@ -20,6 +20,11 @@ import { ensureRunxInstallState } from "./runx-state.js";
 
 let cachedBundledSkillsDir: string | undefined | null = null;
 let cachedOfficialSkillLock: readonly OfficialSkillLockEntry[] | undefined;
+const DEV_ONLY_OFFICIAL_SKILLS = new Set([
+  "runx/mock-charge",
+  "runx/mock-pay",
+  "runx/mock-refund",
+]);
 
 interface OfficialSkillLockEntry {
   readonly skill_id: string;
@@ -58,7 +63,7 @@ export async function runSkillSearch(
   }
 
   if (!normalizedSource || normalizedSource === "bundled" || normalizedSource === "builtin") {
-    results.push(...(await searchBundledSkills(query)));
+    results.push(...(await searchBundledSkills(query, env)));
   }
 
   return results;
@@ -77,7 +82,7 @@ export async function resolveRunnableSkillReference(ref: string, env: NodeJS.Pro
   if (local) {
     return local;
   }
-  const official = officialSkillEntry(ref);
+  const official = officialSkillEntry(ref, env);
   if (!official) {
     throw new Error(`Skill not found: ${ref}. Try \`runx skill search ${ref}\` to discover available skills.`);
   }
@@ -99,7 +104,11 @@ export function createOfficialSkillResolver(env: NodeJS.ProcessEnv): OfficialSki
   return {
     async resolve(parsed: ParsedRegistryRef): Promise<string | undefined> {
       const lock = loadOfficialSkillLock();
-      const entry = lock.find((candidate) => candidate.skill_id === parsed.skillId);
+      const entry = lock.find(
+        (candidate) =>
+          candidate.skill_id === parsed.skillId &&
+          officialSkillVisibleForCatalog(candidate.skill_id, env),
+      );
       if (!entry) {
         return undefined;
       }
@@ -324,7 +333,7 @@ async function rewriteOfficialSkillSiblingRefs(skillDir: string, ownerSkillId: s
   }
 }
 
-async function searchBundledSkills(query: string): Promise<readonly SkillSearchResult[]> {
+async function searchBundledSkills(query: string, env: NodeJS.ProcessEnv): Promise<readonly SkillSearchResult[]> {
   const bundledDir = resolveBundledSkillsDir();
   if (!bundledDir || !existsSync(bundledDir)) return [];
   const entries = await readdir(bundledDir, { withFileTypes: true });
@@ -336,6 +345,7 @@ async function searchBundledSkills(query: string): Promise<readonly SkillSearchR
     if (!existsSync(skillMdPath)) continue;
     const raw = await readFile(skillMdPath, "utf8");
     const { name, description } = parseSkillFrontmatter(raw, entry.name);
+    if (!officialSkillVisibleForCatalog(`runx/${name}`, env)) continue;
     const hay = `${name}\n${description}`.toLowerCase();
     if (needle && !hay.includes(needle)) continue;
     const hasProfile = existsSync(path.join(path.dirname(bundledDir), "bindings", "runx", entry.name, "X.yaml"));
@@ -392,11 +402,17 @@ function resolveBundledSkillsDir(): string | undefined {
   }
 }
 
-function officialSkillEntry(ref: string): OfficialSkillLockEntry | undefined {
+function officialSkillEntry(ref: string, env: NodeJS.ProcessEnv): OfficialSkillLockEntry | undefined {
   if (!/^[A-Za-z0-9_.-]+$/.test(ref)) {
     return undefined;
   }
-  return loadOfficialSkillLock().find((entry) => entry.skill_id === `runx/${ref}`);
+  return loadOfficialSkillLock().find(
+    (entry) => entry.skill_id === `runx/${ref}` && officialSkillVisibleForCatalog(entry.skill_id, env),
+  );
+}
+
+export function officialSkillVisibleForCatalog(skillId: string, env: NodeJS.ProcessEnv): boolean {
+  return !DEV_ONLY_OFFICIAL_SKILLS.has(skillId) || env.RUNX_DEV_CATALOG === "1";
 }
 
 function loadOfficialSkillLock(): readonly OfficialSkillLockEntry[] {

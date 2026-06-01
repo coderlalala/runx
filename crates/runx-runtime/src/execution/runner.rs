@@ -42,6 +42,7 @@ mod sync;
 use execution::GraphExecution;
 
 pub const RUNX_MAX_FANOUT_CONCURRENCY_ENV: &str = "RUNX_MAX_FANOUT_CONCURRENCY";
+pub const RUNX_RUN_ID_ENV: &str = "RUNX_RUN_ID";
 
 #[derive(Clone, Debug)]
 pub struct RuntimeOptions {
@@ -102,6 +103,7 @@ fn safe_default_env_from(
         RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64_ENV,
         RUNX_RECEIPT_SIGN_ISSUER_TYPE_ENV,
         RUNX_MAX_FANOUT_CONCURRENCY_ENV,
+        RUNX_RUN_ID_ENV,
         RUNX_PROJECT_DIR_ENV,
         RUNX_CWD_ENV,
     ];
@@ -251,10 +253,9 @@ where
                 )?;
                 Ok(execution.finish(graph, receipt))
             }
-            // A governed authority denial (e.g. a payment spend that exceeds the
-            // attenuated authority) is a policy block, not a runtime fault: under
-            // the receipt-sealing outcome it seals a signed blocked receipt, the
-            // same as any other graph block, so the refusal is provable.
+            // A governed authority denial is a policy block, not a runtime fault:
+            // under the receipt-sealing outcome it seals a signed blocked receipt,
+            // the same as any other graph block, so the refusal is provable.
             Err(RuntimeError::AuthorityDenied {
                 verb,
                 step_id,

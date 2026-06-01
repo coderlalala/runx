@@ -59,6 +59,7 @@ pub enum AuthorityCapability {
 #[serde(rename_all = "snake_case")]
 pub enum PaymentCredentialForm {
     SingleUseSpendCapability,
+    ExternalSigner,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, RunxSchema)]

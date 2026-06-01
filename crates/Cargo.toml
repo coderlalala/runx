@@ -43,6 +43,15 @@ codegen-units = 1
 strip = "symbols"
 panic = "abort"
 
+# Dev and test builds are the inner loop. Full debuginfo (debug = 2) is the
+# dominant codegen and link cost on macOS; line tables keep backtraces useful
+# while cutting both. Drop to 0 if you never attach a debugger.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 

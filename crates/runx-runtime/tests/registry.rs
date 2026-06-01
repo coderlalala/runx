@@ -173,6 +173,66 @@ fn file_registry_store_covers_profiled_skill_surface() -> Result<(), Box<dyn std
 }
 
 #[test]
+fn local_registry_search_excludes_private_catalog_versions_but_direct_resolve_works()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempdir()?;
+    let store = FileRegistryStore::new(temp.path());
+    let markdown = r#"---
+name: private-pay-step
+description: Private payment engine step.
+---
+Runs as an engine step, not as a public catalog face.
+"#;
+    let profile_document = r#"skill: private-pay-step
+catalog:
+  kind: skill
+  audience: operator
+  visibility: private
+runners:
+  default:
+    default: true
+    type: cli-tool
+    command: node
+    args:
+      - -e
+      - "process.stdout.write('{}')"
+harness:
+  cases:
+    - name: private-pay-step-smoke
+      inputs: {}
+      expect:
+        status: sealed
+"#;
+
+    let version = ingest_skill_markdown(
+        &store,
+        markdown,
+        IngestSkillOptions {
+            owner: Some("runx".to_owned()),
+            version: Some("1.0.0".to_owned()),
+            created_at: Some("2026-06-01T00:00:00.000Z".to_owned()),
+            profile_document: Some(profile_document.to_owned()),
+            ..IngestSkillOptions::default()
+        },
+    )?;
+
+    assert_eq!(version.catalog_visibility.as_deref(), Some("private"));
+    let search_results =
+        search_registry_with_options(&store, "private-pay-step", RegistrySearchOptions::default())?;
+    assert!(search_results.is_empty());
+
+    let resolved = resolve_registry_skill(
+        &store,
+        "registry:private-pay-step",
+        RegistryResolveOptions::default(),
+    )?
+    .ok_or_else(|| std::io::Error::other("missing private registry resolution"))?;
+    assert_eq!(resolved.skill_id, "runx/private-pay-step");
+    assert_eq!(resolved.profile_document.as_deref(), Some(profile_document));
+    Ok(())
+}
+
+#[test]
 fn local_registry_publish_rejects_changed_duplicate() -> Result<(), Box<dyn std::error::Error>> {
     let temp = tempdir()?;
     let store = FileRegistryStore::new(temp.path());

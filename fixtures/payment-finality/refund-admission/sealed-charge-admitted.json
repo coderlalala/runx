@@ -1,0 +1,29 @@
+{
+  "name": "sealed_charge_admitted",
+  "input": {
+    "charge": {
+      "money_movement_id": "money-movement-001",
+      "rail": "mpp-tempo",
+      "phase": "sealed",
+      "amount_minor": 125,
+      "currency": "USD",
+      "payer_ref": "did:pkh:eip155:42431:0x1111111111111111111111111111111111111111",
+      "proof_ref": "mpp-tempo:tx:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "refund": {
+      "amount_minor": 125,
+      "requested_counterparty": "did:pkh:eip155:42431:0x1111111111111111111111111111111111111111"
+    }
+  },
+  "expected": {
+    "status": "admitted",
+    "reversal": {
+      "rail": "mpp-tempo",
+      "amount_minor": 125,
+      "currency": "USD",
+      "counterparty": "did:pkh:eip155:42431:0x1111111111111111111111111111111111111111",
+      "original_money_movement_id": "money-movement-001",
+      "original_proof_ref": "mpp-tempo:tx:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

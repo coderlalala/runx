@@ -29,7 +29,9 @@ use crate::agent_invocation::{
 };
 use crate::effects::RuntimeEffectRegistry;
 use crate::execution::orchestrator::SkillRunRequest;
-use crate::execution::runner::{GraphCheckpoint, GraphRun, Runtime, RuntimeOptions};
+use crate::execution::runner::{
+    GraphCheckpoint, GraphRun, RUNX_RUN_ID_ENV, Runtime, RuntimeOptions,
+};
 use crate::host::Host;
 use crate::receipts::store::ReceiptStoreError;
 use crate::receipts::{
@@ -413,7 +415,8 @@ fn execute_graph_skill_run(
     let graph = materialize_graph_inputs(graph, &request.inputs);
     let run_id = graph_run_id(request, runner)?;
     let skill_dir = resolve_skill_dir(&request.skill_path)?;
-    let env = workspace.graph_env_for_skill(&skill_dir);
+    let mut env = workspace.graph_env_for_skill(&skill_dir);
+    env.insert(RUNX_RUN_ID_ENV.to_owned(), run_id.clone());
     let runtime = Runtime::new(
         SkillRunGraphAdapter::default(),
         RuntimeOptions {

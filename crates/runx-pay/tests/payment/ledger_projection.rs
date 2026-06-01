@@ -515,6 +515,8 @@ fn paid_echo_supervisor_evidence() -> PaymentSupervisorSettlementEvidence {
         idempotency_key: "payment:paid-echo-001".to_owned(),
         settlement_status: Some("fulfilled".to_owned()),
         provider_event_ref: Some("provider:event:payment:paid-echo-001".to_owned()),
+        shared_payment_token_ref: None,
+        admission_token_digest: None,
     }
 }
 

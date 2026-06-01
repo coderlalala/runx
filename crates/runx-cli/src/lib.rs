@@ -7,6 +7,7 @@ pub mod launcher;
 pub mod list;
 pub mod mcp;
 pub mod parser;
+pub mod payment;
 pub mod policy;
 pub mod registry;
 pub mod runtime;

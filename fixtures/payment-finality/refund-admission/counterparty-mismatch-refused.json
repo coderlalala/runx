@@ -1,0 +1,23 @@
+{
+  "name": "counterparty_mismatch_refused",
+  "input": {
+    "charge": {
+      "money_movement_id": "money-movement-004",
+      "rail": "mpp-tempo",
+      "phase": "sealed",
+      "amount_minor": 125,
+      "currency": "USD",
+      "payer_ref": "did:pkh:eip155:42431:0x1111111111111111111111111111111111111111",
+      "proof_ref": "mpp-tempo:tx:0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "refund": {
+      "amount_minor": 125,
+      "requested_counterparty": "did:pkh:eip155:42431:0x2222222222222222222222222222222222222222"
+    }
+  },
+  "expected": {
+    "status": "refused",
+    "code": "counterparty_mismatch",
+    "reason": "refund reversal must target the recorded payer"
+  }
+}

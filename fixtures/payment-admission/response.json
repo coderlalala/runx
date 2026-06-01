@@ -1,0 +1,24 @@
+{
+  "status": "success",
+  "result": {
+    "token": {
+      "purpose": "runx.payment_admission.v1",
+      "audience": "rail_settlement",
+      "principal": "principal_1",
+      "act": "act_pay_quote",
+      "rail": "x402",
+      "amount_minor": 1250,
+      "currency": "USD",
+      "counterparty": "merchant_1",
+      "run_id": "run_1",
+      "authority_digest": "sha256:authority",
+      "expires_at": "2026-06-01T00:05:00Z",
+      "money_movement_id": "sha256:b1f910b08abe1053af9343df6b0467dbea9018a9052e4601d7a4616f1f73ff33",
+      "kid": "kid-admission-1",
+      "sig": "base64:WRSSi68tamnxpyyhWBcL_aYVPw5RVq8yV6JFPiNiMkypMVJZIVS-ulCB4Tj8yZdzQkZSrr456i7kxH1jTAkYDg"
+    },
+    "token_canonical_json": "{\"act\":\"act_pay_quote\",\"amount_minor\":1250,\"audience\":\"rail_settlement\",\"authority_digest\":\"sha256:authority\",\"counterparty\":\"merchant_1\",\"currency\":\"USD\",\"expires_at\":\"2026-06-01T00:05:00Z\",\"kid\":\"kid-admission-1\",\"money_movement_id\":\"sha256:b1f910b08abe1053af9343df6b0467dbea9018a9052e4601d7a4616f1f73ff33\",\"principal\":\"principal_1\",\"purpose\":\"runx.payment_admission.v1\",\"rail\":\"x402\",\"run_id\":\"run_1\",\"sig\":\"base64:WRSSi68tamnxpyyhWBcL_aYVPw5RVq8yV6JFPiNiMkypMVJZIVS-ulCB4Tj8yZdzQkZSrr456i7kxH1jTAkYDg\"}",
+    "token_digest": "sha256:ea9a5c55346a95eceb8daa949bb6564465d6fdac31fdf4f2ab111e1722fb372c",
+    "money_movement_id": "sha256:b1f910b08abe1053af9343df6b0467dbea9018a9052e4601d7a4616f1f73ff33"
+  }
+}

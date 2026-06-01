@@ -1,0 +1,11 @@
+{
+  "principal": "principal_1",
+  "act": "act_pay_quote",
+  "rail": "x402",
+  "amount_minor": 1250,
+  "currency": "USD",
+  "counterparty": "merchant_1",
+  "run_id": "run_1",
+  "authority_digest": "sha256:authority",
+  "expires_at": "2026-06-01T00:05:00Z"
+}

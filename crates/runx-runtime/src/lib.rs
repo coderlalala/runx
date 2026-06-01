@@ -35,6 +35,7 @@ mod lifecycle;
 pub mod list;
 pub mod outbox_provider;
 pub mod parser_eval;
+pub mod payment_admission;
 pub mod post_merge_observer;
 #[cfg(any(feature = "cli-tool", feature = "external-adapter"))]
 mod process;
@@ -63,7 +64,8 @@ pub use execution::target_runner;
     feature = "mcp",
     feature = "a2a",
     feature = "agent",
-    feature = "external-adapter"
+    feature = "external-adapter",
+    feature = "payment-rails"
 ))]
 pub mod adapters;
 
@@ -117,6 +119,13 @@ pub use outbox_provider::{
     thread_outbox_provider_forbidden_secret_fields,
 };
 pub use parser_eval::{ParserEvalError, ParserEvalOutput, evaluate_parser_document_str};
+pub use payment_admission::{
+    MONEY_MOVEMENT_DOMAIN, PAYMENT_ADMISSION_AUDIENCE, PAYMENT_ADMISSION_PURPOSE,
+    PAYMENT_ADMISSION_SIGNATURE_BASE64_PREFIX, PaymentAdmissionError,
+    PaymentAdmissionIssueResponse, PaymentAdmissionRequest, PaymentAdmissionSigner,
+    PaymentAdmissionToken, derive_money_movement_id, payment_admission_token_canonical_json,
+    payment_admission_token_digest,
+};
 pub use receipts::paths::{
     INIT_CWD_ENV, RUNTIME_RECEIPTS_DIR_CONFIG_KEY, RUNX_CWD_ENV, RUNX_PROJECT_DIR_ENV,
     RUNX_RECEIPT_DIR_ENV, ReceiptPathInputs, ReceiptPathSource, ReceiptStoreLabel,
@@ -140,7 +149,8 @@ pub use registry::{RegistryInstallMetadataInput, registry_install_receipt_metada
 #[cfg(feature = "cli-tool")]
 pub use runner::run_graph_file;
 pub use runner::{
-    GraphCheckpoint, GraphRun, RUNX_MAX_FANOUT_CONCURRENCY_ENV, Runtime, RuntimeOptions, StepRun,
+    GraphCheckpoint, GraphRun, RUNX_MAX_FANOUT_CONCURRENCY_ENV, RUNX_RUN_ID_ENV, Runtime,
+    RuntimeOptions, StepRun,
 };
 pub use runx_core::kernel_eval;
 pub use scaffold::{

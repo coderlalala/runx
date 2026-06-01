@@ -5,6 +5,8 @@ mod execution;
 mod ledger_projection;
 #[path = "payment/receipts.rs"]
 mod receipts;
+#[path = "payment/refunds.rs"]
+mod refunds;
 #[path = "payment/state.rs"]
 mod state;
 #[path = "payment/stripe_spt.rs"]

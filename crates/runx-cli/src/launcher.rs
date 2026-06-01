@@ -6,6 +6,7 @@ use crate::config::ConfigPlan;
 use crate::kernel::{KernelInputSource, KernelPlan};
 use crate::mcp::McpPlan;
 use crate::parser::{ParserInputSource, ParserPlan};
+use crate::payment::{PaymentAction, PaymentAdmissionPlan, PaymentInputSource, PaymentPlan};
 use crate::policy::{PolicyAction, PolicyPlan};
 use crate::registry::{RegistryAction, RegistryPlan};
 use crate::skill::SkillPlan;
@@ -23,6 +24,7 @@ pub enum LauncherAction {
     RunHistory(HistoryPlan),
     RunHarness(HarnessPlan),
     RunKernel(KernelPlan),
+    RunPayment(PaymentPlan),
     RunConfig(ConfigPlan),
     RunPolicy(PolicyPlan),
     RunRegistry(RegistryPlan),
@@ -155,6 +157,11 @@ pub fn plan_launcher(args: Vec<OsString>) -> LauncherAction {
             .map_or_else(LauncherAction::Error, LauncherAction::RunKernel);
     }
 
+    if first_arg_is(&args, "payment") {
+        return parse_payment_plan(&args)
+            .map_or_else(LauncherAction::Error, LauncherAction::RunPayment);
+    }
+
     if first_arg_is(&args, "parser") {
         return parse_parser_plan(&args)
             .map_or_else(LauncherAction::Error, LauncherAction::RunParser);
@@ -239,6 +246,7 @@ Commands:
   runx config set|get|list [agent.provider|agent.model|agent.api_key] [value] [--json]
   runx policy inspect|lint <policy.json> [--json]
   runx kernel eval --input <file|-> --json
+  runx payment admission issue --input <file|-> --json
   runx parser eval --input <file|-> --json
   runx doctor [path] [--json]
   runx dev [root] [--lane lane] [--json]
@@ -660,6 +668,70 @@ fn parse_kernel_plan(args: &[OsString]) -> Result<KernelPlan, String> {
     Ok(KernelPlan {
         input: input.ok_or_else(|| "runx kernel eval requires --input <file|->".to_owned())?,
         json,
+    })
+}
+
+fn parse_payment_plan(args: &[OsString]) -> Result<PaymentPlan, String> {
+    let topic = os_arg(args, 1, "payment")?;
+    if topic != "admission" {
+        return Err(format!("unknown payment subcommand {topic}"));
+    }
+    let action = os_arg(args, 2, "payment admission")?;
+    if action != "issue" {
+        return Err(format!("unknown payment admission subcommand {action}"));
+    }
+
+    let mut input = None;
+    let mut json = false;
+    let mut index = 3;
+
+    while index < args.len() {
+        let token = os_arg(args, index, "payment admission issue")?;
+        if !token.starts_with("--") {
+            return Err(format!(
+                "unexpected payment admission issue argument {token}"
+            ));
+        }
+
+        let (flag, inline_value) = split_flag(token);
+        match flag {
+            "--json" => {
+                if inline_value.is_some() {
+                    return Err("--json does not take a value".to_owned());
+                }
+                json = true;
+                index += 1;
+            }
+            "--input" => {
+                if input.is_some() {
+                    return Err(
+                        "runx payment admission issue accepts exactly one --input".to_owned()
+                    );
+                }
+                let (value, next_index) =
+                    flag_value(args, index, flag, inline_value, "payment admission issue")?;
+                input = Some(if value == "-" {
+                    PaymentInputSource::Stdin
+                } else {
+                    PaymentInputSource::Path(PathBuf::from(value))
+                });
+                index = next_index;
+            }
+            _ => return Err(format!("unknown payment admission issue flag {flag}")),
+        }
+    }
+
+    if !json {
+        return Err("runx payment admission issue requires --json".to_owned());
+    }
+
+    Ok(PaymentPlan {
+        action: PaymentAction::IssueAdmission(PaymentAdmissionPlan {
+            input: input.ok_or_else(|| {
+                "runx payment admission issue requires --input <file|->".to_owned()
+            })?,
+            json,
+        }),
     })
 }
 

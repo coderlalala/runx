@@ -198,16 +198,17 @@ fn execute_mcp_server_graph(
                 adapter_type: "graph".to_owned(),
             })?;
     let graph_dir = skill_directory_for_execution(&execution.skill_path);
-    let receipts = ReceiptServices::from_env(&execution.env).map_err(|error| {
-        RuntimeError::ReceiptInvalid {
+    let mut env = execution.env.clone();
+    env.insert(crate::RUNX_RUN_ID_ENV.to_owned(), run_id.to_owned());
+    let receipts =
+        ReceiptServices::from_env(&env).map_err(|error| RuntimeError::ReceiptInvalid {
             message: error.to_string(),
-        }
-    })?;
+        })?;
     let runtime = Runtime::new(
         McpServerGraphAdapter,
         RuntimeOptions {
             created_at: crate::time::now_iso8601(),
-            env: execution.env.clone(),
+            env,
             receipt_signature: receipts.signature_config().clone(),
             effects: Default::default(),
         },

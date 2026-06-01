@@ -1,17 +1,17 @@
 [
   {
     "skill_id": "runx/charge-challenge",
-    "version": "sha-ed04a660eb36",
+    "version": "sha-4767c46fc856",
     "digest": "91ebd18c309c12f905bfb88940786415452bb2546cfe3def26ba9fe33b1309ed"
   },
   {
     "skill_id": "runx/charge-price",
-    "version": "sha-92d8c25c02ca",
+    "version": "sha-6991e3d6cea7",
     "digest": "56fa21afe6491706bcc9bf22b7ca9a236037d4167e30b1f85f0dd8b181b5261f"
   },
   {
     "skill_id": "runx/charge-verify",
-    "version": "sha-1f0fe1dfdaa4",
+    "version": "sha-73b4971da1d1",
     "digest": "742631492a75d1351c0a5935da2f238e3e79ff618ab0fa097dcf6eddfed56651"
   },
   {
@@ -81,17 +81,17 @@
   },
   {
     "skill_id": "runx/mock-charge",
-    "version": "sha-24757d5c2077",
+    "version": "sha-0df2fd011f01",
     "digest": "8ac4c2df00f91ac9aa3e3434ad046583d3621213205fdd46e8a80e81a61d3dab"
   },
   {
     "skill_id": "runx/mock-pay",
-    "version": "sha-1691e92e7e6b",
+    "version": "sha-ef0d95fba692",
     "digest": "f639a8635f4ad6c5be66606a30adb0e5719136b60a65b19241232f4655cdc4ee"
   },
   {
     "skill_id": "runx/mock-refund",
-    "version": "sha-ce9e0bca13a1",
+    "version": "sha-c00b638021fc",
     "digest": "25fbf4792b69b3240b08141f4145d080db7bc0c357c2d8656ff7013d83684ac1"
   },
   {
@@ -121,22 +121,22 @@
   },
   {
     "skill_id": "runx/pay-fulfill-rail",
-    "version": "sha-9a6f8ca2a82a",
+    "version": "sha-a18030b2b13e",
     "digest": "030ae8751a1361a446b698c22fdd47e1e64c32ec2242fb824ac75b82b6a7b986"
   },
   {
     "skill_id": "runx/pay-quote",
-    "version": "sha-033e86ff71ef",
+    "version": "sha-69012ade1679",
     "digest": "7352e306b04b72602c2be08e85f0f9ed147ada9bf2755226e7d1c0f1e275e97e"
   },
   {
     "skill_id": "runx/pay-recover",
-    "version": "sha-3f9a02ef5310",
+    "version": "sha-aaa95992c040",
     "digest": "f8a22e670f6fafaa3a75057da713841cde26158587ed35b4c7d65e1c5a31b014"
   },
   {
     "skill_id": "runx/pay-reserve",
-    "version": "sha-fef9e29945a6",
+    "version": "sha-10108326e01c",
     "digest": "a892c71f613fe69ad5d8c6678cebb4ad5cad930f84604a206c3fd348b8151e87"
   },
   {
@@ -161,17 +161,17 @@
   },
   {
     "skill_id": "runx/refund-quote",
-    "version": "sha-842046933fa9",
+    "version": "sha-3926796228b5",
     "digest": "baff29513dd25ab6b7cb374722e492805ec055500ad3250add98f591a79844bf"
   },
   {
     "skill_id": "runx/refund-recover",
-    "version": "sha-3816ee5b8f3b",
+    "version": "sha-42d028a5578a",
     "digest": "69b77995d92ddcc7da6bb676dbb037bdb0c37896ee6c477cad641565c38836e6"
   },
   {
     "skill_id": "runx/refund-reserve",
-    "version": "sha-a35831544315",
+    "version": "sha-70bc1d49bfc5",
     "digest": "6f0d48caebdf36abc5928881ea17473bfd8d76029b8275d2a5572689930c3440"
   },
   {
@@ -226,8 +226,8 @@
   },
   {
     "skill_id": "runx/stripe-pay",
-    "version": "sha-b27e075d7170",
-    "digest": "25e334a6980372e6eb471a0c21b053aaa7cebd705255fd03e35481536d848c62"
+    "version": "sha-38350928f04c",
+    "digest": "df621c11b326a0f1d374aa7f8c19798b4db19c1d0370373bfd345c22341591e0"
   },
   {
     "skill_id": "runx/stripe-refund",

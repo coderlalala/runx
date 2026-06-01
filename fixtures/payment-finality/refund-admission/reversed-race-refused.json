@@ -1,0 +1,22 @@
+{
+  "name": "reversed_race_refused",
+  "input": {
+    "charge": {
+      "money_movement_id": "money-movement-003",
+      "rail": "mpp-tempo",
+      "phase": "reversed",
+      "amount_minor": 125,
+      "currency": "USD",
+      "payer_ref": "did:pkh:eip155:42431:0x1111111111111111111111111111111111111111",
+      "proof_ref": "mpp-tempo:tx:0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "refund": {
+      "amount_minor": 125
+    }
+  },
+  "expected": {
+    "status": "refused",
+    "code": "charge_reversed",
+    "reason": "refund refused because the linked charge is already reversed"
+  }
+}

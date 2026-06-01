@@ -240,6 +240,13 @@ fn production_signing_env_requires_non_local_issuer_type() -> Result<(), Box<dyn
 
     let env_with_hosted = signing_env(Some("hosted"));
     let config = RuntimeReceiptSignatureConfig::from_env(&env_with_hosted)?;
+    let published_key = config
+        .production_key_for_kid(FIXTURE_KID)
+        .ok_or("production receipt key should resolve by kid")?;
+    assert_eq!(
+        published_key.public_key_sha256(),
+        fixture_signer()?.production_key().public_key_sha256()
+    );
     let receipt = step_receipt_with_signature_policy(
         "prod_env",
         "seal",

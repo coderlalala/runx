@@ -23,9 +23,9 @@ use crate::authority::{
 use crate::packets::{PaymentRailProof, read_payment_rail_packet};
 use crate::state::{
     EffectIdempotencyEntry, EffectIdempotencyKey, EffectMutation, EffectMutationStatus,
-    EffectRecoveryState, EffectStepStateInput, consumed_spend_capability_recorded,
-    escalate_effect_mutation, lookup_effect_idempotency_entry, lookup_effect_mutation,
-    persist_effect_step_state,
+    EffectRecoveryState, EffectRunSpendReservation, EffectStateError, EffectStepStateInput,
+    consumed_spend_capability_recorded, escalate_effect_mutation, lookup_effect_idempotency_entry,
+    lookup_effect_mutation, persist_effect_step_state, record_effect_settlement_intent,
 };
 use crate::supervisor::{
     PAYMENT_RAIL_SUPERVISOR_EVIDENCE_METADATA, PaymentSupervisorError, PaymentSupervisorProof,
@@ -85,6 +85,8 @@ impl PaymentRailSupervisor for DeterministicPaymentRailSupervisor {
             idempotency_key: request.idempotency_key.to_owned(),
             settlement_status: request.skill_settlement_status.map(str::to_owned),
             provider_event_ref: Some(format!("runx-pay:test:{}", request.proof_ref)),
+            shared_payment_token_ref: None,
+            admission_token_digest: None,
         })
     }
 }
@@ -109,7 +111,7 @@ impl RuntimeEffect for PaymentRuntimeEffect {
         let Some(input) = step_authority_submission(request.step, request.inputs)? else {
             return Ok(None);
         };
-        let Some(payment) = payment_context(&input) else {
+        let Some(payment) = payment_context(&input, request.inputs, request.env)? else {
             return Ok(None);
         };
         let Some(entry) = lookup_effect_idempotency_entry(
@@ -166,7 +168,7 @@ impl RuntimeEffect for PaymentRuntimeEffect {
         let Some(input) = step_authority_submission(request.step, request.inputs)? else {
             return Ok(());
         };
-        let Some(payment) = payment_context(&input) else {
+        let Some(payment) = payment_context(&input, request.inputs, request.env)? else {
             return Ok(());
         };
         let Some(mutation) = pending_mutation_for_recovery(request, &payment)? else {
@@ -240,25 +242,44 @@ impl RuntimeEffect for PaymentRuntimeEffect {
             verb: admission_error_verb,
             message: source.to_string(),
         })?;
-        Ok(decision.verb.map(|verb| {
-            let payment = if verb == AuthorityVerb::Spend {
-                payment_context(&input)
-            } else {
-                None
-            };
-            EffectAdmission::new(
-                PAYMENT_EFFECT_FAMILY,
-                verb.clone(),
-                AuthorityAdmissionWitness {
-                    verb,
-                    parent_term_id: decision.parent_term_id.to_owned(),
-                    child_term_id: decision.child_term_id.to_owned(),
-                    idempotency_key: decision.idempotency_key.map(str::to_owned),
-                    capability_ref: decision.spend_capability_ref.cloned(),
+        let Some(verb) = decision.verb else {
+            return Ok(None);
+        };
+        let payment = if verb == AuthorityVerb::Spend {
+            payment_context(&input, request.inputs, request.env)?
+        } else {
+            None
+        };
+        if let Some(payment) = payment.as_ref() {
+            record_effect_settlement_intent(
+                request.env,
+                request.graph_dir,
+                &EffectStepStateInput {
+                    family: PAYMENT_EFFECT_FAMILY,
+                    idempotency_key: payment.idempotency_key.clone(),
+                    spend_capability_ref: payment.spend_capability_ref.uri.clone().into_string(),
+                    rail: payment.rail.clone(),
+                    counterparty: payment.counterparty.clone(),
+                    amount_minor: payment.amount_minor,
+                    currency: payment.currency.clone(),
+                    act_id: format!("act_{}", request.step.id),
+                    run_spend: payment.run_spend.clone(),
                 },
-                PaymentAdmissionContext { payment },
             )
-        }))
+            .map_err(settlement_intent_error)?;
+        }
+        Ok(Some(EffectAdmission::new(
+            PAYMENT_EFFECT_FAMILY,
+            verb.clone(),
+            AuthorityAdmissionWitness {
+                verb,
+                parent_term_id: decision.parent_term_id.to_owned(),
+                child_term_id: decision.child_term_id.to_owned(),
+                idempotency_key: decision.idempotency_key.map(str::to_owned),
+                capability_ref: decision.spend_capability_ref.cloned(),
+            },
+            PaymentAdmissionContext { payment },
+        )))
     }
 
     fn prepare_output(&self, request: EffectOutputRequest<'_>) -> Result<(), RuntimeEffectError> {
@@ -359,6 +380,7 @@ impl RuntimeEffect for PaymentRuntimeEffect {
                 amount_minor: payment.amount_minor,
                 currency: payment.currency.clone(),
                 act_id: format!("act_{}", request.step.id),
+                run_spend: payment.run_spend.clone(),
             },
             request.claim,
             request.receipt,
@@ -540,11 +562,22 @@ fn validate_entry_matches_payment(
     )))
 }
 
-fn payment_context(input: &OwnedStepAuthoritySubmission) -> Option<StepPaymentAuthorityContext> {
-    let binding = input.spend_capability_binding.as_ref()?;
-    let idempotency_key = input.idempotency_key.as_ref()?;
-    let spend_capability_ref = input.spend_capability_ref.as_ref()?;
-    Some(StepPaymentAuthorityContext {
+fn payment_context(
+    input: &OwnedStepAuthoritySubmission,
+    inputs: &JsonObject,
+    env: &BTreeMap<String, String>,
+) -> Result<Option<StepPaymentAuthorityContext>, RuntimeEffectError> {
+    let Some(binding) = input.spend_capability_binding.as_ref() else {
+        return Ok(None);
+    };
+    let Some(idempotency_key) = input.idempotency_key.as_ref() else {
+        return Ok(None);
+    };
+    let Some(spend_capability_ref) = input.spend_capability_ref.as_ref() else {
+        return Ok(None);
+    };
+    let run_spend = run_spend_reservation(input, inputs, env)?;
+    Ok(Some(StepPaymentAuthorityContext {
         idempotency_key: EffectIdempotencyKey::new(
             binding.rail.clone(),
             binding.counterparty.clone(),
@@ -555,7 +588,57 @@ fn payment_context(input: &OwnedStepAuthoritySubmission) -> Option<StepPaymentAu
         counterparty: binding.counterparty.clone(),
         amount_minor: binding.amount_minor,
         currency: binding.currency.clone(),
-    })
+        run_spend,
+    }))
+}
+
+fn run_spend_reservation(
+    input: &OwnedStepAuthoritySubmission,
+    inputs: &JsonObject,
+    env: &BTreeMap<String, String>,
+) -> Result<Option<EffectRunSpendReservation>, RuntimeEffectError> {
+    let Some(max_per_run_minor) = input
+        .child_authority
+        .bounds
+        .payment
+        .as_ref()
+        .and_then(|payment| payment.max_per_run_minor)
+    else {
+        return Ok(None);
+    };
+    let Some(run_id) = payment_run_id(inputs, env)? else {
+        return Err(denied(
+            "payment authority with max_per_run_minor requires a run_id before rail execution"
+                .to_owned(),
+        ));
+    };
+    Ok(Some(EffectRunSpendReservation {
+        run_id,
+        authority_ref: input.child_authority.resource_ref.uri.clone().into_string(),
+        max_per_run_minor,
+    }))
+}
+
+fn payment_run_id(
+    inputs: &JsonObject,
+    env: &BTreeMap<String, String>,
+) -> Result<Option<String>, RuntimeEffectError> {
+    if let Some(run_id) = env
+        .get(runx_runtime::RUNX_RUN_ID_ENV)
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Ok(Some(run_id.clone()));
+    }
+    if let Some(run_id) = optional_string_input(inputs, "run_id")? {
+        return Ok(Some(run_id));
+    }
+    let Some(JsonValue::Object(admission)) = inputs.get("payment_admission") else {
+        return Ok(None);
+    };
+    if let Some(JsonValue::Object(token)) = admission.get("token") {
+        return optional_string_input(token, "run_id");
+    }
+    optional_string_input(admission, "run_id")
 }
 
 fn step_authority_submission(
@@ -675,6 +758,22 @@ fn require_object_input<'a>(
         None => Err(denied(format!(
             "{field} is required before payment rail execution"
         ))),
+    }
+}
+
+fn optional_string_input(
+    inputs: &JsonObject,
+    field: &str,
+) -> Result<Option<String>, RuntimeEffectError> {
+    match inputs.get(field) {
+        Some(JsonValue::String(value)) if !value.trim().is_empty() => Ok(Some(value.clone())),
+        Some(JsonValue::String(_)) => Err(denied(format!(
+            "{field} must not be empty before payment rail execution"
+        ))),
+        Some(_) => Err(denied(format!(
+            "{field} must be a string before payment rail execution"
+        ))),
+        None => Ok(None),
     }
 }
 
@@ -811,6 +910,14 @@ fn denied(message: impl Into<String>) -> RuntimeEffectError {
     }
 }
 
+fn settlement_intent_error(source: EffectStateError) -> RuntimeEffectError {
+    if matches!(&source, EffectStateError::RunSpendCapExceeded { .. }) {
+        denied(source.to_string())
+    } else {
+        failed("recording state settlement intent", source)
+    }
+}
+
 fn failed(operation: &'static str, source: impl std::fmt::Display) -> RuntimeEffectError {
     RuntimeEffectError::Failed {
         family: PAYMENT_EFFECT_FAMILY.to_owned(),
@@ -832,6 +939,7 @@ struct StepPaymentAuthorityContext {
     counterparty: String,
     amount_minor: u64,
     currency: String,
+    run_spend: Option<EffectRunSpendReservation>,
 }
 
 #[derive(Clone, Debug)]

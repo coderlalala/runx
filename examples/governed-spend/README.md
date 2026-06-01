@@ -31,6 +31,19 @@ Serves `x402-pay`, `mpp-pay`, `stripe-pay`, and `overspend-refused` as MCP tools
 An agent calls a skill and gets the sealed receipt id, or the refusal, in one
 round-trip.
 
+## Recorded payments demo
+
+```bash
+node ../../scripts/payments-demo.mjs --record --receipt-dir /tmp/runx-payments-demo
+node verify.mjs /tmp/runx-payments-demo/payments-demo-paid.receipt.json
+node verify.mjs /tmp/runx-payments-demo/payments-demo-refusal.receipt.json
+```
+
+With `ANTHROPIC_API_KEY` and `RUNX_X402_SIGNER` present, the script records an
+operator-keyed testnet transcript. Without those keys it writes a deterministic
+mock transcript. In both modes the offline receipts are real signed artifacts:
+one scoped x402 spend, then one over-run-cap refusal before money moves.
+
 ## Tweak it
 
 In [`skills/overspend-refused/X.yaml`](skills/overspend-refused/X.yaml), raise the

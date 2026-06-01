@@ -20,6 +20,10 @@ include = ["Cargo.toml", "README.md", "src/**/*.rs"]
 [lints]
 workspace = true
 
+[features]
+default = []
+payment-rails = ["runx-runtime/payment-rails"]
+
 [dependencies]
 runx-contracts.workspace = true
 runx-pay.workspace = true

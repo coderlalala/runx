@@ -16,8 +16,8 @@ use runx_pay::supervisor::{
 use runx_pay::{PaymentRailSupervisor, PaymentRuntimeEffect};
 use runx_runtime::effects::RuntimeEffectRegistry;
 use runx_runtime::{
-    Host, InvocationStatus, Runtime, RuntimeError, RuntimeOptions, SkillAdapter, SkillInvocation,
-    SkillOutput,
+    Host, InvocationStatus, RUNX_RUN_ID_ENV, Runtime, RuntimeError, RuntimeOptions, SkillAdapter,
+    SkillInvocation, SkillOutput,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -191,7 +191,10 @@ enum StripeSptScenario {
 fn runtime_options_with_effects(
     evidence: Vec<PaymentSupervisorSettlementEvidence>,
 ) -> RuntimeOptions {
+    let mut env = BTreeMap::new();
+    env.insert(RUNX_RUN_ID_ENV.to_owned(), "run:test-stripe-spt".to_owned());
     RuntimeOptions {
+        env,
         effects: RuntimeEffectRegistry::with_effect(PaymentRuntimeEffect::new(
             ExpectedEffectSupervisor::new(evidence),
         )),
@@ -286,6 +289,8 @@ fn stripe_spt_supervisor_evidence() -> PaymentSupervisorSettlementEvidence {
         idempotency_key: STRIPE_SPT_IDEMPOTENCY_KEY.to_owned(),
         settlement_status: Some("fulfilled".to_owned()),
         provider_event_ref: Some("stripe:event:evt_test_succeeded_001".to_owned()),
+        shared_payment_token_ref: Some("spt_test_succeeded_001".to_owned()),
+        admission_token_digest: Some("sha256:stripe-spt-admission".to_owned()),
     }
 }
 
