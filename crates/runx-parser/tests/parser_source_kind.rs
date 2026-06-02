@@ -122,7 +122,7 @@ name: http-bad-method
 source:
   type: http
   url: https://api.example.test/v1/pets
-  method: PATCH
+  method: HEAD
 ---
 # HTTP
 "#,

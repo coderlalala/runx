@@ -14,6 +14,8 @@ use url::Url;
 pub enum HttpMethod {
     Get,
     Post,
+    Put,
+    Patch,
     Delete,
 }
 
@@ -22,6 +24,8 @@ impl HttpMethod {
         match self {
             Self::Get => "GET",
             Self::Post => "POST",
+            Self::Put => "PUT",
+            Self::Patch => "PATCH",
             Self::Delete => "DELETE",
         }
     }
@@ -410,6 +414,8 @@ fn reqwest_method(method: HttpMethod) -> reqwest::Method {
     match method {
         HttpMethod::Get => reqwest::Method::GET,
         HttpMethod::Post => reqwest::Method::POST,
+        HttpMethod::Put => reqwest::Method::PUT,
+        HttpMethod::Patch => reqwest::Method::PATCH,
         HttpMethod::Delete => reqwest::Method::DELETE,
     }
 }

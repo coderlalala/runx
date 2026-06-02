@@ -198,9 +198,12 @@ fn validate_http_source(
     let url = required_string(source.get("url"), "source.url")?;
     let method = match optional_string(source.get("method"), "source.method")? {
         Some(method) => {
-            if !matches!(method.to_ascii_uppercase().as_str(), "GET" | "POST" | "DELETE") {
+            if !matches!(
+                method.to_ascii_uppercase().as_str(),
+                "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
+            ) {
                 return Err(validation_error(format!(
-                    "source.method {method} is not supported; use GET, POST, or DELETE."
+                    "source.method {method} is not supported; use GET, POST, PUT, PATCH, or DELETE."
                 )));
             }
             Some(method)

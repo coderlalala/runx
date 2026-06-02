@@ -4,7 +4,7 @@
 //! request, sends it through the governed `runtime_http` transport (which enforces
 //! SSRF and private-network filtering, header validation, no-redirect, SSL, and
 //! timeouts), and maps the response to the universal [`SkillOutput`]. GET and DELETE
-//! map inputs to the query string; POST maps them to a JSON body. It reuses the same
+//! map inputs to the query string; POST, PUT, and PATCH map them to a JSON body. It reuses the same
 //! transport the Anthropic resolver and the registry client use, so there is one
 //! governed HTTP path, not a parallel one.
 
@@ -25,7 +25,7 @@ const HTTP_SKILL: &str = "http";
 
 /// A governed HTTP call: a method, a URL, and the request headers (auth and the
 /// like, already resolved). Inputs are mapped to the query string (GET, DELETE) or
-/// a JSON body (POST).
+/// a JSON body (POST, PUT, PATCH).
 #[derive(Clone, Debug)]
 pub struct HttpCall {
     pub method: HttpMethod,
@@ -79,7 +79,7 @@ pub fn execute_http_call<T: RuntimeHttpTransport>(
 ) -> Result<SkillOutput, RuntimeError> {
     let mut headers = call.headers.clone();
     let (url, body) = match call.method {
-        HttpMethod::Post => {
+        HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch => {
             if !headers
                 .iter()
                 .any(|header| header.name.eq_ignore_ascii_case("content-type"))
@@ -173,6 +173,8 @@ fn parse_method(raw: Option<&str>) -> Result<HttpMethod, RuntimeError> {
     match raw.map(str::to_ascii_uppercase).as_deref() {
         None | Some("GET") => Ok(HttpMethod::Get),
         Some("POST") => Ok(HttpMethod::Post),
+        Some("PUT") => Ok(HttpMethod::Put),
+        Some("PATCH") => Ok(HttpMethod::Patch),
         Some("DELETE") => Ok(HttpMethod::Delete),
         Some(other) => Err(failure(format!("unsupported http method {other}"))),
     }
@@ -308,6 +310,28 @@ mod tests {
                 .is_some_and(|body| body.contains(r#""name":"rex""#)),
             "POST inputs must go in the JSON body; got: {:?}",
             sent[0].body
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn put_carries_a_json_body_and_the_method_reaches_the_wire() -> Result<(), RuntimeError> {
+        let transport = stub(200, "{}");
+        let call = HttpCall {
+            method: HttpMethod::Put,
+            url: "https://api.example.test/v1/pets/p-7".to_owned(),
+            headers: Vec::new(),
+        };
+        execute_http_call(&transport, &call, &inputs(&[("name", "rex")]))?;
+        let sent = transport.requests.borrow();
+        assert!(
+            sent[0].method == HttpMethod::Put
+                && sent[0]
+                    .body
+                    .as_deref()
+                    .is_some_and(|body| body.contains(r#""name":"rex""#)),
+            "PUT must carry the inputs as a JSON body; got: {:?}",
+            sent.first()
         );
         Ok(())
     }
