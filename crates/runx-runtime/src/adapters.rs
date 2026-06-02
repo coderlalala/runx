@@ -25,6 +25,9 @@ pub mod catalog;
 #[cfg(feature = "external-adapter")]
 pub mod external_adapter;
 
+#[cfg(feature = "http")]
+pub mod http;
+
 #[cfg(feature = "mcp")]
 pub mod mcp;
 

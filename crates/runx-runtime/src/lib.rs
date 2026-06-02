@@ -65,7 +65,8 @@ pub use execution::target_runner;
     feature = "a2a",
     feature = "agent",
     feature = "external-adapter",
-    feature = "payment-rails"
+    feature = "payment-rails",
+    feature = "http"
 ))]
 pub mod adapters;
 

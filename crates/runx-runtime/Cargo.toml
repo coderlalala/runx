@@ -29,6 +29,7 @@ a2a = []
 agent = ["async-http", "catalog"]
 catalog = ["cli-tool"]
 external-adapter = []
+http = ["async-http"]
 
 [dependencies]
 aes-gcm = "0.10.3"
