@@ -105,10 +105,12 @@ truth, so it is recorded here rather than implied.
   in-kernel client. Note the deterministic halves these feed (payment authority and
   admission in `runx-core/src/policy`, the dedupe and post-merge decisions) are pure
   and correctly stay in the kernel; only the network legs move.
-- **Coded once, on the binary (target, not yet current).** Today the MCP server is
-  implemented twice (Rust `serve_mcp_json_rpc` plus the TypeScript
-  `cloud/packages/mcp-hosted`) and the agent loop three times. The target boundary
-  is one of each, on the binary: `cloud/packages/mcp-hosted` and
+- **Coded once, on the binary (in progress).** The agent loop now lives on the
+  binary: the Rust managed-agent loop ships behind the enabled `agent` feature as the
+  opt-in governance path (default stays host-drives). What remains is the MCP server,
+  still implemented twice (Rust `serve_mcp_json_rpc` plus the TypeScript
+  `cloud/packages/mcp-hosted`), and `cloud/packages/agent-runner`, still single-shot.
+  The target boundary is one of each, on the binary: `cloud/packages/mcp-hosted` and
   `cloud/packages/agent-runner` shrink to a thin transport/auth bridge and a
   provider resolver respectively, neither owning a second MCP server or a second
   agent loop. The identity this boundary serves (runx as the governed execution
