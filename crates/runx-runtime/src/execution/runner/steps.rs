@@ -650,7 +650,8 @@ where
     // admission witness records which authority admitted the act, or falls back to a
     // local-runtime witness when none was admitted. Handlers produce the output and
     // receipt; they never set the authority witness, so a new step type cannot
-    // regress the uniform-governance invariant.
+    // regress the uniform-governance invariant. See `docs/governance-invariant.md`
+    // for the full admit -> credentials -> sandbox -> seal contract.
     let step_id = request.step.id.clone();
     let authority = request.authority.clone();
     let mut run = handler(request)?;
