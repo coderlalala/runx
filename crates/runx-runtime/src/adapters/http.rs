@@ -20,7 +20,10 @@ use runx_contracts::{JsonObject, JsonValue};
 use serde_json::Value as WireValue;
 
 use crate::RuntimeError;
-use crate::adapter::{InvocationStatus, SkillAdapter, SkillInvocation, SkillOutput};
+use crate::adapter::{
+    CREDENTIAL_DELIVERY_OBSERVATIONS_METADATA, InvocationStatus, SkillAdapter, SkillInvocation,
+    SkillOutput,
+};
 use crate::credentials::SecretEnv;
 use crate::runtime_http::{
     HttpMethod, ReqwestHttpTransport, RuntimeHttpHeader, RuntimeHttpRequest, RuntimeHttpTransport,
@@ -284,8 +287,31 @@ impl SkillAdapter for HttpSkillAdapter {
             ReqwestHttpTransport::new()
         }
         .map_err(|error| failure(format!("http transport unavailable: {error}")))?;
-        execute_http_call(&transport, &call, &merged_inputs(&request))
+        let mut output = execute_http_call(&transport, &call, &merged_inputs(&request))?;
+        add_credential_delivery_metadata(&mut output, &request.credential_delivery)?;
+        Ok(output)
     }
+}
+
+fn add_credential_delivery_metadata(
+    output: &mut SkillOutput,
+    credential_delivery: &crate::credentials::CredentialDelivery,
+) -> Result<(), RuntimeError> {
+    let Some(observation) = credential_delivery.public_observation() else {
+        return Ok(());
+    };
+    let value: JsonValue = serde_json::to_value(observation)
+        .and_then(serde_json::from_value)
+        .map_err(|error| {
+            failure(format!(
+                "serializing credential delivery observation: {error}"
+            ))
+        })?;
+    output.metadata.insert(
+        CREDENTIAL_DELIVERY_OBSERVATIONS_METADATA.to_owned(),
+        JsonValue::Array(vec![value]),
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -531,6 +557,41 @@ mod tests {
         assert!(
             substitute_secrets("Bearer ${secret:MISSING}", secrets).is_err(),
             "a reference to an undelivered secret must fail closed"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn credential_delivery_observation_is_recorded_on_http_output() -> Result<(), RuntimeError> {
+        let delivery = crate::credentials::CredentialDelivery::from_local_descriptor(
+            "example-provider",
+            "api_key",
+            "EXAMPLE_API_TOKEN",
+            "ref-1",
+            vec!["read".to_owned()],
+            "example_secret",
+        )
+        .map_err(|error| failure(format!("building the test credential delivery: {error}")))?;
+        let mut output = SkillOutput {
+            status: InvocationStatus::Success,
+            stdout: "{}".to_owned(),
+            stderr: String::new(),
+            exit_code: Some(0),
+            duration_ms: 0,
+            metadata: JsonObject::new(),
+        };
+
+        add_credential_delivery_metadata(&mut output, &delivery)?;
+
+        assert!(matches!(
+            output.metadata.get(CREDENTIAL_DELIVERY_OBSERVATIONS_METADATA),
+            Some(JsonValue::Array(values)) if values.len() == 1
+        ));
+        assert!(
+            !serde_json::to_string(&output.metadata)
+                .unwrap_or_default()
+                .contains("example_secret"),
+            "HTTP credential metadata must not expose raw secret material"
         );
         Ok(())
     }

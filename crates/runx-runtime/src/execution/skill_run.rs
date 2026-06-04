@@ -478,19 +478,6 @@ fn execute_graph_skill_run(
     manifest: &SkillRunnerManifest,
     runner: &SkillRunnerDefinition,
 ) -> Result<JsonValue, SkillRunError> {
-    // Graph runs deliver no credentials to their steps today: the local-credential
-    // model is a single env-var delivered to one skill process, which does not map
-    // to a multi-step graph (broadcasting one secret as process-env to every step's
-    // subprocess is a leak surface). Step handlers source delivery from
-    // RuntimeOptions.credential_delivery (set to none below); wiring real graph-step
-    // delivery (e.g. `${secret}` http headers in a graph) needs a graph-credential
-    // design, tracked separately. `${secret}` already works for http tools/skills
-    // invoked outside a graph, where credentials are delivered.
-    if request.local_credential.is_some() {
-        return Err(invalid(
-            "local credential process-env delivery is not supported for graph runners",
-        ));
-    }
     let graph = runner
         .source
         .graph
@@ -501,6 +488,7 @@ fn execute_graph_skill_run(
     let skill_dir = resolve_skill_dir(&request.skill_path)?;
     let mut env = workspace.graph_env_for_skill(&skill_dir);
     env.insert(RUNX_RUN_ID_ENV.to_owned(), run_id.clone());
+    let credential_delivery = credential_delivery_from_local(request.local_credential.as_ref())?;
     let runtime = Runtime::new(
         SkillRunGraphAdapter::default(),
         RuntimeOptions {
@@ -508,7 +496,7 @@ fn execute_graph_skill_run(
             env,
             receipt_signature: receipts.signature_config().clone(),
             effects: effects.clone(),
-            credential_delivery: crate::credentials::CredentialDelivery::none(),
+            credential_delivery,
         },
     );
     // Seeded answers run a single fresh pass with the answers pre-loaded into the
@@ -1180,7 +1168,22 @@ fn runner_invocation(
             runner.source.source_type
         )));
     }
-    let credential_delivery = match local_credential {
+    let credential_delivery = credential_delivery_from_local(local_credential)?;
+    Ok(SkillInvocation {
+        skill_name: runner.name.clone(),
+        source: runner.source.clone(),
+        inputs: inputs.clone().into_iter().collect(),
+        resolved_inputs: JsonObject::new(),
+        skill_directory: skill_dir.to_path_buf(),
+        env: env.clone(),
+        credential_delivery,
+    })
+}
+
+fn credential_delivery_from_local(
+    local_credential: Option<&crate::execution::orchestrator::LocalCredentialDescriptor>,
+) -> Result<crate::credentials::CredentialDelivery, SkillRunError> {
+    Ok(match local_credential {
         Some(descriptor) => crate::credentials::CredentialDelivery::from_local_descriptor(
             descriptor.provider.clone(),
             descriptor.auth_mode.clone(),
@@ -1191,15 +1194,6 @@ fn runner_invocation(
         )
         .map_err(|error| invalid(format!("local credential provision failed: {error}")))?,
         None => crate::credentials::CredentialDelivery::none(),
-    };
-    Ok(SkillInvocation {
-        skill_name: runner.name.clone(),
-        source: runner.source.clone(),
-        inputs: inputs.clone().into_iter().collect(),
-        resolved_inputs: JsonObject::new(),
-        skill_directory: skill_dir.to_path_buf(),
-        env: env.clone(),
-        credential_delivery,
     })
 }
 
