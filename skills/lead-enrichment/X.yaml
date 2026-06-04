@@ -1,0 +1,91 @@
+skill: lead-enrichment
+version: "0.1.0"
+
+catalog:
+  kind: skill
+  audience: operator
+  visibility: public
+
+harness:
+  cases:
+    - name: lead-enrichment-reviewable-recommendation
+      inputs:
+        lead:
+          account_id: acct_42
+          company: ExampleCRM
+          role: Head of Lifecycle
+        signals:
+          product:
+            - viewed pricing twice this week
+            - invited three teammates
+          crm:
+            - requested deliverability guidance
+          firmographic:
+            - mid-market SaaS
+        constraints:
+          channels_allowed:
+            - email
+          opted_in: true
+      caller:
+        answers:
+          agent_task.lead-enrichment.output:
+            lead_profile:
+              account_id: acct_42
+              company: ExampleCRM
+              segment: mid-market SaaS
+              likely_need: lifecycle deliverability and team rollout
+            evidence:
+              - signal: viewed pricing twice this week
+                implication: active commercial evaluation
+              - signal: invited three teammates
+                implication: multi-user rollout motion
+              - signal: requested deliverability guidance
+                implication: concrete implementation concern
+            recommended_action:
+              type: human_reviewed_email
+              angle: Offer deliverability review and rollout checklist.
+              priority: high
+            risks:
+              - Keep claims limited to supplied signals.
+            verdict: ready_for_review
+      expect:
+        status: sealed
+        receipt:
+          schema: runx.receipt.v1
+
+    - name: lead-enrichment-needs-signals
+      inputs:
+        lead:
+          account_id: acct_empty
+      expect:
+        status: needs_agent
+
+runners:
+  enrich:
+    default: true
+    type: agent-task
+    agent: growth
+    task: lead-enrichment
+    outputs:
+      lead_profile: object
+      evidence: array
+      recommended_action: object
+      risks: array
+      verdict: string
+    artifacts:
+      wrap_as: lead_enrichment_packet
+      packet: runx.growth.lead_enrichment.v1
+    inputs:
+      lead:
+        type: json
+        required: true
+        description: "Lead identity and known account fields."
+      signals:
+        type: json
+        required: true
+        description: "Engagement, product, CRM, or firmographic signals."
+      constraints:
+        type: json
+        required: false
+        description: "Allowed channels, opt-in state, region, and do-not-contact flags."
+

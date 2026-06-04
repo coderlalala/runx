@@ -1,0 +1,100 @@
+skill: sql-analyst
+version: "0.1.0"
+
+catalog:
+  kind: skill
+  audience: operator
+  visibility: public
+
+harness:
+  cases:
+    - name: sql-analyst-readonly-plan
+      inputs:
+        question: Which lifecycle emails drove the most qualified trials last week?
+        schema_summary:
+          tables:
+            email_events:
+              fields:
+                - campaign_id
+                - event_type
+                - occurred_at
+                - account_id
+            trials:
+              fields:
+                - account_id
+                - qualified_at
+                - source_campaign_id
+        sample_rows:
+          - campaign_id: welcome_1
+            event_type: click
+            account_id: acct_1
+        constraints:
+          allowed_tables:
+            - email_events
+            - trials
+          read_only: true
+      caller:
+        answers:
+          agent_task.sql-analyst.output:
+            query_plan:
+              intent: Rank lifecycle email campaigns by qualified trials in the last 7 days.
+              tables:
+                - email_events
+                - trials
+              joins:
+                - trials.source_campaign_id = email_events.campaign_id
+              filters:
+                - trials.qualified_at >= now() - interval '7 days'
+                - email_events.event_type in ('click', 'reply')
+              limit: 50
+            validation_checks:
+              - Confirm source_campaign_id is populated for qualified trials.
+              - Compare counts by account_id to avoid double-counting repeated clicks.
+            interpretation:
+              summary: The query should rank campaigns by qualified-trial contribution, not raw clicks.
+              caveats:
+                - Attribution may miss trials without source_campaign_id.
+            verdict: ready_for_readonly_query
+      expect:
+        status: sealed
+        receipt:
+          schema: runx.receipt.v1
+
+    - name: sql-analyst-needs-schema
+      inputs:
+        question: Which campaigns converted best?
+      expect:
+        status: needs_agent
+
+runners:
+  analyst:
+    default: true
+    type: agent-task
+    agent: analyst
+    task: sql-analyst
+    outputs:
+      query_plan: object
+      validation_checks: array
+      interpretation: object
+      verdict: string
+    artifacts:
+      wrap_as: sql_analysis_plan
+      packet: runx.data.sql_analysis_plan.v1
+    inputs:
+      question:
+        type: string
+        required: true
+        description: "Bounded data question to answer."
+      schema_summary:
+        type: json
+        required: true
+        description: "Available table and field summaries."
+      sample_rows:
+        type: json
+        required: false
+        description: "Representative non-sensitive rows."
+      constraints:
+        type: json
+        required: false
+        description: "Read limits, privacy rules, and allowed tables."
+

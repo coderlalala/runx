@@ -1,0 +1,83 @@
+skill: knowledge-router
+version: "0.1.0"
+
+catalog:
+  kind: skill
+  audience: operator
+  visibility: public
+
+harness:
+  cases:
+    - name: knowledge-router-source-plan
+      inputs:
+        question: A customer asks whether API keys can be scoped to read-only campaign analytics.
+        available_sources:
+          docs:
+            - id: auth-docs
+              summary: Authentication and API key scopes.
+            - id: campaigns-docs
+              summary: Campaign analytics fields and export limits.
+          owners:
+            auth: security-team
+            campaigns: growth-team
+        constraints:
+          avoid_billing_changes: true
+      caller:
+        answers:
+          agent_task.knowledge-router.output:
+            route:
+              primary_source_refs:
+                - auth-docs
+                - campaigns-docs
+              owner_refs:
+                - security-team
+                - growth-team
+              next_skill: research
+            source_matches:
+              - source_ref: auth-docs
+                reason: API key scope behavior is the core question.
+              - source_ref: campaigns-docs
+                reason: The answer depends on analytics read surfaces.
+            escalation_queue:
+              - owner_ref: security-team
+                reason: Confirm whether read-only analytics scope exists.
+            verdict: routed
+      expect:
+        status: sealed
+        receipt:
+          schema: runx.receipt.v1
+
+    - name: knowledge-router-needs-sources
+      inputs:
+        question: Where should this go?
+      expect:
+        status: needs_agent
+
+runners:
+  route:
+    default: true
+    type: agent-task
+    agent: router
+    task: knowledge-router
+    outputs:
+      route: object
+      source_matches: array
+      escalation_queue: array
+      verdict: string
+    artifacts:
+      wrap_as: knowledge_route
+      packet: runx.ops.knowledge_route.v1
+    inputs:
+      question:
+        type: string
+        required: true
+        description: "Question, source event, or thread summary to route."
+      available_sources:
+        type: json
+        required: true
+        description: "Source catalog, docs, systems, owner map, or retrieval options."
+      constraints:
+        type: json
+        required: false
+        description: "Allowed systems, sensitivity flags, and preferred owners."
+
