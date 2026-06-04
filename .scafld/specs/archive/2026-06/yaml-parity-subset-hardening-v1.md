@@ -2,8 +2,8 @@
 spec_version: '2.0'
 task_id: yaml-parity-subset-hardening-v1
 created: '2026-05-29T00:00:00Z'
-updated: '2026-05-29T00:00:00Z'
-status: active
+updated: '2026-06-04T21:10:04Z'
+status: completed
 harden_status: not_run
 size: small
 risk_level: low
@@ -13,18 +13,14 @@ risk_level: low
 
 ## Current State
 
-Status: active
-Current phase: phase1
-Next: implement
-Reason: `runx-parser` rejects ambiguous YAML at ingestion via a hand-written
-quote-aware scanner in `crates/runx-parser/src/yaml.rs`. The scanner tracks
-double-quote state with `previous != '\\'`, which models neither YAML's
-double-quoted escape rule (`\\` is a single escape sequence that produces a
-literal backslash and consumes both bytes) nor its escape coverage (`\n`,
-`\t`, `\"`, `\xNN`, etc.). The scanner can over-stay in quote state across
-adjacent `\\` sequences, which lets a `:`-bearing plain key downstream slip
-past the parity check.
-Blockers: none.
+Status: completed
+Current phase: final
+Next: done
+Reason: task completed
+Blockers: none
+Allowed follow-up command: `none`
+Latest runner update: 2026-06-04T21:10:04Z
+Review gate: pass
 
 ## Summary
 
@@ -137,3 +133,24 @@ either confirms no regression or surfaces the fixture for review.
 
 Independent of `canonical-json-float-parity-v1` and
 `oracle-fixture-numeric-coverage-v1`. Can land in parallel.
+
+## Review
+
+Status: completed
+Verdict: pass
+Mode: verify
+Provider: command
+Output: command.stdout
+Summary: YAML parity subset hardening is implemented and verified. The QuoteScanner state machine is present, the fuzz oracle was tightened to allow only truly quoted colon-space mapping keys, fuzz found and the code fixed two production subset gaps (Unicode delimiter byte-boundary panic and explicit ? mapping-key acceptance), cargo test -p runx-parser passed, cargo +nightly fuzz build fuzz_yaml_parity_subset passed, saved crash artifacts reproduce cleanly, and cargo +nightly fuzz run fuzz_yaml_parity_subset -- -max_total_time=60 completed 1489554 runs in 61 seconds with no crash/assertion.
+
+Attack log:
+- `runx-parser/src/yaml.rs`: verify delimiter slicing keeps byte index from scanner instead of key.len() after trim -> clean
+- `runx-parser/src/yaml.rs`: verify explicit YAML mapping key marker is rejected by the parity subset -> clean
+- `runx-parser/src/yaml.rs tests`: run regression tests for quoted escape scanner, Unicode delimiter boundary, and explicit key rejection -> clean
+- `runx-parser/fuzz/fuzz_targets/fuzz_yaml_parity_subset.rs`: verify fuzz oracle distinguishes quoted colon-space keys from unquoted ambiguous keys -> clean
+- `cargo test -p runx-parser`: run parser unit, integration, and doctests -> clean
+- `cargo +nightly fuzz run fuzz_yaml_parity_subset -- -max_total_time=60`: run fuzz acceptance on enlarged corpus -> clean
+
+Findings:
+- none
+

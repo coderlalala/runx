@@ -2,8 +2,8 @@
 spec_version: '2.0'
 task_id: test-surface-build-consolidation
 created: '2026-05-27T13:45:00Z'
-updated: '2026-05-27T15:30:00Z'
-status: active
+updated: '2026-06-04T20:50:02Z'
+status: review
 harden_status: not_run
 size: large
 risk_level: medium
@@ -13,19 +13,14 @@ risk_level: medium
 
 ## Current State
 
-Status: active
-Current phase: phase2
-Next: review
-Reason: Phase 1 (integration-binary consolidation) is implemented and verified
-across all 7 crates with tests; the module/process-global guard is built and
-wired into verify-fast; CI is retargeted to cargo-nextest plus a separate
-doctest step and prebuilt advisory tools. Remaining levers (feature-surface
-unification, job-graph parallelization, cache-action swap) are scoped as
-follow-ups that need a CI dry-run to validate.
+Status: review
+Current phase: final
+Next: repair
+Reason: review gate fail: 1 finding(s), 1 completion blocker(s)
 Blockers: none
 Allowed follow-up command: `scafld handoff test-surface-build-consolidation`
-Latest runner update: 2026-05-27T15:30:00Z
-Review gate: not_started
+Latest runner update: 2026-06-04T21:13:05Z
+Review gate: fail
 
 ## Summary
 
@@ -179,6 +174,8 @@ The forward standard for runx Rust testing:
 
 ## Phase 2: CI caching and structure
 
+Status: completed
+
 Implemented:
 
 - Swapped the oss Cargo cache from `actions/cache` (keyed on `Cargo.lock`, target
@@ -229,3 +226,24 @@ Optional, lower priority:
 - CI changes are revertible by restoring the prior `ci.yml`; no test content
   changes, so coverage is unaffected by any rollback.
 - Keep each lever in its own commit so it can be reverted independently.
+
+## Review
+
+Status: completed
+Verdict: fail
+Mode: verify
+Provider: command
+Output: command.stdout
+Summary: Local implementation evidence is insufficient to complete this spec. The spec is in review state, but acceptance requires a real branch CI dry-run under nextest with before/after warm-run wall time; local checks cannot satisfy dod6 or p2_ac2.
+
+Attack log:
+- `.scafld/specs/active/test-surface-build-consolidation.md:172`: verify manual CI acceptance items -> finding (dod6 and p2_ac2 require branch CI evidence)
+- `.github/workflows/ci.yml`: check whether local workflow inspection can replace branch CI -> finding (local-only evidence is insufficient for a dry-run gate)
+- `scafld status test-surface-build-consolidation --json`: verify lifecycle is review, not complete -> finding (blocked pending external CI dry-run)
+
+Findings:
+- [high/blocks completion] `ci-dry-run-missing` Missing branch CI dry-run evidence
+  - Location: `.scafld/specs/active/test-surface-build-consolidation.md:172`
+  - Evidence: dod6 requires warm CI wall time from a real CI run, and p2_ac2 requires a branch CI run green end to end under nextest with before/after warm-run timing. No branch CI run evidence is present in this local workspace.
+  - Impact: Completing the spec locally would bypass its only real validation for CI workflow behavior and cache timing.
+  - Validation: Push the branch, run CI, record the green nextest workflow and before/after warm-run wall time, then rerun scafld review and complete.
