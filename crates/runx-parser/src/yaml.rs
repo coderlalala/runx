@@ -29,6 +29,7 @@ pub fn assert_yaml_parity_subset(field: &str, source: &str) -> Result<(), ParseE
         if trimmed.is_empty() || trimmed.starts_with("---") || trimmed.starts_with("...") {
             continue;
         }
+        reject_explicit_mapping_key(field, line_number, trimmed)?;
         reject_embedded_colon_key(field, line_number, trimmed)?;
         reject_colon_space_plain_scalar(field, line_number, content)?;
     }
@@ -81,12 +82,23 @@ fn is_comment_start(line: &str, index: usize) -> bool {
     index == 0 || line[..index].ends_with(char::is_whitespace)
 }
 
+fn reject_explicit_mapping_key(
+    field: &str,
+    line_number: usize,
+    trimmed: &str,
+) -> Result<(), ParseError> {
+    if trimmed == "?" || trimmed.starts_with("? ") {
+        return Err(ambiguous_yaml(field, line_number, trimmed));
+    }
+    Ok(())
+}
+
 fn reject_embedded_colon_key(
     field: &str,
     line_number: usize,
     trimmed: &str,
 ) -> Result<(), ParseError> {
-    let Some(key) = top_level_plain_key(trimmed) else {
+    let Some((key, _)) = top_level_plain_key(trimmed) else {
         return Ok(());
     };
     if key.contains(':') {
@@ -95,7 +107,7 @@ fn reject_embedded_colon_key(
     Ok(())
 }
 
-fn top_level_plain_key(trimmed: &str) -> Option<&str> {
+fn top_level_plain_key(trimmed: &str) -> Option<(&str, usize)> {
     let bytes = trimmed.as_bytes();
     if bytes
         .first()
@@ -106,7 +118,7 @@ fn top_level_plain_key(trimmed: &str) -> Option<&str> {
     let mut scanner = QuoteScanner::new();
     for (index, char) in trimmed.char_indices() {
         if scanner.is_plain_at(char) && char == ':' && is_mapping_delimiter(trimmed, index) {
-            return Some(trimmed[..index].trim());
+            return Some((trimmed[..index].trim(), index));
         }
         scanner.consume(char);
     }
@@ -212,8 +224,7 @@ fn reject_colon_space_plain_scalar(
 
 fn split_plain_mapping_value(content: &str) -> Option<(&str, &str)> {
     let trimmed = content.trim_start();
-    let key = top_level_plain_key(trimmed)?;
-    let delimiter_index = key.len();
+    let (key, delimiter_index) = top_level_plain_key(trimmed)?;
     Some((key, &trimmed[delimiter_index + 1..]))
 }
 
@@ -342,6 +353,12 @@ mod tests {
         assert!(result.is_err(), "expected rejection, got {result:?}");
     }
 
+    #[test]
+    fn parity_subset_rejects_explicit_mapping_keys() {
+        let result = assert_yaml_parity_subset("fixture", "? >\r 2>-: ");
+        assert!(result.is_err(), "expected rejection, got {result:?}");
+    }
+
     // Regression cases for the single-quote `''` escape. The earlier toggle
     // flipped on every `'`, so `'it''s'` mis-segmented into three scalars and
     // any `:` after byte 4 was treated as still-quoted.
@@ -350,6 +367,13 @@ mod tests {
         for literal in ["key: 'it''s'", "key: 'a''b''c'", "key: ''"] {
             assert_yaml_parity_subset("fixture", literal)?;
         }
+        Ok(())
+    }
+
+    #[test]
+    fn parity_subset_keeps_unicode_mapping_delimiter_on_char_boundary()
+    -> Result<(), crate::ParseError> {
+        assert_yaml_parity_subset("fixture", "\0\0\0'\0\0\0\0\u{8}'|\u{85}:")?;
         Ok(())
     }
 

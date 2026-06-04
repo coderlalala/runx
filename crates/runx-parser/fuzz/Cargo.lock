@@ -216,7 +216,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "runx-contracts"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "runx-contracts-derive",
  "serde",
@@ -226,7 +226,7 @@ dependencies = [
 
 [[package]]
 name = "runx-contracts-derive"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -235,7 +235,7 @@ dependencies = [
 
 [[package]]
 name = "runx-core"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "runx-contracts",
  "serde",
@@ -246,7 +246,7 @@ dependencies = [
 
 [[package]]
 name = "runx-parser"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "regex",
  "runx-contracts",
