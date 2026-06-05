@@ -165,7 +165,7 @@ function sharedPaymentTokenForm(admission, paymentMethod) {
   form.set("payment_method", paymentMethod);
   form.set("usage_limits[max_amount]", String(admission.amount_minor));
   form.set("usage_limits[currency]", admission.currency.toLowerCase());
-  appendMetadata(form, admission);
+  form.set("usage_limits[expires_at]", String(sptExpiresAt()));
   return form;
 }
 
@@ -308,6 +308,10 @@ function numberEnv(name, fallback) {
   const value = Number(raw);
   if (!Number.isSafeInteger(value) || value < 0) fail(`${name} must be a non-negative integer`);
   return value;
+}
+
+function sptExpiresAt() {
+  return numberEnv("RUNX_STRIPE_SPT_EXPIRES_AT", Math.floor(Date.now() / 1000) + 15 * 60);
 }
 
 function requiredEnv(name) {
