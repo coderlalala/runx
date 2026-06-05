@@ -1467,7 +1467,7 @@ function inspectGitHubPublishAuth(env) {
     name: "github_publish_auth",
     status: "blocked",
     source: [],
-    reason: "GitHub issue hydration can use ambient gh auth, but thread.push_outbox receives only explicit token env.",
+    reason: "GitHub issue hydration can use ambient gh auth, but issue-to-pr-push-outbox receives only explicit token env through the thread-outbox-provider front.",
     next: "Export RUNX_GITHUB_TOKEN, GH_TOKEN, or GITHUB_TOKEN before create/observe publication. For local dogfood, use `export RUNX_GITHUB_TOKEN=\"$(gh auth token)\"` in the shell running the harness.",
   };
 }
