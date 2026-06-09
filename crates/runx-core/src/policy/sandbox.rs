@@ -14,7 +14,7 @@ pub fn normalize_sandbox_declaration(
             env_allowlist: None,
             network: false,
             writable_paths: Vec::new(),
-            require_enforcement: false,
+            require_enforcement: true,
         };
     };
 
@@ -29,7 +29,10 @@ pub fn normalize_sandbox_declaration(
             .network
             .unwrap_or(matches!(sandbox.profile, SandboxProfile::Network)),
         writable_paths: sandbox.writable_paths.clone().unwrap_or_default(),
-        require_enforcement: sandbox.require_enforcement.unwrap_or(false),
+        require_enforcement: sandbox.require_enforcement.unwrap_or(!matches!(
+            sandbox.profile,
+            SandboxProfile::UnrestrictedLocalDev
+        )),
     }
 }
 
@@ -39,6 +42,30 @@ pub fn sandbox_requires_approval(sandbox: Option<&SandboxDeclaration>) -> bool {
         normalize_sandbox_declaration(sandbox).profile,
         SandboxProfile::UnrestrictedLocalDev
     )
+}
+
+#[must_use]
+pub fn is_reserved_runx_sandbox_env_name(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    if upper.starts_with("RUNX_RECEIPT_SIGN_") {
+        return true;
+    }
+    if !upper.starts_with("RUNX_") {
+        return false;
+    }
+    [
+        "SECRET",
+        "TOKEN",
+        "PASSWORD",
+        "API_KEY",
+        "PRIVATE_KEY",
+        "ACCESS_KEY",
+        "SIGNING_KEY",
+        "CREDENTIAL",
+        "SEED",
+    ]
+    .iter()
+    .any(|needle| upper.contains(needle))
 }
 
 #[must_use]
@@ -72,6 +99,8 @@ pub fn admit_sandbox(
 }
 
 fn collect_profile_violations(declaration: &RequiredSandboxDeclaration, reasons: &mut Vec<String>) {
+    collect_reserved_env_allowlist_violations(declaration, reasons);
+
     if matches!(declaration.profile, SandboxProfile::Readonly) {
         if !declaration.writable_paths.is_empty() {
             reasons.push("readonly sandbox cannot declare writable paths".to_owned());
@@ -90,6 +119,27 @@ fn collect_profile_violations(declaration: &RequiredSandboxDeclaration, reasons:
     {
         reasons.push("network sandbox cannot declare writable paths; use unrestricted-local-dev for combined local write and network access".to_owned());
     }
+}
+
+fn collect_reserved_env_allowlist_violations(
+    declaration: &RequiredSandboxDeclaration,
+    reasons: &mut Vec<String>,
+) {
+    let Some(env_allowlist) = declaration.env_allowlist.as_ref() else {
+        return;
+    };
+    let denied = env_allowlist
+        .iter()
+        .filter(|name| is_reserved_runx_sandbox_env_name(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    if denied.is_empty() {
+        return;
+    }
+    reasons.push(format!(
+        "sandbox env_allowlist contains reserved runx environment variable(s): {}",
+        denied.join(", ")
+    ));
 }
 
 fn collect_unsafe_writable_paths(
@@ -135,7 +185,7 @@ fn sandbox_profile_name(profile: &SandboxProfile) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{admit_sandbox, normalize_sandbox_declaration};
+    use super::{admit_sandbox, is_reserved_runx_sandbox_env_name, normalize_sandbox_declaration};
     use crate::policy::{
         SandboxAdmissionDecision, SandboxAdmissionOptions, SandboxDeclaration, SandboxProfile,
     };
@@ -165,6 +215,48 @@ mod tests {
             SandboxAdmissionDecision::ApprovalRequired {
                 reasons: vec![
                     "unrestricted-local-dev sandbox requires explicit caller approval".to_owned()
+                ]
+            }
+        );
+    }
+
+    #[test]
+    fn reserved_sandbox_env_names_cover_runx_signing_and_secrets() {
+        assert!(is_reserved_runx_sandbox_env_name(
+            "RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64"
+        ));
+        assert!(is_reserved_runx_sandbox_env_name("RUNX_AGENT_API_KEY"));
+        assert!(is_reserved_runx_sandbox_env_name("RUNX_GIT_ASKPASS_TOKEN"));
+        assert!(is_reserved_runx_sandbox_env_name(
+            "RUNX_PROVIDER_ADMISSION_SIGNING_KEY"
+        ));
+        assert!(!is_reserved_runx_sandbox_env_name("RUNX_CWD"));
+        assert!(!is_reserved_runx_sandbox_env_name("RUNX_MCP_SCOPE"));
+        assert!(!is_reserved_runx_sandbox_env_name(
+            "RUNX_REGISTRY_MANIFEST_TRUST_KEY_BASE64"
+        ));
+        assert!(!is_reserved_runx_sandbox_env_name("PATH"));
+    }
+
+    #[test]
+    fn sandbox_admission_denies_reserved_env_allowlist_names() {
+        let sandbox = SandboxDeclaration {
+            profile: SandboxProfile::Readonly,
+            cwd_policy: None,
+            env_allowlist: Some(vec![
+                "PATH".to_owned(),
+                "RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64".to_owned(),
+            ]),
+            network: None,
+            writable_paths: None,
+            require_enforcement: None,
+        };
+
+        assert_eq!(
+            admit_sandbox(Some(&sandbox), &SandboxAdmissionOptions::default()),
+            SandboxAdmissionDecision::Deny {
+                reasons: vec![
+                    "sandbox env_allowlist contains reserved runx environment variable(s): RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64".to_owned()
                 ]
             }
         );

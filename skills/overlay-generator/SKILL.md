@@ -86,19 +86,35 @@ warning.
 - `runx.overlay.tools.unbounded` (warning): scopes are declared but no explicit
   `allowed_tools` set bounds them.
 
-## Quality Profile
+## Procedure
 
-- Purpose: produce one governed overlay that lets a borrowed skill run under runx
-  authority without editing it.
-- Audience: the author adopting the skill and the reviewer approving the bound.
-- Artifact contract: the overlay (wraps + scopes + allowed tools + pinned
-  digest) and the diagnostics that gate it.
-- Evidence bar: resolve the wrapped skill and pin its digest; derive scopes from
-  what the skill actually needs, never an allow-all.
-- Voice bar: direct authoring review; lead with the wrapped ref and the bound.
-- Strategic bar: the narrowest scope and tool set that lets the skill do its job.
-- Stop conditions: `needs_input` when neither a ref nor a path is given;
-  `runx.overlay.skill.missing` blocks a `ready` decision.
+1. Resolve exactly one wrapped skill from `skill_ref` or `skill_path`. With both
+   present, confirm they refer to the same skill or return `needs_input`.
+2. Read the wrapped `SKILL.md` and compute its pinned digest. Never copy the
+   upstream skill into the overlay.
+3. Identify the tools, network access, filesystem access, credentials, and
+   mutation surfaces the wrapped skill actually needs.
+4. Translate that need into the narrowest runner scopes and `allowed_tools` set.
+   If a needed capability cannot be bounded, return `reject`.
+5. Emit the canonical overlay path, `wraps` reference, digest, runner type,
+   scopes, allowed tools, diagnostics, and reviewer rationale.
+6. Require graph users to reference the overlay path, not the raw upstream
+   `SKILL.md`.
+
+## Edge cases and stop conditions
+
+- **Wrapped skill missing:** return `needs_input` or `reject`; never create an
+  overlay for an unresolved ref.
+- **Digest mismatch:** emit `runx.overlay.digest.stale`; the operator must
+  re-review before trusting the upstream change.
+- **No declared scopes:** emit `runx.overlay.scope.empty` and block
+  `decision: ready`.
+- **Unbounded tool access:** warn or reject depending on risk; mutation or secret
+  access without an explicit tool set is not ready.
+- **Scope intent exceeds the wrapped skill's real need:** narrow the grant or
+  return `needs_input`; do not use the overlay as an authority escalation path.
+- **Raw secret material in the wrapped skill instructions:** reject unless the
+  overlay can keep the material out of prompts, outputs, and receipts.
 
 ## Output schema (`overlay_proposal`)
 

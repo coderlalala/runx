@@ -369,7 +369,7 @@ pub fn search_registry_with_options(
 }
 
 fn registry_version_is_public(version: &RegistrySkillVersion) -> bool {
-    version.catalog_visibility.as_deref() != Some("private")
+    version.catalog_visibility.as_deref() != Some("internal")
 }
 
 pub fn resolve_registry_skill(

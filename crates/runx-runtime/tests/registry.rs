@@ -87,7 +87,10 @@ fn file_registry_store_covers_profiled_skill_surface() -> Result<(), Box<dyn std
     let temp = tempdir()?;
     let store = FileRegistryStore::new(temp.path());
     let markdown = include_str!("../../../skills/sourcey/SKILL.md");
-    let profile_document = include_str!("../../../skills/sourcey/X.yaml");
+    let profile_document = include_str!("../../../skills/sourcey/X.yaml").replace(
+        "visibility: internal\n  role: context",
+        "visibility: public\n  role: context",
+    );
 
     let version = ingest_skill_markdown(
         &store,
@@ -96,7 +99,7 @@ fn file_registry_store_covers_profiled_skill_surface() -> Result<(), Box<dyn std
             owner: Some("acme".to_owned()),
             version: Some("1.0.0".to_owned()),
             created_at: Some("2026-04-10T00:00:00.000Z".to_owned()),
-            profile_document: Some(profile_document.to_owned()),
+            profile_document: Some(profile_document.clone()),
             ..IngestSkillOptions::default()
         },
     )?;
@@ -104,7 +107,10 @@ fn file_registry_store_covers_profiled_skill_surface() -> Result<(), Box<dyn std
     assert_eq!(version.skill_id, "acme/sourcey");
     assert_eq!(version.source_type, "agent");
     assert_eq!(version.runner_names, vec!["agent", "sourcey"]);
-    assert_eq!(version.profile_document.as_deref(), Some(profile_document));
+    assert_eq!(
+        version.profile_document.as_deref(),
+        Some(profile_document.as_str())
+    );
     assert_eq!(version.profile_digest.as_ref().map(String::len), Some(64));
     assert_eq!(version.markdown, markdown);
 
@@ -166,28 +172,34 @@ fn file_registry_store_covers_profiled_skill_surface() -> Result<(), Box<dyn std
     )?
     .ok_or_else(|| std::io::Error::other("missing registry resolution"))?;
     assert_eq!(resolved.skill_id, "acme/sourcey");
-    assert_eq!(resolved.profile_document.as_deref(), Some(profile_document));
+    assert_eq!(
+        resolved.profile_document.as_deref(),
+        Some(profile_document.as_str())
+    );
     assert_eq!(resolved.runner_names, vec!["agent", "sourcey"]);
 
     Ok(())
 }
 
 #[test]
-fn local_registry_search_excludes_private_catalog_versions_but_direct_resolve_works()
+fn local_registry_search_excludes_internal_catalog_versions_but_direct_resolve_works()
 -> Result<(), Box<dyn std::error::Error>> {
     let temp = tempdir()?;
     let store = FileRegistryStore::new(temp.path());
     let markdown = r#"---
-name: private-pay-step
-description: Private payment engine step.
+name: internal-pay-step
+description: Internal payment engine step.
 ---
 Runs as an engine step, not as a public catalog face.
 "#;
-    let profile_document = r#"skill: private-pay-step
+    let profile_document = r#"skill: internal-pay-step
 catalog:
   kind: skill
   audience: operator
-  visibility: private
+  visibility: internal
+  role: graph-stage
+  part_of:
+    - runx/spend
 runners:
   default:
     default: true
@@ -198,7 +210,7 @@ runners:
       - "process.stdout.write('{}')"
 harness:
   cases:
-    - name: private-pay-step-smoke
+    - name: internal-pay-step-smoke
       inputs: {}
       expect:
         status: sealed
@@ -216,18 +228,21 @@ harness:
         },
     )?;
 
-    assert_eq!(version.catalog_visibility.as_deref(), Some("private"));
-    let search_results =
-        search_registry_with_options(&store, "private-pay-step", RegistrySearchOptions::default())?;
+    assert_eq!(version.catalog_visibility.as_deref(), Some("internal"));
+    let search_results = search_registry_with_options(
+        &store,
+        "internal-pay-step",
+        RegistrySearchOptions::default(),
+    )?;
     assert!(search_results.is_empty());
 
     let resolved = resolve_registry_skill(
         &store,
-        "registry:private-pay-step",
+        "registry:internal-pay-step",
         RegistryResolveOptions::default(),
     )?
-    .ok_or_else(|| std::io::Error::other("missing private registry resolution"))?;
-    assert_eq!(resolved.skill_id, "runx/private-pay-step");
+    .ok_or_else(|| std::io::Error::other("missing internal registry resolution"))?;
+    assert_eq!(resolved.skill_id, "runx/internal-pay-step");
     assert_eq!(resolved.profile_document.as_deref(), Some(profile_document));
     Ok(())
 }

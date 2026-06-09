@@ -1,6 +1,8 @@
 // rust-style-allow: large-file because receipt construction, explicit
 // signature policy, and local proof sealing stay together until the runtime
 // receipt builder is split out.
+use std::collections::BTreeMap;
+
 use crate::adapter::{CREDENTIAL_DELIVERY_OBSERVATIONS_METADATA, SkillOutput};
 use crate::effects::{RuntimeEffectRegistry, effect_verification_refs};
 use crate::execution::output_projection::{
@@ -298,12 +300,20 @@ pub(crate) fn graph_receipt_with_disposition_and_policy(
     content_address_receipt(&mut receipt, signature_policy)?;
     let parent_ref = Reference::runx(ReferenceType::Receipt, &receipt.id);
 
-    // Attach the parent link to each child and re-seal them (ids are stable
-    // because lineage is excluded from the content address; only digests move).
-    attach_parent_to_child_receipts(steps, &parent_ref, &effects, signature_policy)?;
-    let child_refs = steps
+    // Attach the parent link only to the terminal receipt for each step and
+    // re-seal those children. Earlier retry attempts remain in the run history,
+    // but they are superseded audit receipts, not active graph children.
+    let current_child_indexes = current_step_indexes(steps);
+    attach_parent_to_child_receipts(
+        steps,
+        &current_child_indexes,
+        &parent_ref,
+        &effects,
+        signature_policy,
+    )?;
+    let child_refs = current_child_indexes
         .iter()
-        .map(|step| child_receipt_reference(&step.receipt))
+        .map(|index| child_receipt_reference(&steps[*index].receipt))
         .collect::<Vec<_>>();
 
     // Pass 2: re-seal the graph with the final child refs. The content address
@@ -314,7 +324,9 @@ pub(crate) fn graph_receipt_with_disposition_and_policy(
 
     validate_receipt_tree_with_policy(
         &receipt,
-        steps.iter().map(|step| &step.receipt),
+        current_child_indexes
+            .iter()
+            .map(|index| &steps[*index].receipt),
         signature_policy,
     )?;
     Ok(receipt)
@@ -661,13 +673,36 @@ fn child_receipt_reference(receipt: &Receipt) -> Reference {
     }
 }
 
+fn current_step_indexes(steps: &[StepRun]) -> Vec<usize> {
+    let mut latest = BTreeMap::<&str, usize>::new();
+    for (index, step) in steps.iter().enumerate() {
+        latest.insert(step.step_id.as_str(), index);
+    }
+    steps
+        .iter()
+        .enumerate()
+        .filter_map(|(index, step)| {
+            latest
+                .get(step.step_id.as_str())
+                .is_some_and(|latest_index| *latest_index == index)
+                .then_some(index)
+        })
+        .collect()
+}
+
 fn attach_parent_to_child_receipts(
     steps: &mut [StepRun],
+    current_child_indexes: &[usize],
     parent_ref: &Reference,
     effects: &RuntimeEffectRegistry,
     signature_policy: RuntimeReceiptSignaturePolicy<'_>,
 ) -> Result<(), RuntimeError> {
-    for step in steps {
+    for index in current_child_indexes {
+        let step = steps
+            .get_mut(*index)
+            .ok_or_else(|| RuntimeError::ReceiptInvalid {
+                message: format!("graph child receipt index {index} is out of range"),
+            })?;
         step.receipt
             .lineage
             .get_or_insert_with(Lineage::default)

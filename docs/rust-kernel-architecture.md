@@ -558,12 +558,16 @@ than kernel parity. It includes `skill`, `evolve`, `resume`, `replay`, `diff`,
 `mcp serve`, `tool search`, `tool inspect`, and `tool build`, plus any
 pre-existing aliases that the matrix explicitly preserves and JSON/non-JSON
 modes. `export-receipts --trainable` remains a TypeScript-maintained projection
-command until a native export is explicitly promoted. New payment/x402 surfaces use
-clean cutover names only; `x402-pay` is canonical and does not gain
-`x402-charge`, `x402-refund`, or other runtime aliases. The localhost registry
-and checked-in catalog publish the same current payment shape (`pay-*`,
-`charge-*`, `refund-*`, rail-specific `*-pay`, and `x402-pay`) without legacy
-`payment-*` aliases.
+command until a native export is explicitly promoted. New payment surfaces use
+clean cutover names only: `spend` is the canonical consumer payment family,
+while `x402`, `stripe-spt`, `mpp`, and `mock` are runtime paths behind that
+family. Branded catalog skills such as `x402-pay` and `stripe-pay` may be public
+adoption surfaces, but they must delegate to the same canonical spend flow and
+seal the same spend receipt semantics. The localhost registry and checked-in
+catalog now keep payment lifecycle internals as owned graph stages under
+`skills/spend/graph/*`, `skills/charge/graph/*`, and `skills/refund/graph/*`.
+Fixture and runtime-path packages remain internal wrappers that delegate to the
+canonical graph skills; legacy `payment-*` aliases are not restored.
 
 ## 14. Placeholder publishing strategy
 

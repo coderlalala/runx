@@ -17,59 +17,200 @@ proposal, not an automatic change.
 
 ## What this skill does
 
-1. **Diff granted against used.** For each granted scope, decide whether the
-   usage evidence shows it was exercised, partially exercised (a narrower verb
-   would suffice), or never used.
-2. **Propose the narrowest grant.** For unused scopes, propose removal. For
-   over-broad scopes (write granted, only reads observed), propose the narrower
-   verb. Leave exercised scopes untouched.
-3. **State residual risk.** Name what the attenuated grant can still do, and any
-   scope kept despite thin evidence (and why).
+1. Diff granted authority against receipt-backed usage.
+2. Classify each granted scope as `keep`, `narrow`, `remove`, or `defer`.
+3. Propose the narrowest grant that still covers observed usage.
+4. State residual risk after attenuation.
+5. Emit a receipt-quality report a reviewer can apply or reject.
 
 ## When to use this skill
 
-- Periodic least-privilege review of a skill or principal before publish or
-  renewal.
-- After an incident, to tighten a grant that turned out broader than needed.
-- Before promoting a skill toward a higher maturity tier, to prove its grant is
-  minimal.
+- Periodic least-privilege review of a skill, grant, or principal before
+  publish, renewal, or maturity promotion.
+- After an incident, to identify authority that can be safely removed without
+  breaking observed behavior.
+- Before expanding distribution of a public skill, to prove its grant is
+  minimal against real receipts.
+- When a reviewer asks for a scope-by-scope evidence trail, not just a summary.
 
 ## When not to use this skill
 
-- To grant new authority. This skill only narrows; widening is a human decision.
-- When no usage evidence exists. Without receipts there is nothing to diff;
-  return `needs_more_evidence` rather than guess a grant down to nothing.
-- For secret material handling. Use `secret-leak-triage` for credential
-  exposure, not scope review.
+- To grant new authority. This skill only narrows; widening is a human
+  decision.
+- When no usable receipt evidence exists. Return `needs_more_evidence` rather
+  than guessing a grant down to nothing.
+- For secret material handling or credential exposure. Use the appropriate
+  secret-leak triage flow instead of scope review.
+- When the user asks for automatic permission changes. Produce a proposal and
+  stop unless a separate approved delivery lane exists.
+- When grant semantics are unknown and cannot be normalized. Return
+  `needs_input` with the exact syntax or policy question.
 
-## Audit philosophy
+## Procedure
 
-Narrow, never widen. Remove only what the evidence says is unused, and downgrade
-a verb only when every observed use fits the narrower one. A scope used once is
-used. When evidence is thin but the scope is plausibly load-bearing, keep it and
-say so. The proposal must be safe to apply blind by a reviewer who trusts the
-diff.
+1. Scope the audit target.
+   - Identify `subject`, grant source, receipt ids or receipt window, and
+     whether receipts are from the same principal or skill version.
+   - Gate: if the subject, grant list, or usage source is ambiguous, stop with
+     `needs_input`.
+   - Evidence expected: subject id or label, granted scope list, receipt ids or
+     an explicit statement that no receipts were available.
 
-## Quality Profile
+2. Normalize granted scopes.
+   - Parse each scope into verb, resource, path or namespace, conditions, and
+     wildcard breadth.
+   - Preserve original scope strings. Do not rewrite policy syntax casually.
+   - Gate: if a scope cannot be parsed, keep it as `defer` and request the
+     missing policy semantics instead of treating it as unused.
 
-- Purpose: produce one bounded, reviewable attenuation that preserves real usage.
-- Audience: the maintainer or security reviewer deciding a grant's next shape.
-- Artifact contract: a scope-by-scope diff, an attenuation proposal (remove or
-  narrow), and a residual-risk statement.
-- Evidence bar: tie every removal or downgrade to the usage summary. Never
-  propose narrowing a scope the evidence shows was exercised.
-- Voice bar: direct security review. No "tighten permissions generally" without
-  a named scope and the evidence behind the call.
-- Strategic bar: the narrowest grant that still covers observed usage, nothing
-  narrower.
-- Stop conditions: return `no_change` when the grant already matches usage, and
-  `needs_more_evidence` when the usage summary is empty or unattributable.
+3. Build the usage model from receipts.
+   - Extract actual exercised verbs and resources from receipt steps, tool
+     calls, policy checks, denied checks, and completion status.
+   - Count successful use separately from denied or dry-run checks.
+   - Do not infer scope usage from a successful high-level task alone; cite the
+     receipt step or policy check that exercised the authority.
+
+4. Classify every granted scope.
+   - `keep`: at least one observed successful use requires the granted scope as
+     written, or a reserved/break-glass policy explicitly requires it.
+   - `narrow`: all observed uses fit a strictly smaller verb, resource,
+     namespace, condition, or path.
+   - `remove`: no observed use, denied check, or documented reserved purpose
+     supports the scope.
+   - `defer`: evidence is conflicting, receipt attribution is weak, or policy
+     semantics are unknown.
+
+5. Propose attenuation.
+   - Remove scopes classified as `remove`.
+   - Downgrade scopes classified as `narrow` only when every observed use fits
+     the narrower grant.
+   - Leave `keep` and `defer` scopes unchanged in the proposed grant.
+   - Gate: never produce a proposal narrower than the evidence supports. A
+     scope used once is used.
+
+6. State residual risk and reviewer action.
+   - Name what the proposed grant can still do.
+   - Name any broad scope kept despite thin evidence and why.
+   - Separate `applyable now` from `needs human policy decision`.
+
+7. Emit receipt expectations.
+   - A valid receipt for this skill should record input grant count, receipt
+     sources, classification counts, proposed removals or narrowings, stop
+     status, and unresolved questions.
+
+## Edge cases and stop conditions
+
+- Empty or unattributable usage evidence: return `needs_more_evidence`; do not
+  remove all scopes by default.
+- Missing granted scopes: return `needs_input`; there is no baseline to diff.
+- Receipt subject mismatch: return `needs_input` with the mismatched subject or
+  version.
+- Conflicting receipts: classify affected scopes as `defer` and return
+  `needs_human` if the conflict changes the proposal.
+- Wildcard grants: narrow only to observed resource prefixes when receipt
+  coverage is representative; otherwise keep and flag residual risk.
+- Reserved, compliance, or break-glass scopes: keep unless the operator
+  provides explicit policy authority to remove them.
+- Dry-run-only use: do not count as successful exercised authority unless the
+  grant exists solely for validation.
+- Grant already matches usage: return `no_change` with the evidence summary.
+- User asks to hide or omit unused authority: refuse that part and report the
+  complete scope diff.
+
+## Output schema
+
+Return a structured report with these fields:
+
+```yaml
+status: attenuation_proposed | no_change | needs_more_evidence | needs_input | needs_human | refused
+subject: string
+evidence:
+  receipt_ids: [string]
+  receipt_window: string | null
+  grant_source: string | null
+  limitations: [string]
+scope_diff:
+  - granted_scope: string
+    normalized:
+      verb: string | null
+      resource: string | null
+      conditions: object | null
+    observed_use:
+      count: number
+      verbs: [string]
+      resources: [string]
+      receipt_refs: [string]
+    classification: keep | narrow | remove | defer
+    proposal: string | null
+    rationale: string
+attenuated_grant: [string]
+removed_scopes: [string]
+narrowed_scopes:
+  - from: string
+    to: string
+kept_scopes: [string]
+deferred_scopes: [string]
+residual_risk: [string]
+reviewer_action: applyable_now | needs_policy_decision | gather_more_receipts | none
+receipt_expectations:
+  classification_counts: object
+  stop_status: string
+  unresolved_questions: [string]
+```
+
+## Worked example
+
+Input:
+
+```yaml
+subject: skills/report-exporter
+granted_scopes:
+  - drive.files.read:/reports/*
+  - drive.files.write:/reports/*
+  - drive.files.delete:/reports/*
+usage_summary:
+  receipt_ids: [rx_101, rx_102]
+  observed:
+    - scope: drive.files.read:/reports/*
+      count: 8
+      refs: [rx_101:step_3, rx_102:step_2]
+    - scope: drive.files.write:/reports/*
+      count: 2
+      refs: [rx_101:step_6, rx_102:step_5]
+```
+
+Output:
+
+```yaml
+status: attenuation_proposed
+subject: skills/report-exporter
+removed_scopes:
+  - drive.files.delete:/reports/*
+narrowed_scopes: []
+kept_scopes:
+  - drive.files.read:/reports/*
+  - drive.files.write:/reports/*
+attenuated_grant:
+  - drive.files.read:/reports/*
+  - drive.files.write:/reports/*
+residual_risk:
+  - The skill can still read and write any file under /reports/*.
+reviewer_action: applyable_now
+```
+
+The delete scope is removable because no cited receipt exercised delete
+authority. The read and write scopes stay because each was used at least once.
 
 ## Inputs
 
-- `subject` (optional): what is being audited (a skill id, grant id, or
-  principal). Used only to label the report.
-- `granted_scopes` (required): the scopes currently granted to the subject.
-- `usage_summary` (required): observed usage derived from receipts. For each
-  scope or resource, what verbs were actually exercised.
-- `objective` (optional): operator intent that focuses the review.
+- `subject` (optional): skill id, grant id, principal, or other label for what
+  is being audited.
+- `granted_scopes` (required): the current scopes granted to the subject,
+  preferably in canonical policy syntax.
+- `usage_summary` (required): receipt-derived usage. Include receipt ids, step
+  refs, observed verbs, resources, success or denial status, and the time
+  window when available.
+- `objective` (optional): operator intent that focuses the review, such as
+  "prepare for public publish" or "post-incident attenuation".
+- `policy_notes` (optional): reserved scopes, compliance constraints, or
+  human-approved exceptions that affect removal decisions.

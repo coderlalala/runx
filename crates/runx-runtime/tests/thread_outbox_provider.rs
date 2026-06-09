@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[cfg(feature = "thread-outbox-provider")]
+use runx_contracts::JsonObject;
 use runx_contracts::{
     CredentialDeliveryMode, CredentialDeliveryObservation, CredentialDeliveryObservationStatus,
-    CredentialDeliveryPurpose, CredentialMaterialRole, JsonObject, JsonValue, Reference,
-    ReferenceType, ThreadOutboxProviderFetch, ThreadOutboxProviderIdempotencyStatus,
-    ThreadOutboxProviderManifest, ThreadOutboxProviderObservationStatus,
-    ThreadOutboxProviderOperation, ThreadOutboxProviderPush,
+    CredentialDeliveryPurpose, CredentialMaterialRole, JsonValue, Reference, ReferenceType,
+    ThreadOutboxProviderFetch, ThreadOutboxProviderIdempotencyStatus, ThreadOutboxProviderManifest,
+    ThreadOutboxProviderObservationStatus, ThreadOutboxProviderOperation, ThreadOutboxProviderPush,
 };
 use runx_core::policy::{CredentialBindingDecision, CredentialEnvelope};
 #[cfg(feature = "thread-outbox-provider")]

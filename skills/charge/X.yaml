@@ -1,0 +1,338 @@
+skill: charge
+version: 0.1.0
+catalog:
+  kind: graph
+  audience: operator
+  visibility: public
+  role: canonical
+runners:
+  mock:
+    default: true
+    type: graph
+    inputs:
+      mcp_tool_call:
+        type: object
+        required: true
+        description: Inbound MCP operation request.
+      provider_policy:
+        type: object
+        required: true
+        description: Provider price and settlement family policy.
+      returned_credential:
+        type: object
+        required: true
+        description: Returned mock payment credential.
+      parent_payment_authority:
+        type: object
+        required: false
+        description: Parent payment authority term or ref.
+      verify_capability_ref:
+        type: string
+        required: true
+        description: Single-use verification capability reference.
+      idempotency_seed:
+        type: string
+        required: false
+        description: Stable challenge idempotency seed.
+    graph:
+      name: charge
+      steps:
+        - id: price
+          stage: charge-price
+          runner: price
+          scopes:
+            - payment:quote
+          inputs:
+            mcp_tool_call: "{{mcp_tool_call}}"
+            provider_policy: "{{provider_policy}}"
+            parent_payment_authority: "{{parent_payment_authority}}"
+            idempotency_seed: "{{idempotency_seed}}"
+        - id: challenge
+          stage: charge-challenge
+          runner: challenge
+          scopes:
+            - payment:quote
+          inputs:
+            provider_policy: "{{provider_policy}}"
+            idempotency_seed: "{{idempotency_seed}}"
+          context:
+            charge_price_packet: price.charge_price_packet.data
+        - id: verify
+          stage: charge-verify
+          runner: verify
+          scopes:
+            - payment:verify
+          mutation: true
+          idempotency_key: charge-verify
+          inputs:
+            returned_credential: "{{returned_credential}}"
+            verify_capability_ref: "{{verify_capability_ref}}"
+            settlement_family: mock
+          context:
+            charge_price_packet: price.charge_price_packet.data
+            charge_challenge_packet: challenge.charge_challenge_packet.data
+            priced_payment_authority: price.charge_price_packet.data.requested_payment_authority
+            idempotency: challenge.charge_challenge_packet.data.idempotency
+        - id: seal
+          run:
+            type: agent-task
+            agent: operator
+            task: seal
+            outputs:
+              sealed: boolean
+              receipt_ref: string
+          inputs:
+            receipt_ref: verify.charge_verification_packet.data.sealed_receipt_ref
+            required: true
+          context:
+            settlement_proof: verify.charge_verification_packet.data.settlement_proof
+          artifacts:
+            wrap_as: charge_seal
+            packet: runx.payment.charge_seal.v1
+        - id: forward
+          run:
+            type: agent-task
+            agent: operator
+            task: forward
+            outputs:
+              forwarded: boolean
+              result_ref: string
+          inputs:
+            operation: "{{mcp_tool_call}}"
+          context:
+            sealed_receipt_ref: seal.charge_seal.data.receipt_ref
+          artifacts:
+            wrap_as: forwarded_result
+      policy:
+        transitions:
+          - to: forward
+            field: seal.charge_seal.data.sealed
+            equals: true
+    runx:
+      payment_authority:
+        direction: provider_charge
+        phase: graph
+        resource_family: effect
+        settlement_family: mock
+        receipt_before_forward_required: true
+        runtime_forwarding_enabled: false
+  mpp:
+    default: false
+    type: graph
+    inputs:
+      mcp_tool_call:
+        type: object
+        required: true
+        description: Inbound MCP operation request.
+      provider_policy:
+        type: object
+        required: true
+        description: Provider price and settlement family policy.
+      returned_credential:
+        type: object
+        required: true
+        description: Returned MPP payment credential reference.
+      parent_payment_authority:
+        type: object
+        required: false
+        description: Parent payment authority term or ref.
+      verify_capability_ref:
+        type: string
+        required: true
+        description: Single-use verification capability reference.
+      idempotency_seed:
+        type: string
+        required: false
+        description: Stable challenge idempotency seed.
+    graph:
+      name: charge
+      steps:
+        - id: price
+          stage: charge-price
+          runner: price
+          scopes:
+            - payment:quote
+          inputs:
+            mcp_tool_call: "{{mcp_tool_call}}"
+            provider_policy: "{{provider_policy}}"
+            parent_payment_authority: "{{parent_payment_authority}}"
+            idempotency_seed: "{{idempotency_seed}}"
+        - id: challenge
+          stage: charge-challenge
+          runner: challenge
+          scopes:
+            - payment:quote
+          inputs:
+            provider_policy: "{{provider_policy}}"
+            idempotency_seed: "{{idempotency_seed}}"
+          context:
+            charge_price_packet: price.charge_price_packet.data
+        - id: verify
+          stage: charge-verify
+          runner: verify
+          scopes:
+            - payment:verify
+          mutation: true
+          idempotency_key: charge-verify
+          inputs:
+            returned_credential: "{{returned_credential}}"
+            verify_capability_ref: "{{verify_capability_ref}}"
+            settlement_family: mpp
+          context:
+            charge_price_packet: price.charge_price_packet.data
+            charge_challenge_packet: challenge.charge_challenge_packet.data
+            priced_payment_authority: price.charge_price_packet.data.requested_payment_authority
+            idempotency: challenge.charge_challenge_packet.data.idempotency
+        - id: seal
+          run:
+            type: agent-task
+            agent: operator
+            task: seal
+            outputs:
+              sealed: boolean
+              receipt_ref: string
+          inputs:
+            receipt_ref: verify.charge_verification_packet.data.sealed_receipt_ref
+            required: true
+          context:
+            settlement_proof: verify.charge_verification_packet.data.settlement_proof
+          artifacts:
+            wrap_as: charge_seal
+            packet: runx.payment.charge_seal.v1
+        - id: forward
+          run:
+            type: agent-task
+            agent: operator
+            task: forward
+            outputs:
+              forwarded: boolean
+              result_ref: string
+          inputs:
+            operation: "{{mcp_tool_call}}"
+          context:
+            sealed_receipt_ref: seal.charge_seal.data.receipt_ref
+          artifacts:
+            wrap_as: forwarded_result
+      policy:
+        transitions:
+          - to: forward
+            field: seal.charge_seal.data.sealed
+            equals: true
+    runx:
+      payment_authority:
+        direction: provider_charge
+        phase: graph
+        resource_family: effect
+        settlement_family: mpp
+        receipt_before_forward_required: true
+        runtime_forwarding_enabled: false
+  stripe:
+    default: false
+    type: graph
+    inputs:
+      mcp_tool_call:
+        type: object
+        required: true
+        description: Inbound MCP operation request.
+      provider_policy:
+        type: object
+        required: true
+        description: Provider price and settlement family policy.
+      returned_credential:
+        type: object
+        required: true
+        description: Returned Stripe payment credential reference.
+      parent_payment_authority:
+        type: object
+        required: false
+        description: Parent payment authority term or ref.
+      verify_capability_ref:
+        type: string
+        required: true
+        description: Single-use verification capability reference.
+      idempotency_seed:
+        type: string
+        required: false
+        description: Stable challenge idempotency seed.
+    graph:
+      name: charge
+      steps:
+        - id: price
+          stage: charge-price
+          runner: price
+          scopes:
+            - payment:quote
+          inputs:
+            mcp_tool_call: "{{mcp_tool_call}}"
+            provider_policy: "{{provider_policy}}"
+            parent_payment_authority: "{{parent_payment_authority}}"
+            idempotency_seed: "{{idempotency_seed}}"
+        - id: challenge
+          stage: charge-challenge
+          runner: challenge
+          scopes:
+            - payment:quote
+          inputs:
+            provider_policy: "{{provider_policy}}"
+            idempotency_seed: "{{idempotency_seed}}"
+          context:
+            charge_price_packet: price.charge_price_packet.data
+        - id: verify
+          stage: charge-verify
+          runner: verify
+          scopes:
+            - payment:verify
+          mutation: true
+          idempotency_key: charge-verify
+          inputs:
+            returned_credential: "{{returned_credential}}"
+            verify_capability_ref: "{{verify_capability_ref}}"
+            settlement_family: stripe
+          context:
+            charge_price_packet: price.charge_price_packet.data
+            charge_challenge_packet: challenge.charge_challenge_packet.data
+            priced_payment_authority: price.charge_price_packet.data.requested_payment_authority
+            idempotency: challenge.charge_challenge_packet.data.idempotency
+        - id: seal
+          run:
+            type: agent-task
+            agent: operator
+            task: seal
+            outputs:
+              sealed: boolean
+              receipt_ref: string
+          inputs:
+            receipt_ref: verify.charge_verification_packet.data.sealed_receipt_ref
+            required: true
+          context:
+            settlement_proof: verify.charge_verification_packet.data.settlement_proof
+          artifacts:
+            wrap_as: charge_seal
+            packet: runx.payment.charge_seal.v1
+        - id: forward
+          run:
+            type: agent-task
+            agent: operator
+            task: forward
+            outputs:
+              forwarded: boolean
+              result_ref: string
+          inputs:
+            operation: "{{mcp_tool_call}}"
+          context:
+            sealed_receipt_ref: seal.charge_seal.data.receipt_ref
+          artifacts:
+            wrap_as: forwarded_result
+      policy:
+        transitions:
+          - to: forward
+            field: seal.charge_seal.data.sealed
+            equals: true
+    runx:
+      payment_authority:
+        direction: provider_charge
+        phase: graph
+        resource_family: effect
+        settlement_family: stripe
+        receipt_before_forward_required: true
+        runtime_forwarding_enabled: false

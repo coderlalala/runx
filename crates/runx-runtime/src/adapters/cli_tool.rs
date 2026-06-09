@@ -12,6 +12,10 @@ use crate::process::{CapturedOutput, ProcessOutcome, ProcessSpec, ProcessStdin, 
 use crate::services::SandboxServices;
 
 const OUTPUT_LIMIT_BYTES: usize = 1024 * 1024;
+const DEFAULT_TIMEOUT_SECONDS: u64 = 60;
+#[cfg(test)]
+static DEFAULT_TIMEOUT_OVERRIDE_SECONDS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CliToolAdapter;
@@ -39,7 +43,7 @@ impl SkillAdapter for CliToolAdapter {
                 .cwd(sandbox.cwd)
                 .env(sandbox.env)
                 .stdin(stdin)
-                .timeout(request.source.timeout_seconds.map(Duration::from_secs))
+                .timeout(Some(cli_tool_timeout(request.source.timeout_seconds)))
                 .cleanup_paths(sandbox.cleanup_paths),
         )
         .map_err(|error| match error {
@@ -69,6 +73,21 @@ impl SkillAdapter for CliToolAdapter {
     fn clone_for_fanout(&self) -> Option<Box<dyn SkillAdapter + Send + Sync>> {
         Some(Box::new(*self))
     }
+}
+
+fn cli_tool_timeout(timeout_seconds: Option<u64>) -> Duration {
+    Duration::from_secs(timeout_seconds.unwrap_or_else(default_timeout_seconds))
+}
+
+fn default_timeout_seconds() -> u64 {
+    #[cfg(test)]
+    {
+        let seconds = DEFAULT_TIMEOUT_OVERRIDE_SECONDS.load(std::sync::atomic::Ordering::SeqCst);
+        if seconds > 0 {
+            return seconds;
+        }
+    }
+    DEFAULT_TIMEOUT_SECONDS
 }
 
 fn cli_tool_stdin(request: &SkillInvocation) -> Result<Option<ProcessStdin>, RuntimeError> {
@@ -154,4 +173,70 @@ pub fn output_object(output: &SkillOutput) -> runx_contracts::JsonObject {
         }),
     );
     object
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::time::{Duration, Instant};
+
+    use runx_contracts::JsonObject;
+
+    use super::*;
+    use crate::credentials::CredentialDelivery;
+
+    #[test]
+    fn cli_tool_without_declared_timeout_uses_default_timeout() -> Result<(), RuntimeError> {
+        let started = Instant::now();
+        DEFAULT_TIMEOUT_OVERRIDE_SECONDS.store(1, std::sync::atomic::Ordering::SeqCst);
+        let output = CliToolAdapter.invoke(SkillInvocation {
+            skill_name: "default-timeout".to_owned(),
+            source: runx_parser::SkillSource {
+                source_type: runx_parser::SourceKind::CliTool,
+                command: Some("/bin/sh".to_owned()),
+                args: vec!["-c".to_owned(), "sleep 10".to_owned()],
+                cwd: None,
+                timeout_seconds: None,
+                input_mode: None,
+                sandbox: Some(runx_parser::SkillSandbox {
+                    profile: runx_core::policy::SandboxProfile::UnrestrictedLocalDev,
+                    cwd_policy: Some(runx_core::policy::CwdPolicy::Workspace),
+                    env_allowlist: None,
+                    network: None,
+                    writable_paths: Vec::new(),
+                    require_enforcement: None,
+                    approved_escalation: Some(true),
+                    raw: JsonObject::new(),
+                }),
+                server: None,
+                catalog_ref: None,
+                tool: None,
+                arguments: None,
+                agent_card_url: None,
+                agent_identity: None,
+                agent: None,
+                task: None,
+                hook: None,
+                outputs: None,
+                graph: None,
+                http: None,
+                raw: JsonObject::new(),
+            },
+            inputs: JsonObject::new(),
+            resolved_inputs: JsonObject::new(),
+            current_context: Vec::new(),
+            skill_directory: std::env::current_dir()
+                .map_err(|source| RuntimeError::io("reading current dir", source))?,
+            env: BTreeMap::new(),
+            credential_delivery: CredentialDelivery::none(),
+        })?;
+        DEFAULT_TIMEOUT_OVERRIDE_SECONDS.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        assert_eq!(output.status, InvocationStatus::Failure);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "cli-tool without a manifest timeout must not run unbounded"
+        );
+        Ok(())
+    }
 }

@@ -13,6 +13,7 @@ use serde_json::{Value as WireValue, json};
 
 use super::agent_loop::{AgentToolUse, AgentTurn, ModelCaller};
 use crate::RuntimeError;
+use crate::credentials::SecretString;
 use crate::runtime_http::{
     HttpMethod, RuntimeHttpHeader, RuntimeHttpRequest, RuntimeHttpTransport,
 };
@@ -38,7 +39,7 @@ pub struct AgentToolDefinition {
 pub struct AnthropicModelCaller<T> {
     transport: T,
     url: String,
-    api_key: String,
+    api_key: SecretString,
     model: String,
     tools: Vec<AgentToolDefinition>,
 }
@@ -46,7 +47,7 @@ pub struct AnthropicModelCaller<T> {
 impl<T> AnthropicModelCaller<T> {
     pub fn new(
         transport: T,
-        api_key: String,
+        api_key: SecretString,
         model: String,
         tools: Vec<AgentToolDefinition>,
     ) -> Self {
@@ -173,7 +174,7 @@ impl<T: RuntimeHttpTransport> ModelCaller for AnthropicModelCaller<T> {
                 method: HttpMethod::Post,
                 url: self.url.clone(),
                 headers: vec![
-                    RuntimeHttpHeader::new("x-api-key", self.api_key.as_str()),
+                    RuntimeHttpHeader::new("x-api-key", self.api_key.expose()),
                     RuntimeHttpHeader::new("anthropic-version", ANTHROPIC_VERSION),
                     RuntimeHttpHeader::new("content-type", "application/json"),
                 ],
@@ -217,7 +218,12 @@ mod tests {
     }
 
     fn caller(stub: &StubTransport) -> AnthropicModelCaller<&StubTransport> {
-        AnthropicModelCaller::new(stub, "key".to_owned(), "claude".to_owned(), Vec::new())
+        AnthropicModelCaller::new(
+            stub,
+            SecretString::new("key"),
+            "claude".to_owned(),
+            Vec::new(),
+        )
     }
 
     #[test]

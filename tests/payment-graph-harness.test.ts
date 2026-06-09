@@ -14,14 +14,31 @@ const rustKernelBin = path.resolve(
   process.platform === "win32" ? "runx.exe" : "runx",
 );
 const graphSkills = [
-  { skill: "mock-pay", caseName: "mock-pay-mock-path" },
-  { skill: "mpp-pay", caseName: "mpp-pay-mpp-path" },
-  { skill: "stripe-pay", caseName: "stripe-pay-stripe-spt-path" },
-  { skill: "x402-pay", caseName: "x402-pay-x402-path" },
+  { skill: "charge", caseName: "charge-mock-path", stepIds: ["price", "challenge", "verify", "seal", "forward"] },
+  { skill: "mock-pay", caseName: "mock-pay-mock-path", stepIds: ["spend"] },
+  { skill: "mpp-pay", caseName: "mpp-pay-mpp-path", stepIds: ["spend"] },
+  { skill: "refund", caseName: "refund-mock-path", stepIds: ["quote", "reserve", "approve-refund", "settlement"] },
+  { skill: "spend", caseName: "spend-mock-path", stepIds: ["quote", "reserve", "approve-spend", "fulfill"] },
+  { skill: "stripe-pay", caseName: "stripe-pay-stripe-spt-path", stepIds: ["spend"] },
+  { skill: "x402-pay", caseName: "x402-pay-x402-path", stepIds: ["spend"] },
 ];
+const graphHarnessCaseCounts = new Map([
+  ["charge", 3],
+  ["refund", 3],
+  ["spend", 4],
+]);
+const graphStepCounts = new Map([
+  ["charge", 15],
+  ["mock-pay", 1],
+  ["mpp-pay", 1],
+  ["refund", 12],
+  ["spend", 16],
+  ["stripe-pay", 1],
+  ["x402-pay", 1],
+]);
 
 describe("canonical payment graph profiles", () => {
-  it.each(graphSkills)("$skill profile is native-discoverable and declares a harness case", async ({ skill, caseName }) => {
+  it.each(graphSkills)("$skill profile is native-discoverable and declares a harness case", async ({ skill, caseName, stepIds: expectedStepIds }) => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), `runx-${skill}-profile-`));
     const stdout = createMemoryStream();
     const stderr = createMemoryStream();
@@ -30,7 +47,7 @@ describe("canonical payment graph profiles", () => {
       const profile = await readPaymentProfile(skill);
       expect(profile).toContain(`- name: ${caseName}`);
       expect(profile).toMatch(/^\s+type: graph$/m);
-      expect(stepIds(profile)).toEqual(["quote", "reserve", "approve-spend", "fulfill"]);
+      expect(stepIds(profile)).toEqual(expectedStepIds);
 
       const exitCode = await runCli(
         ["list", "graphs", "--json"],
@@ -52,8 +69,8 @@ describe("canonical payment graph profiles", () => {
             kind: "graph",
             name: skill,
             status: "ok",
-            harness_cases: 1,
-            steps: 4,
+            harness_cases: graphHarnessCaseCounts.get(skill) ?? 1,
+            steps: graphStepCounts.get(skill) ?? expectedStepIds.length,
           }),
         ]),
       );
@@ -68,7 +85,7 @@ async function readPaymentProfile(skill: string): Promise<string> {
 }
 
 function stepIds(profile: string): readonly string[] {
-  return [...profile.matchAll(/^\s+- id: ([a-z0-9-]+)$/gm)].map((match) => match[1]);
+  return [...new Set([...profile.matchAll(/^\s+- id: ([a-z0-9-]+)$/gm)].map((match) => match[1]))];
 }
 
 function paymentHarnessEnv(): NodeJS.ProcessEnv {

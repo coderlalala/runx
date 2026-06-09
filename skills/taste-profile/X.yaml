@@ -1,0 +1,46 @@
+skill: taste-profile
+version: 0.1.0
+catalog:
+  kind: skill
+  audience: public
+  visibility: public
+  role: context
+runners:
+  profile:
+    default: true
+    type: agent-task
+    agent: curator
+    task: taste-profile
+    outputs:
+      decision: string
+      subject: string
+      applicability: object
+      taste_profile: object
+      evidence: object
+      redactions: array
+      stop_conditions: array
+      receipt_notes: object
+    artifacts:
+      wrap_as: taste_profile_packet
+      packet: runx.context.taste_profile.v1
+    inputs:
+      subject:
+        type: string
+        required: true
+        description: Person, team, product, or audience whose taste is being profiled.
+      evidence:
+        type: json
+        required: true
+        description: Concrete examples, corrections, liked artifacts, rejected artifacts, or direct preference notes.
+      surface:
+        type: string
+        required: false
+        description: Surface where the taste profile will be applied.
+      audience:
+        type: string
+        required: false
+        description: Intended audience for downstream use.
+      constraints:
+        type: json
+        required: false
+        description: Policy, brand, accessibility, legal, or operational constraints.

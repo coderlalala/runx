@@ -18,6 +18,7 @@ use super::seal::{RuntimeReceiptProofContextProvider, RuntimeReceiptSignaturePol
 
 const RECEIPT_STORE_INDEX_SCHEMA: &str = "runx.receipt_store_index.v1";
 const INDEX_FILE_NAME: &str = "index.json";
+const EFFECT_STATE_FILE_NAME: &str = "effect-state.json";
 
 #[derive(Clone, Debug)]
 pub struct LocalReceiptStore {
@@ -120,9 +121,7 @@ impl LocalReceiptStore {
                 source,
             })?;
             let path = entry.path();
-            if path.extension() != Some(OsStr::new("json"))
-                || path.file_name() == Some(OsStr::new(INDEX_FILE_NAME))
-            {
+            if !is_receipt_json_path(&path) {
                 continue;
             }
             let Some(receipt_id) = path.file_stem().and_then(OsStr::to_str) else {
@@ -148,9 +147,7 @@ impl LocalReceiptStore {
                 source,
             })?;
             let path = entry.path();
-            if path.extension() != Some(OsStr::new("json"))
-                || path.file_name() == Some(OsStr::new(INDEX_FILE_NAME))
-            {
+            if !is_receipt_json_path(&path) {
                 continue;
             }
             let Some(receipt_id) = path.file_stem().and_then(OsStr::to_str) else {
@@ -311,9 +308,7 @@ impl LocalReceiptStore {
                 source,
             })?;
             let path = entry.path();
-            if path.extension() == Some(OsStr::new("json"))
-                && path.file_name() != Some(OsStr::new(INDEX_FILE_NAME))
-            {
+            if is_receipt_json_path(&path) {
                 count += 1;
             }
         }
@@ -496,6 +491,18 @@ fn receipt_file_name(receipt_id: &str) -> Result<String, ReceiptStoreError> {
         });
     }
     Ok(format!("{receipt_id}.json"))
+}
+
+fn is_receipt_json_path(path: &Path) -> bool {
+    path.extension() == Some(OsStr::new("json"))
+        && path.file_name().is_some_and(|file_name| {
+            file_name != OsStr::new(INDEX_FILE_NAME)
+                && file_name != OsStr::new(EFFECT_STATE_FILE_NAME)
+        })
+        && path
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .is_some_and(|stem| receipt_file_name(stem).is_ok())
 }
 
 fn read_receipt_file(

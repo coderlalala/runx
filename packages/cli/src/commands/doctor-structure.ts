@@ -86,7 +86,13 @@ async function renderOfficialSkillsLock(root: string): Promise<string | undefine
   if (!existsSync(skillsRoot)) {
     return undefined;
   }
-  const entries: { skill_id: string; version: string; digest: string }[] = [];
+  const entries: {
+    skill_id: string;
+    version: string;
+    digest: string;
+    catalog_visibility: "public" | "internal";
+    catalog_role: string;
+  }[] = [];
   for (const entry of [...await safeReadDir(skillsRoot)].sort((left, right) => left.name.localeCompare(right.name))) {
     if (!entry.isDirectory()) {
       continue;
@@ -104,6 +110,8 @@ async function renderOfficialSkillsLock(root: string): Promise<string | undefine
       skill_id: record.skill_id,
       version: record.version,
       digest: record.digest,
+      catalog_visibility: record.catalog_visibility,
+      catalog_role: record.catalog_role,
     });
   }
   return `${JSON.stringify(entries, null, 2)}\n`;
@@ -116,7 +124,13 @@ function hashDoctorContents(contents: string): string {
 function buildOfficialSkillLockRecord(
   markdown: string,
   profileDocument: string,
-): { readonly skill_id: string; readonly version: string; readonly digest: string } {
+): {
+  readonly skill_id: string;
+  readonly version: string;
+  readonly digest: string;
+  readonly catalog_visibility: "public" | "internal";
+  readonly catalog_role: string;
+} {
   const raw = parseSkillMarkdown(markdown);
   const skill = validateSkill(raw, { mode: "strict" });
   const manifest = validateRunnerManifest(parseRunnerManifestYaml(profileDocument));
@@ -136,6 +150,8 @@ function buildOfficialSkillLockRecord(
     skill_id: `runx/${slugifyOfficialSkillName(skill.name)}`,
     version: `sha-${versionSeed.slice(0, 12)}`,
     digest,
+    catalog_visibility: manifest.catalog?.visibility ?? "internal",
+    catalog_role: manifest.catalog?.role ?? "context",
   };
 }
 

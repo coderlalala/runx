@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,26 +9,61 @@ import { parseRunnerManifestYaml, validateRunnerManifest } from "./cli-parser/in
 import { officialSkillVisibleForCatalog } from "./skill-refs.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const privatePaymentStepNodes = [
-  "pay-quote",
-  "pay-reserve",
-  "pay-fulfill-rail",
-  "pay-recover",
-  "charge-challenge",
-  "charge-price",
-  "charge-verify",
-  "refund-quote",
-  "refund-reserve",
-  "refund-recover",
+const publicOfficialCatalogSkills = [
+  "brand-voice",
+  "charge",
+  "dispute-respond",
+  "evolve",
+  "improve-skill",
+  "least-privilege-auditor",
+  "nitrosend",
+  "nws-weather-forecast",
+  "overlay-generator",
+  "policy-author",
+  "receipt-auditor",
+  "refund",
+  "send-as",
+  "spend",
+  "stripe-pay",
+  "taste-profile",
+  "weather-forecast",
+  "x402-pay",
 ];
-const privateMockFaces = ["mock-charge", "mock-pay", "mock-refund"];
-const publicPaymentFaces = ["x402-pay", "stripe-pay", "stripe-charge", "stripe-refund", "mpp-pay", "mpp-charge", "mpp-refund"];
+const paymentGraphStageOwners: Readonly<Record<string, string>> = {
+  "charge-challenge": "charge",
+  "charge-price": "charge",
+  "charge-verify": "charge",
+  "pay-fulfill-rail": "spend",
+  "pay-quote": "spend",
+  "pay-recover": "spend",
+  "pay-reserve": "spend",
+  "refund-quote": "refund",
+  "refund-recover": "refund",
+  "refund-reserve": "refund",
+};
+const paymentHarnessFixtures = [
+  "mock-charge",
+  "mock-pay",
+  "mock-refund",
+];
+const paymentRuntimePaths = [
+  "mpp-charge",
+  "mpp-pay",
+  "mpp-refund",
+  "stripe-charge",
+  "stripe-refund",
+];
+const issueToPrGraphStageOwners: Readonly<Record<string, string>> = {
+  scafld: "issue-to-pr",
+};
 
 describe("official skill catalog exposure", () => {
-  it("hides mock payment faces unless the dev catalog is explicitly enabled", () => {
+  it("hides non-catalog official skills unless the dev catalog is explicitly enabled", () => {
     expect(officialSkillVisibleForCatalog("runx/mock-pay", {})).toBe(false);
-    expect(officialSkillVisibleForCatalog("runx/mock-charge", {})).toBe(false);
-    expect(officialSkillVisibleForCatalog("runx/mock-refund", {})).toBe(false);
+    expect(officialSkillVisibleForCatalog("runx/x402-pay", {})).toBe(true);
+    expect(officialSkillVisibleForCatalog("runx/stripe-pay", {})).toBe(true);
+    expect(officialSkillVisibleForCatalog("runx/issue-to-pr", {})).toBe(false);
+    expect(officialSkillVisibleForCatalog("runx/research", {})).toBe(false);
     expect(
       officialSkillVisibleForCatalog("runx/mock-pay", {
         RUNX_DEV_CATALOG: "1",
@@ -36,21 +71,47 @@ describe("official skill catalog exposure", () => {
     ).toBe(true);
   });
 
-  it("keeps real payment faces visible", () => {
-    expect(officialSkillVisibleForCatalog("runx/x402-pay", {})).toBe(true);
-    expect(officialSkillVisibleForCatalog("runx/stripe-pay", {})).toBe(true);
-    expect(officialSkillVisibleForCatalog("runx/mpp-pay", {})).toBe(true);
+  it("keeps implemented catalog skills visible", () => {
+    for (const skill of publicOfficialCatalogSkills) {
+      expect(officialSkillVisibleForCatalog(`runx/${skill}`, {}), skill).toBe(true);
+    }
   });
 
-  it("keeps payment catalog visibility explicit in first-party runner manifests", () => {
-    for (const skill of privatePaymentStepNodes) {
-      expect(catalogVisibility(skill), skill).toBe("private");
+  it("keeps catalog visibility explicit in first-party runner manifests", () => {
+    const allSkills = readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .filter((entry) => {
+        const skillDir = path.join(repoRoot, "skills", entry.name);
+        return existsSync(path.join(skillDir, "SKILL.md")) && existsSync(path.join(skillDir, "X.yaml"));
+      })
+      .map((entry) => entry.name)
+      .sort();
+    const expectedPublic = new Set(publicOfficialCatalogSkills);
+    const actualPublic = allSkills.filter((skill) => catalogVisibility(skill) === "public");
+
+    expect(actualPublic).toEqual([...publicOfficialCatalogSkills].sort());
+    for (const skill of allSkills) {
+      expect(catalogVisibility(skill), skill).toBe(expectedPublic.has(skill) ? "public" : "internal");
+      expect(catalogRole(skill), skill).toBeTruthy();
     }
-    for (const skill of privateMockFaces) {
-      expect(catalogVisibility(skill), skill).toBe("private");
+  });
+
+  it("keeps payment lifecycle internals and rail fixtures out of the catalog with explicit roles", () => {
+    for (const [stage, owner] of Object.entries(paymentGraphStageOwners)) {
+      expect(existsSync(path.join(repoRoot, "skills", owner, "graph", stage, "X.yaml")), stage).toBe(true);
+      expect(existsSync(path.join(repoRoot, "skills", stage)), stage).toBe(false);
     }
-    for (const skill of publicPaymentFaces) {
-      expect(catalogVisibility(skill), skill).toBe("public");
+    for (const [stage, owner] of Object.entries(issueToPrGraphStageOwners)) {
+      expect(existsSync(path.join(repoRoot, "skills", owner, "graph", stage, "X.yaml")), stage).toBe(true);
+      expect(existsSync(path.join(repoRoot, "skills", stage)), stage).toBe(false);
+    }
+    for (const skill of paymentHarnessFixtures) {
+      expect(catalogVisibility(skill), skill).toBe("internal");
+      expect(catalogRole(skill), skill).toBe("harness-fixture");
+    }
+    for (const skill of paymentRuntimePaths) {
+      expect(catalogVisibility(skill), skill).toBe("internal");
+      expect(catalogRole(skill), skill).toBe("runtime-path");
     }
   });
 });
@@ -59,4 +120,10 @@ function catalogVisibility(skill: string): string | undefined {
   const manifestPath = path.join(repoRoot, "skills", skill, "X.yaml");
   const manifest = validateRunnerManifest(parseRunnerManifestYaml(readFileSync(manifestPath, "utf8")));
   return manifest.catalog?.visibility;
+}
+
+function catalogRole(skill: string): string | undefined {
+  const manifestPath = path.join(repoRoot, "skills", skill, "X.yaml");
+  const manifest = validateRunnerManifest(parseRunnerManifestYaml(readFileSync(manifestPath, "utf8")));
+  return manifest.catalog?.role;
 }

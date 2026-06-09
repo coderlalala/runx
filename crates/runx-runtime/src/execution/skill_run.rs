@@ -19,7 +19,11 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::RuntimeError;
-#[cfg(any(feature = "cli-tool", feature = "thread-outbox-provider"))]
+#[cfg(any(
+    feature = "cli-tool",
+    feature = "http",
+    feature = "thread-outbox-provider"
+))]
 use crate::adapter::SkillAdapter;
 use crate::adapter::{InvocationStatus, SkillInvocation, SkillOutput};
 #[cfg(feature = "cli-tool")]
@@ -28,11 +32,13 @@ use crate::agent_invocation::{
     AgentActInvocationSourceType, agent_act_invocation_id, agent_act_resolution_request,
 };
 use crate::effects::RuntimeEffectRegistry;
+use crate::execution::graph::materialize_graph_inputs;
 use crate::execution::orchestrator::SkillRunRequest;
 use crate::execution::runner::{
     GraphCheckpoint, GraphRun, RUNX_RUN_ID_ENV, Runtime, RuntimeOptions,
 };
 use crate::host::Host;
+use crate::receipts::signing::strip_receipt_signing_env;
 use crate::receipts::store::ReceiptStoreError;
 use crate::receipts::{
     RuntimeReceiptSignatureConfig, StepReceiptWithDisposition,
@@ -83,9 +89,12 @@ pub(crate) fn execute_skill_run_with_overrides(
     overrides: &SkillRunOverrides,
     effects: &RuntimeEffectRegistry,
 ) -> Result<JsonValue, SkillRunError> {
-    let workspace = WorkspaceEnv::new(request.env.clone(), request.cwd.clone());
-    let receipts = ReceiptServices::from_env(workspace.env())
+    let raw_workspace = WorkspaceEnv::new(request.env.clone(), request.cwd.clone());
+    let receipts = ReceiptServices::from_env(raw_workspace.env())
         .map_err(|error| SkillRunError::Invalid(error.to_string()))?;
+    let mut runtime_env = request.env.clone();
+    strip_receipt_signing_env(&mut runtime_env);
+    let workspace = WorkspaceEnv::new(runtime_env, request.cwd.clone());
     let skill_dir = resolve_skill_dir(&request.skill_path)?;
     let manifest = load_runner_manifest(&skill_dir)?;
     let runner = selected_runner(&manifest, overrides.runner.as_deref())?;
@@ -100,7 +109,7 @@ pub(crate) fn execute_skill_run_with_overrides(
         &skill_dir,
         runner,
         &request.inputs,
-        &request.env,
+        workspace.env(),
         request.local_credential.as_ref(),
     )?;
     if runner.source.source_type == runx_parser::SourceKind::CliTool {
@@ -483,7 +492,12 @@ fn execute_graph_skill_run(
         .graph
         .clone()
         .ok_or_else(|| invalid("graph runner is missing source.graph"))?;
-    let graph = materialize_graph_inputs(graph, &request.inputs);
+    let graph_inputs = request
+        .inputs
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<JsonObject>();
+    let graph = materialize_graph_inputs(graph, &graph_inputs);
     let run_id = graph_run_id(request, runner)?;
     let skill_dir = resolve_skill_dir(&request.skill_path)?;
     let mut env = workspace.graph_env_for_skill(&skill_dir);
@@ -913,8 +927,16 @@ fn write_graph_state(
     }
     let bytes = serde_json::to_vec_pretty(state)
         .map_err(|source| RuntimeError::json("serializing graph state", source))?;
-    fs::write(&path, bytes)
-        .map_err(|source| RuntimeError::io(format!("writing {}", path.display()), source))?;
+    let temp_path = graph_state_temp_path(&path);
+    fs::write(&temp_path, bytes)
+        .map_err(|source| RuntimeError::io(format!("writing {}", temp_path.display()), source))?;
+    fs::rename(&temp_path, &path).map_err(|source| {
+        let _ignored = fs::remove_file(&temp_path);
+        RuntimeError::io(
+            format!("replacing {} with {}", path.display(), temp_path.display()),
+            source,
+        )
+    })?;
     Ok(())
 }
 
@@ -928,8 +950,12 @@ fn read_graph_state(
     let path = graph_state_path(request, workspace, receipts, run_id);
     let raw = fs::read_to_string(&path)
         .map_err(|source| RuntimeError::io(format!("reading {}", path.display()), source))?;
-    let state: GraphSkillRunState = serde_json::from_str(&raw)
-        .map_err(|source| RuntimeError::json(format!("parsing {}", path.display()), source))?;
+    let state: GraphSkillRunState = serde_json::from_str(&raw).map_err(|source| {
+        invalid(format!(
+            "graph state file {} is malformed; the run cannot resume safely without a valid checkpoint: {source}",
+            path.display()
+        ))
+    })?;
     if state.schema != GRAPH_SKILL_STATE_SCHEMA {
         return Err(invalid(format!(
             "graph state schema mismatch for run {run_id}: expected {GRAPH_SKILL_STATE_SCHEMA}, got {}",
@@ -951,68 +977,12 @@ fn read_graph_state(
     Ok(state)
 }
 
-fn materialize_graph_inputs(
-    mut graph: ExecutionGraph,
-    graph_inputs: &BTreeMap<String, JsonValue>,
-) -> ExecutionGraph {
-    let graph_inputs = graph_inputs
-        .iter()
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect::<JsonObject>();
-    for step in &mut graph.steps {
-        let mut inputs = graph_inputs.clone();
-        for (key, value) in &step.inputs {
-            if let Some(value) = materialize_graph_input_value(value, &graph_inputs) {
-                inputs.insert(key.clone(), value);
-            } else {
-                inputs.remove(key);
-            }
-        }
-        step.inputs = inputs;
-    }
-    graph
-}
-
-fn materialize_graph_input_value(
-    value: &JsonValue,
-    graph_inputs: &JsonObject,
-) -> Option<JsonValue> {
-    match value {
-        JsonValue::String(value) => {
-            if let Some(path) = value.strip_prefix("$input.") {
-                return resolve_json_path(graph_inputs, path).cloned();
-            }
-            Some(JsonValue::String(value.clone()))
-        }
-        JsonValue::Array(values) => Some(JsonValue::Array(
-            values
-                .iter()
-                .filter_map(|value| materialize_graph_input_value(value, graph_inputs))
-                .collect(),
-        )),
-        JsonValue::Object(object) => Some(JsonValue::Object(
-            object
-                .iter()
-                .filter_map(|(key, value)| {
-                    materialize_graph_input_value(value, graph_inputs)
-                        .map(|value| (key.clone(), value))
-                })
-                .collect(),
-        )),
-        other => Some(other.clone()),
-    }
-}
-
-fn resolve_json_path<'a>(object: &'a JsonObject, path: &str) -> Option<&'a JsonValue> {
-    let mut segments = path.split('.');
-    let mut value = object.get(segments.next()?)?;
-    for segment in segments {
-        let JsonValue::Object(nested) = value else {
-            return None;
-        };
-        value = nested.get(segment)?;
-    }
-    Some(value)
+fn graph_state_temp_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("graph-state.json");
+    path.with_file_name(format!("{file_name}.{}.tmp", std::process::id()))
 }
 
 fn graph_payload(run: &GraphRun) -> Result<JsonValue, SkillRunError> {

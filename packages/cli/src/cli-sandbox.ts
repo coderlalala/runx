@@ -25,6 +25,6 @@ export function normalizeSandboxDeclaration(sandbox: SandboxDeclaration | undefi
     envAllowlist: sandbox?.envAllowlist,
     network: sandbox?.network ?? sandbox?.profile === "network",
     writablePaths: sandbox?.writablePaths ?? [],
-    requireEnforcement: sandbox?.requireEnforcement ?? false,
+    requireEnforcement: sandbox?.requireEnforcement ?? sandbox?.profile !== "unrestricted-local-dev",
   };
 }

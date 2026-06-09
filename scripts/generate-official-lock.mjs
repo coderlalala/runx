@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { parseRunnerManifestYaml, parseSkillMarkdown, validateRunnerManifest, validateSkill } from "../packages/cli/dist/src/cli-parser/index.js";
+import YAML from "yaml";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = path.resolve(scriptDir, "..");
@@ -30,15 +30,16 @@ for (const entry of (await readdir(skillsRoot, { withFileTypes: true })).sort((l
     skill_id: record.skill_id,
     version: record.version,
     digest: record.digest,
+    catalog_visibility: record.catalog_visibility,
+    catalog_role: record.catalog_role,
   });
 }
 
 await writeFile(outputPath, `${JSON.stringify(entries, null, 2)}\n`, "utf8");
 
 function buildOfficialSkillLockRecord(markdown, profileDocument) {
-  const raw = parseSkillMarkdown(markdown);
-  const skill = validateSkill(raw, { mode: "strict" });
-  const manifest = validateRunnerManifest(parseRunnerManifestYaml(profileDocument));
+  const skill = parseSkillFrontmatter(markdown);
+  const manifest = parseRunnerManifest(profileDocument);
   if (manifest.skill && manifest.skill !== skill.name) {
     throw new Error(`Runner manifest skill '${manifest.skill}' does not match skill '${skill.name}'.`);
   }
@@ -55,6 +56,62 @@ function buildOfficialSkillLockRecord(markdown, profileDocument) {
     skill_id: `runx/${slugifyOfficialSkillName(skill.name)}`,
     version: `sha-${versionSeed.slice(0, 12)}`,
     digest,
+    catalog_visibility: manifest.catalog.visibility,
+    catalog_role: manifest.catalog.role,
+  };
+}
+
+function parseSkillFrontmatter(markdown) {
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) {
+    throw new Error("Official SKILL.md is missing YAML frontmatter.");
+  }
+  const frontmatter = YAML.parse(match[1]);
+  if (!frontmatter || typeof frontmatter !== "object" || typeof frontmatter.name !== "string" || frontmatter.name.trim() === "") {
+    throw new Error("Official SKILL.md frontmatter must declare a non-empty name.");
+  }
+  return { name: frontmatter.name.trim() };
+}
+
+function parseRunnerManifest(profileDocument) {
+  const manifest = YAML.parse(profileDocument);
+  if (!manifest || typeof manifest !== "object") {
+    throw new Error("Official X.yaml must parse to an object.");
+  }
+  const catalog = manifest.catalog;
+  if (!catalog || typeof catalog !== "object") {
+    throw new Error("Official X.yaml must declare catalog metadata.");
+  }
+  const visibility = catalog.visibility ?? "internal";
+  const role = catalog.role;
+  if (visibility !== "public" && visibility !== "internal") {
+    throw new Error("Official X.yaml catalog.visibility must be public or internal.");
+  }
+  if (![
+    "canonical",
+    "branded",
+    "context",
+    "graph-stage",
+    "runtime-path",
+    "harness-fixture",
+  ].includes(role)) {
+    throw new Error("Official X.yaml catalog.role is missing or invalid.");
+  }
+  if (visibility === "public" && ["graph-stage", "runtime-path", "harness-fixture"].includes(role)) {
+    throw new Error("Official X.yaml public catalog entries cannot be graph stages, runtime paths, or harness fixtures.");
+  }
+  if (role === "branded" && (!catalog.canonical_skill || !catalog.provider)) {
+    throw new Error("Official X.yaml branded catalog entries must declare canonical_skill and provider.");
+  }
+  if (
+    ["graph-stage", "runtime-path", "harness-fixture"].includes(role) &&
+    (!Array.isArray(catalog.part_of) || catalog.part_of.length === 0)
+  ) {
+    throw new Error("Official X.yaml internal graph-stage, runtime-path, and harness-fixture entries must declare part_of.");
+  }
+  return {
+    skill: typeof manifest.skill === "string" ? manifest.skill : undefined,
+    catalog: { visibility, role },
   };
 }
 

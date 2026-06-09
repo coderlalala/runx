@@ -4,32 +4,55 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const workspaceRoot = process.cwd();
-const cliSourceRoot = path.join(workspaceRoot, "packages", "cli", "src");
-const runxScope = "@runxhq";
-const adaptersPackage = `${runxScope}/adapters`;
-const runtimeLocalPackage = `${runxScope}/runtime-local`;
+const packagesRoot = path.join(workspaceRoot, "packages");
+const FORBIDDEN_PACKAGE_NAMES = [
+  "@runxhq/adapters",
+  "@runxhq/runtime-local",
+] as const;
 
-const ALLOWED_RUNTIME_IMPORTERS = new Map<string, readonly string[]>();
+const ALLOWED_FORBIDDEN_IMPORTERS = new Map<string, readonly string[]>();
 
-describe("CLI runtime-local importer boundary", () => {
-  it("keeps runtime-local and adapters imports pinned to execution-owned blockers", async () => {
-    const importers = await collectRuntimeImporters();
+describe("published package import boundary", () => {
+  it("keeps deleted runtime-local and adapters packages out of published package sources", async () => {
+    const importers = await collectForbiddenPackageImporters();
 
-    expect(importers).toEqual(ALLOWED_RUNTIME_IMPORTERS);
+    expect(importers).toEqual(ALLOWED_FORBIDDEN_IMPORTERS);
   });
 });
 
-async function collectRuntimeImporters(): Promise<Map<string, readonly string[]>> {
+async function collectForbiddenPackageImporters(): Promise<Map<string, readonly string[]>> {
   const importers = new Map<string, readonly string[]>();
-  for (const filePath of await listTypeScriptFiles(cliSourceRoot)) {
-    const contents = await readFile(filePath, "utf8");
-    const imports = extractRuntimeImportSpecifiers(contents);
-    if (imports.length === 0) {
-      continue;
+  for (const sourceRoot of await listPublishedPackageSourceRoots()) {
+    for (const filePath of await listTypeScriptFiles(sourceRoot)) {
+      const contents = await readFile(filePath, "utf8");
+      const imports = extractForbiddenPackageImportSpecifiers(contents);
+      if (imports.length === 0) {
+        continue;
+      }
+      importers.set(toProjectPath(filePath), imports);
     }
-    importers.set(toProjectPath(filePath), imports);
   }
   return new Map([...importers].sort(([left], [right]) => left.localeCompare(right)));
+}
+
+async function listPublishedPackageSourceRoots(): Promise<readonly string[]> {
+  const entries = await readdir(packagesRoot, { withFileTypes: true });
+  const sourceRoots: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const packageRoot = path.join(packagesRoot, entry.name);
+    const packageJson = await readPackageJson(path.join(packageRoot, "package.json"));
+    if (!packageJson || packageJson.private === true) {
+      continue;
+    }
+    const sourceRoot = path.join(packageRoot, "src");
+    if (await isDirectory(sourceRoot)) {
+      sourceRoots.push(sourceRoot);
+    }
+  }
+  return sourceRoots.sort((left, right) => left.localeCompare(right));
 }
 
 async function listTypeScriptFiles(directory: string): Promise<readonly string[]> {
@@ -48,16 +71,19 @@ async function listTypeScriptFiles(directory: string): Promise<readonly string[]
   return files.sort((left, right) => left.localeCompare(right));
 }
 
-function extractRuntimeImportSpecifiers(contents: string): readonly string[] {
+function extractForbiddenPackageImportSpecifiers(contents: string): readonly string[] {
   const imports = new Set<string>();
   for (const pattern of [
     /\bfrom\s+["']([^"'`]+)["']/gm,
     /^\s*import\s+(?:type\s+)?["']([^"'`]+)["'];?/gm,
+    /\bimport\s*\(\s*["']([^"'`]+)["']\s*\)/gm,
+    /\brequire\s*\(\s*["']([^"'`]+)["']\s*\)/gm,
   ]) {
     for (const match of contents.matchAll(pattern)) {
       const specifier = match[1];
-      if (specifier === runtimeLocalPackage || specifier.startsWith(`${runtimeLocalPackage}/`) ||
-        specifier === adaptersPackage || specifier.startsWith(`${adaptersPackage}/`)) {
+      if (FORBIDDEN_PACKAGE_NAMES.some((packageName) =>
+        specifier === packageName || specifier.startsWith(`${packageName}/`)
+      )) {
         imports.add(specifier);
       }
     }
@@ -67,4 +93,21 @@ function extractRuntimeImportSpecifiers(contents: string): readonly string[] {
 
 function toProjectPath(filePath: string): string {
   return path.relative(workspaceRoot, filePath).split(path.sep).join("/");
+}
+
+async function readPackageJson(filePath: string): Promise<{ readonly private?: boolean } | undefined> {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8")) as { readonly private?: boolean };
+  } catch {
+    return undefined;
+  }
+}
+
+async function isDirectory(directory: string): Promise<boolean> {
+  try {
+    await readdir(directory);
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -4,12 +4,15 @@ version: "0.1.0"
 catalog:
   kind: graph
   audience: public
-  visibility: public
-
+  visibility: internal
+  role: context
 harness:
   cases:
     - name: pr-review-note-comment-seals
       runner: comment
+      env:
+        RUNX_PROVIDER_PERMISSION_GRANT_ID: github-mcp-pr-comment
+        RUNX_PROVIDER_PERMISSION_GRANTED_SCOPES: pr.comment
       inputs:
         repository: runxhq/runx
         pr_number: "42"
@@ -22,6 +25,9 @@ harness:
           disposition: closed
     - name: pr-review-note-merge-refused
       runner: merge-refused
+      env:
+        RUNX_PROVIDER_PERMISSION_GRANT_ID: github-mcp-pr-comment
+        RUNX_PROVIDER_PERMISSION_GRANTED_SCOPES: pr.comment
       inputs:
         repository: runxhq/runx
         pr_number: "42"
@@ -62,8 +68,6 @@ runners:
           policy:
             provider_permission:
               grant_id: github-mcp-pr-comment
-              granted_scopes:
-                - pr.comment
               verb: comment
           inputs:
             repository: "$input.repository"
@@ -93,8 +97,6 @@ runners:
           policy:
             provider_permission:
               grant_id: github-mcp-pr-comment
-              granted_scopes:
-                - pr.comment
               verb: merge
           inputs:
             repository: "$input.repository"

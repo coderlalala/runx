@@ -1,0 +1,58 @@
+name: tighten-existing-policy
+kind: skill
+target: ..
+runner: author
+inputs:
+  governance_brief: Tighten our current policy after an audit found auto-merge was on and the docs surface had no owner.
+  existing_policy: '{"schema":"runx.operational_policy.v1","target_repos":["acme/acme"],"runner":{"id":"github-actions-issue-intake","kind":"github-actions","requires":["github-actions","scafld"]},"allowed_actions":["issue-intake","issue-to-pr"],"sources":[{"provider":"github","min_confidence":0.6}],"owner_routes":[{"surface":"platform","owner":"kam"}],"outcomes":{"verification_required":true,"close_source_issue":"when_verified","require_human_merge_gate":false,"auto_merge":true}}'
+  objective: Narrow the policy to close the audit findings; do not widen anything.
+caller:
+  answers:
+    agent_task.policy-author.output:
+      policy_proposal:
+        decision: ready
+        policy:
+          schema: runx.operational_policy.v1
+          target_repos:
+            - acme/acme
+          runner:
+            id: github-actions-issue-intake
+            kind: github-actions
+            requires:
+              - github-actions
+              - scafld
+          allowed_actions:
+            - issue-intake
+            - issue-to-pr
+          sources:
+            - provider: github
+              min_confidence: 0.72
+          owner_routes:
+            - surface: platform
+              owner: kam
+            - surface: docs
+              owner: kam
+          outcomes:
+            verification_required: true
+            close_source_issue: when_verified
+            require_human_merge_gate: true
+            auto_merge: false
+        lint:
+          status: pass
+          findings: []
+        rationale: The audit findings are closed by narrowing only. auto_merge is turned off, require_human_merge_gate is turned on, the docs surface is routed to an owner, and the GitHub confidence floor is raised from 0.6 to 0.72. No authority was widened.
+        blockers: []
+        needs_input: []
+        success_checkpoint:
+          milestone: policy_tightened
+          description: The audited policy now passes lint with mutation gated, auto-merge off, and every surface owned.
+expect:
+  status: sealed
+  receipt:
+    schema: runx.receipt.v1
+    state: sealed
+    disposition: closed
+metadata:
+  public_skill: policy-author
+  source_case: tighten-existing-policy
+  source: skills-fixture

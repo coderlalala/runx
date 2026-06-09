@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use runx_core::policy::SandboxProfile;
 use runx_parser::SkillSandbox;
 
+use super::policy::sandbox_violation;
 use crate::RuntimeError;
 
-use super::policy::sandbox_violation;
+const RUNX_SANDBOX_ALLOW_DECLARED_POLICY_ONLY_ENV: &str = "RUNX_SANDBOX_ALLOW_DECLARED_POLICY_ONLY";
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum SandboxRuntime {
@@ -32,7 +33,7 @@ impl SandboxRuntime {
 
 pub(super) fn resolve_sandbox_runtime(
     sandbox: Option<&SkillSandbox>,
-    _base_env: &BTreeMap<String, String>,
+    base_env: &BTreeMap<String, String>,
 ) -> Result<Option<SandboxRuntime>, RuntimeError> {
     let Some(sandbox) = sandbox else {
         return Ok(None);
@@ -50,11 +51,8 @@ pub(super) fn resolve_sandbox_runtime(
     if runtime.enforces() {
         return Ok(Some(runtime));
     }
-    if sandbox.require_enforcement != Some(true) {
-        return Ok(Some(runtime));
-    }
-    let reason = match runtime {
-        SandboxRuntime::DeclaredPolicyOnly { reason } => reason,
+    let reason = match &runtime {
+        SandboxRuntime::DeclaredPolicyOnly { reason } => reason.clone(),
         SandboxRuntime::Direct => {
             "direct execution does not enforce sandbox declarations".to_owned()
         }
@@ -62,7 +60,31 @@ pub(super) fn resolve_sandbox_runtime(
             return Ok(Some(runtime));
         }
     };
-    Err(sandbox_violation(reason))
+    if sandbox.require_enforcement == Some(true) {
+        return Err(sandbox_violation(reason));
+    }
+    if declared_policy_only_degradation_allowed(base_env) {
+        return Ok(Some(runtime));
+    }
+    Err(sandbox_violation(declared_policy_only_denied_reason(
+        &reason,
+    )))
+}
+
+fn declared_policy_only_degradation_allowed(base_env: &BTreeMap<String, String>) -> bool {
+    operator_allows_declared_policy_only(base_env)
+}
+
+fn operator_allows_declared_policy_only(base_env: &BTreeMap<String, String>) -> bool {
+    base_env
+        .get(RUNX_SANDBOX_ALLOW_DECLARED_POLICY_ONLY_ENV)
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("local"))
+}
+
+fn declared_policy_only_denied_reason(reason: &str) -> String {
+    format!(
+        "{reason}; set {RUNX_SANDBOX_ALLOW_DECLARED_POLICY_ONLY_ENV}=local only for scoped local development runs that may proceed without OS sandbox enforcement"
+    )
 }
 
 fn platform_sandbox_runtime(profile: &str) -> SandboxRuntime {
@@ -108,7 +130,23 @@ fn find_usable_sandbox_exec() -> Option<PathBuf> {
         .args(["-p", "(version 1)\n(allow default)", "/usr/bin/true"])
         .status()
         .ok()?;
-    status.success().then_some(path)
+    if !status.success() {
+        return None;
+    }
+    sandbox_exec_denies_default(&path).then_some(path)
+}
+
+#[cfg(target_os = "macos")]
+fn sandbox_exec_denies_default(path: &std::path::Path) -> bool {
+    std::process::Command::new(path)
+        .args([
+            "-p",
+            "(version 1)\n(deny default)\n(allow process*)",
+            "/bin/cat",
+            "/etc/passwd",
+        ])
+        .status()
+        .is_ok_and(|status| !status.success())
 }
 
 pub(super) fn find_trusted_executable(command: &str) -> Option<PathBuf> {
@@ -125,4 +163,25 @@ fn default_executable_search_paths(command: &str) -> Vec<PathBuf> {
         paths.push(PathBuf::from("/sbin"));
     }
     paths
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        RUNX_SANDBOX_ALLOW_DECLARED_POLICY_ONLY_ENV, declared_policy_only_degradation_allowed,
+    };
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn declared_policy_only_requires_operator_override() {
+        let mut env = BTreeMap::new();
+
+        assert!(!declared_policy_only_degradation_allowed(&env));
+
+        env.insert(
+            RUNX_SANDBOX_ALLOW_DECLARED_POLICY_ONLY_ENV.to_owned(),
+            "local".to_owned(),
+        );
+        assert!(declared_policy_only_degradation_allowed(&env));
+    }
 }

@@ -1,0 +1,55 @@
+name: newsletter-template-ready
+kind: skill
+target: ..
+runner: compose-email
+inputs:
+  objective: Design our monthly product newsletter template with a hero, two updates, and one call to action.
+  account_status_json: '{"status":"healthy","account":{"tier":"pro"},"brand":{"setup_complete":true,"company_name":"Acme Co"}}'
+  brand_brief: Friendly, concise, one clear button.
+  operator_context: Design and test only; no live audience send.
+caller:
+  answers:
+    agent_task.compose-email-plan.output:
+      email_design:
+        decision: ready
+        template_intent: newsletter
+        subject: Your Acme update for the month
+        preheader: Two new things, one quick read.
+        sections:
+          - type: header
+            summary: Brand logo, empty props so the theme fills it.
+          - type: hero
+            summary: Headline plus a one-line intro.
+          - type: text
+            summary: Two short product update paragraphs.
+          - type: button
+            summary: Single primary call to action.
+          - type: footer
+            summary: Company name, address, unsubscribe; empty props.
+        rationale: A mobile-first single-column newsletter with one CTA, brand auto-applied, reviewed and test-sent before any campaign uses it.
+        ordered_tool_calls:
+          - tool: nitro_manage_template
+            purpose: Create the newsletter template from the section design.
+            requires_confirmation: false
+          - tool: nitro_review_delivery
+            purpose: Validate the template content and check the editor preview.
+            requires_confirmation: false
+          - tool: nitro_send_test_message
+            purpose: Send a test of the template to the saved test recipient.
+            requires_confirmation: false
+        human_actions:
+          - Review the editor preview before reusing the template in a campaign.
+        blockers: []
+        needs_input: []
+        unsupported_requirements: []
+        success_checkpoint:
+          milestone: template_ready
+          description: A brand-applied newsletter template was created, reviewed, and test-sent.
+expect:
+  status: sealed
+  receipt:
+    schema: runx.receipt.v1
+metadata:
+  public_skill: nitrosend
+  source_case: newsletter-template-ready
+  source: skills-fixture

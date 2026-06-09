@@ -12,10 +12,10 @@ use runx_contracts::{
     ApprovalGate, ClosureDisposition, ExecutionEvent, JsonObject, JsonValue, Receipt,
     ResolutionRequest, ResolutionResponse, ResolutionResponseActor,
 };
-use runx_core::state_machine::StepAdmissionWitness;
+use runx_core::state_machine::{GraphStatus, StepAdmissionWitness};
 use runx_parser::{GraphStep, SkillSource, SourceKind};
 
-use super::super::graph::{LoadedStepSkill, load_step_skill};
+use super::super::graph::{LoadedStepSkill, load_step_skill, materialize_graph_inputs};
 use super::super::skill_context::load_context_skills;
 use super::authority::{
     EffectReceiptContext, StepAuthorityContext, enforce_step_authority_admission,
@@ -25,7 +25,7 @@ use super::authority::{
 };
 use super::host_resolution::resolve_step_approval;
 use super::inputs::{optional_input_string, required_input_string, string_value, string_value_ref};
-use super::{Runtime, StepRun};
+use super::{GraphRun, Runtime, StepRun};
 use crate::RuntimeError;
 use crate::adapter::{InvocationStatus, SkillAdapter, SkillInvocation, SkillOutput};
 #[cfg(feature = "catalog")]
@@ -253,6 +253,9 @@ where
     )
 }
 
+// rust-style-allow: long-function - loaded skill execution branches between
+// agent-owned and local adapter paths while preserving one authority admission
+// and receipt boundary.
 fn run_loaded_skill_step<A>(
     skill: LoadedStepSkill,
     request: StepHandlerCtx<'_, A>,
@@ -265,7 +268,7 @@ where
         skill,
         request.graph_dir,
         request.step,
-        request.inputs,
+        request.inputs.clone(),
         &request.runtime.options.created_at,
         &request.runtime.options.env,
         &request.runtime.options.credential_delivery,
@@ -290,6 +293,9 @@ where
             reason: "context_skills is only supported for agent and agent-task steps".to_owned(),
         });
     }
+    if invocation.source.source_type == SourceKind::Graph {
+        return run_nested_graph_skill_step(request, skill_name, invocation);
+    }
 
     let regular = invoke_regular_skill_step(
         request.runtime,
@@ -310,6 +316,118 @@ where
         },
         regular,
     )
+}
+
+fn run_nested_graph_skill_step<A>(
+    request: StepHandlerCtx<'_, A>,
+    skill_name: String,
+    invocation: SkillInvocation,
+) -> Result<StepRun, RuntimeError>
+where
+    A: SkillAdapter,
+{
+    let graph = invocation
+        .source
+        .graph
+        .clone()
+        .ok_or_else(|| RuntimeError::UnsupportedSource {
+            source_kind: "graph runner without source.graph".to_owned(),
+        })?;
+    let graph = materialize_graph_inputs(graph, &invocation.inputs);
+    let run =
+        request
+            .runtime
+            .run_graph_with_host(&invocation.skill_directory, graph, request.host)?;
+    let payload = nested_graph_payload(&run)?;
+    let mut output = nested_graph_skill_output(&payload, &run)?;
+    let projection = step_output_projection(request.step, &output)?;
+    prepare_effect_output_before_gate(
+        request.step,
+        request.authority.as_ref(),
+        &projection.claim,
+        &mut output,
+        &request.runtime.options.effects,
+    )?;
+    seal_regular_skill_step(
+        RegularSkillSeal {
+            runtime: request.runtime,
+            graph_dir: request.graph_dir,
+            graph_name: request.graph_name,
+            step: request.step,
+            attempt: request.attempt,
+            skill_name,
+            authority: request.authority.as_ref(),
+        },
+        RegularSkillStepOutput { output, projection },
+    )
+}
+
+fn nested_graph_payload(run: &GraphRun) -> Result<JsonValue, RuntimeError> {
+    let mut payload = JsonObject::new();
+    payload.insert(
+        "graph".to_owned(),
+        JsonValue::String(run.graph.name.clone()),
+    );
+    payload.insert(
+        "graph_status".to_owned(),
+        JsonValue::String(format!("{:?}", run.state.status)),
+    );
+    payload.insert(
+        "graph_receipt_id".to_owned(),
+        JsonValue::String(run.receipt.id.to_string()),
+    );
+    let mut step_outputs = JsonObject::new();
+    let mut step_summaries = Vec::new();
+    for step in &run.steps {
+        let mut summary = JsonObject::new();
+        summary.insert(
+            "step_id".to_owned(),
+            JsonValue::String(step.step_id.clone()),
+        );
+        summary.insert("skill".to_owned(), JsonValue::String(step.skill.clone()));
+        summary.insert(
+            "status".to_owned(),
+            JsonValue::String(if step.output.succeeded() {
+                "success".to_owned()
+            } else {
+                "failure".to_owned()
+            }),
+        );
+        summary.insert(
+            "receipt_id".to_owned(),
+            JsonValue::String(step.receipt.id.to_string()),
+        );
+        step_summaries.push(JsonValue::Object(summary));
+        step_outputs.insert(
+            step.step_id.clone(),
+            JsonValue::Object(step.outputs.clone()),
+        );
+    }
+    payload.insert("steps".to_owned(), JsonValue::Array(step_summaries));
+    payload.insert("step_outputs".to_owned(), JsonValue::Object(step_outputs));
+    serde_json::to_value(JsonValue::Object(payload))
+        .and_then(serde_json::from_value)
+        .map_err(|source| RuntimeError::json("serializing nested graph payload", source))
+}
+
+fn nested_graph_skill_output(
+    payload: &JsonValue,
+    run: &GraphRun,
+) -> Result<SkillOutput, RuntimeError> {
+    let stdout = serde_json::to_string(payload)
+        .map_err(|source| RuntimeError::json("serializing nested graph payload", source))?;
+    Ok(SkillOutput {
+        status: if run.state.status == GraphStatus::Succeeded {
+            InvocationStatus::Success
+        } else {
+            InvocationStatus::Failure
+        },
+        stdout,
+        stderr: String::new(),
+        exit_code: Some(0),
+        duration_ms: 0,
+        metadata: JsonObject::new(),
+    })
 }
 
 fn loaded_skill_invocation(

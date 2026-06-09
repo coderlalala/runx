@@ -1,0 +1,53 @@
+name: missing-audience-needs-input
+kind: skill
+target: ..
+runner: plan
+inputs:
+  objective: Send the launch update today.
+  principal: account:nitrosend-demo
+  content_ref:
+    draft_ref: campaign:launch
+    digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  operator_context: Do not default to all contacts.
+caller:
+  answers:
+    agent_task.send-as.output:
+      send_plan:
+        decision: needs_input
+        action_family: send-as
+        principal:
+          type: account
+          ref: account:nitrosend-demo
+        provider:
+          name: unknown
+          account_ref: ""
+          runtime_path: ""
+        send_class: campaign
+        channel: email
+        audience:
+          type: recipient
+          ref: ""
+          requires_reconfirmation: false
+        content:
+          draft_ref: campaign:launch
+          digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          subject_or_title: ""
+        gates:
+          preflight_required: true
+          human_approval_required: true
+          approval_ref: ""
+        blockers:
+          - audience is missing
+        provider_actions: []
+        evidence_refs: []
+        success_checkpoint:
+          milestone: awaiting_audience
+          description: The send cannot proceed without a named recipient, list, segment, thread, or channel.
+expect:
+  status: sealed
+  receipt:
+    schema: runx.receipt.v1
+metadata:
+  public_skill: send-as
+  source_case: missing-audience-needs-input
+  source: skills-fixture

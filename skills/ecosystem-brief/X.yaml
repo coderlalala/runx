@@ -4,9 +4,8 @@ version: "0.1.1"
 catalog:
   kind: graph
   audience: public
-  visibility: public
-
-
+  visibility: internal
+  role: context
 harness:
   cases:
     - name: ecosystem-brief-daily-brief

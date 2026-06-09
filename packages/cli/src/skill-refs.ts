@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,16 +20,13 @@ import { ensureRunxInstallState } from "./runx-state.js";
 
 let cachedBundledSkillsDir: string | undefined | null = null;
 let cachedOfficialSkillLock: readonly OfficialSkillLockEntry[] | undefined;
-const DEV_ONLY_OFFICIAL_SKILLS = new Set([
-  "runx/mock-charge",
-  "runx/mock-pay",
-  "runx/mock-refund",
-]);
 
 interface OfficialSkillLockEntry {
   readonly skill_id: string;
   readonly version: string;
   readonly digest: string;
+  readonly catalog_visibility?: "public" | "internal";
+  readonly catalog_role?: string;
 }
 
 interface ParsedRegistryRef {
@@ -105,9 +102,7 @@ export function createOfficialSkillResolver(env: NodeJS.ProcessEnv): OfficialSki
     async resolve(parsed: ParsedRegistryRef): Promise<string | undefined> {
       const lock = loadOfficialSkillLock();
       const entry = lock.find(
-        (candidate) =>
-          candidate.skill_id === parsed.skillId &&
-          officialSkillVisibleForCatalog(candidate.skill_id, env),
+        (candidate) => candidate.skill_id === parsed.skillId,
       );
       if (!entry) {
         return undefined;
@@ -207,13 +202,18 @@ async function syncPackagedOfficialSkillAssets(targetSkillPath: string, skillId:
   }
   const entries = await readdir(packagedSkillDir, { withFileTypes: true });
   for (const entry of entries) {
-    if (!entry.isFile() || entry.name === "SKILL.md") {
+    if (entry.name === "SKILL.md") {
       continue;
     }
     const sourcePath = path.join(packagedSkillDir, entry.name);
     const targetPath = path.join(targetSkillPath, entry.name);
-    await mkdir(path.dirname(targetPath), { recursive: true });
-    await writeFile(targetPath, await readFile(sourcePath));
+    if (entry.isDirectory()) {
+      await rm(targetPath, { recursive: true, force: true });
+      await cp(sourcePath, targetPath, { recursive: true, force: true });
+    } else if (entry.isFile()) {
+      await mkdir(path.dirname(targetPath), { recursive: true });
+      await writeFile(targetPath, await readFile(sourcePath));
+    }
   }
 }
 
@@ -412,12 +412,12 @@ function officialSkillEntry(ref: string, env: NodeJS.ProcessEnv): OfficialSkillL
     return undefined;
   }
   return loadOfficialSkillLock().find(
-    (entry) => entry.skill_id === `runx/${ref}` && officialSkillVisibleForCatalog(entry.skill_id, env),
+    (entry) => entry.skill_id === `runx/${ref}`,
   );
 }
 
 export function officialSkillVisibleForCatalog(skillId: string, env: NodeJS.ProcessEnv): boolean {
-  return !DEV_ONLY_OFFICIAL_SKILLS.has(skillId) || env.RUNX_DEV_CATALOG === "1";
+  return env.RUNX_DEV_CATALOG === "1" || officialSkillLockEntryById(skillId)?.catalog_visibility === "public";
 }
 
 function loadOfficialSkillLock(): readonly OfficialSkillLockEntry[] {
@@ -448,6 +448,10 @@ function loadOfficialSkillLock(): readonly OfficialSkillLockEntry[] {
   }
   cachedOfficialSkillLock = parsed as readonly OfficialSkillLockEntry[];
   return cachedOfficialSkillLock;
+}
+
+function officialSkillLockEntryById(skillId: string): OfficialSkillLockEntry | undefined {
+  return loadOfficialSkillLock().find((entry) => entry.skill_id === skillId);
 }
 
 function resolveLocalSkillReference(ref: string, env: NodeJS.ProcessEnv): string | undefined {

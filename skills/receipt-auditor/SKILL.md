@@ -70,19 +70,34 @@ grant from usage, this one verifies a run honored its grant.
 - `receipt.clean` (info): exercised authority is within the grant, mutations are
   gated, and no material is exposed.
 
-## Quality Profile
+## Procedure
 
-- Purpose: produce one evidence-backed verdict on whether a run honored its
-  authority bound.
-- Audience: the security reviewer and the operator who owns the grant.
-- Artifact contract: exercised vs granted scopes, recorded refusals, findings,
-  a verdict, and a recommendation per anomaly.
-- Evidence bar: cite the receipt for every finding; never infer over-reach
-  without a recorded exercised scope.
-- Voice bar: direct security audit; lead with the verdict.
-- Strategic bar: the smallest set of findings that explains the verdict.
-- Stop conditions: `needs_more_evidence` when the receipt is missing or cannot
-  be attributed; never declare `clean` without a receipt to read.
+1. Resolve the receipt from `receipt_id` or use the provided sanitized
+   `receipt_summary`.
+2. Extract the authority proof, granted scopes, acts, approvals, refusals,
+   material references, and receipt signature metadata.
+3. Normalize exercised scopes from the acts and compare them with the granted
+   scopes. Exercised must be a subset of granted.
+4. Identify mutating acts and confirm each has an approval gate recorded in the
+   receipt.
+5. Check that denied requests appear as sealed refusals when the receipt records
+   the attempt.
+6. Scan receipt-visible material for raw credentials or secret-bearing payloads.
+7. Return a verdict with findings, recommendations, and the success checkpoint.
+
+## Edge cases and stop conditions
+
+- **Missing receipt:** return `needs_more_evidence`; never infer a clean run.
+- **Unattributable receipt:** return `needs_more_evidence` when the receipt
+  cannot be tied to the run under audit.
+- **Malformed proof:** return `needs_more_evidence` unless enough normalized
+  grant data is supplied separately.
+- **Unknown scope name:** treat it as over-reach unless the grant explicitly
+  covers it.
+- **Mutation without recorded gate:** emit `receipt.mutation.ungated` even if the
+  mutation succeeded and the outcome looks correct.
+- **Raw token, key, or credential in the receipt:** emit
+  `receipt.material.exposed` and recommend revocation/rotation.
 
 ## Output schema (`receipt_audit`)
 

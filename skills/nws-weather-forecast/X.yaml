@@ -1,0 +1,55 @@
+skill: nws-weather-forecast
+version: 0.1.0
+catalog:
+  kind: graph
+  audience: public
+  visibility: public
+  role: branded
+  canonical_skill: runx/weather-forecast
+  provider: national-weather-service
+  runtime_path: http
+runners:
+  forecast:
+    default: true
+    type: graph
+    inputs:
+      office:
+        type: string
+        required: true
+        description: NWS forecast office id, for example LWX.
+      grid_x:
+        type: string
+        required: true
+        description: NWS grid X coordinate.
+      grid_y:
+        type: string
+        required: true
+        description: NWS grid Y coordinate.
+    graph:
+      name: nws-weather-forecast
+      steps:
+        - id: forecast
+          stage: forecast
+          inputs:
+            office: $input.office
+            grid_x: $input.grid_x
+            grid_y: $input.grid_y
+  locate:
+    type: graph
+    inputs:
+      lat:
+        type: string
+        required: true
+        description: Latitude with no more than four decimal places.
+      lon:
+        type: string
+        required: true
+        description: Longitude with no more than four decimal places.
+    graph:
+      name: nws-weather-locate
+      steps:
+        - id: points
+          stage: points
+          inputs:
+            lat: $input.lat
+            lon: $input.lon

@@ -1,122 +1,10 @@
 skill: least-privilege-auditor
-version: "0.1.0"
-
+version: 0.1.0
 catalog:
   kind: skill
   audience: operator
   visibility: public
-
-
-harness:
-  cases:
-    - name: over-granted-scope-is-attenuated
-      inputs:
-        subject: growth/lifecycle-campaign-send
-        granted_scopes:
-          - email:send
-          - repo:write
-          - payment:spend
-        usage_summary:
-          "email:send":
-            verbs_observed:
-              - send
-            runs: 14
-          repo:
-            verbs_observed:
-              - read
-            runs: 14
-          payment:
-            verbs_observed: []
-            runs: 0
-        objective: Tighten the campaign sender to the narrowest grant before renewal.
-      caller:
-        answers:
-          agent_task.least-privilege-auditor.output:
-            audit_report:
-              subject: growth/lifecycle-campaign-send
-              scope_diff:
-                - scope: email:send
-                  status: exercised
-                  evidence: 14 runs exercised send; keep as granted.
-                - scope: repo:write
-                  status: over_broad
-                  evidence: 14 runs, only read verbs observed; write never exercised.
-                - scope: payment:spend
-                  status: unused
-                  evidence: 0 runs touched payment; no spend ever exercised.
-            attenuation_proposals:
-              - scope: repo:write
-                action: narrow
-                to: repo:read
-                rationale: Every observed repo use was a read; write authority is unnecessary.
-                risk: Low; a future write would re-request the scope and be re-reviewed.
-              - scope: payment:spend
-                action: remove
-                rationale: No run has ever exercised payment; the grant is dead authority.
-                risk: Low; removal cannot break observed behaviour.
-            verdict: attenuate
-            residual_risk: After attenuation the sender can send email and read the repo. It can no longer write the repo or spend, both of which it never did.
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-
-    - name: already-minimal-grant-needs-no-change
-      inputs:
-        subject: code/governed-issue-to-pr
-        granted_scopes:
-          - repo:read
-        usage_summary:
-          repo:
-            verbs_observed:
-              - read
-            runs: 31
-        objective: Confirm the grant is minimal before promoting the skill to stable.
-      caller:
-        answers:
-          agent_task.least-privilege-auditor.output:
-            audit_report:
-              subject: code/governed-issue-to-pr
-              scope_diff:
-                - scope: repo:read
-                  status: exercised
-                  evidence: 31 runs exercised read; the only granted scope is the only used scope.
-            attenuation_proposals: []
-            verdict: no_change
-            residual_risk: The grant already matches observed usage exactly. No narrower grant covers the 31 observed reads.
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-
-    - name: empty-usage-stops-for-evidence
-      inputs:
-        subject: research/deep-research-brief
-        granted_scopes:
-          - web:read
-          - repo:read
-        usage_summary: {}
-        objective: Audit a freshly published skill that has not run yet.
-      caller:
-        answers:
-          agent_task.least-privilege-auditor.output:
-            audit_report:
-              subject: research/deep-research-brief
-              scope_diff: []
-            attenuation_proposals: []
-            verdict: needs_more_evidence
-            residual_risk: No receipts attribute usage to this subject yet. Narrowing now would guess the grant to nothing; wait for usage evidence before proposing attenuation.
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-
+  role: canonical
 runners:
   audit:
     default: true
@@ -138,7 +26,7 @@ runners:
       granted_scopes:
         type: json
         required: true
-        description: "The scopes currently granted to the subject."
+        description: The scopes currently granted to the subject.
       usage_summary:
         type: json
         required: true
@@ -146,4 +34,4 @@ runners:
       objective:
         type: string
         required: false
-        description: "Operator intent that focuses the review."
+        description: Operator intent that focuses the review.

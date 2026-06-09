@@ -1,5 +1,5 @@
 use runx_parser::{
-    CatalogAudience, CatalogKind, CatalogVisibility, parse_runner_manifest_yaml,
+    CatalogAudience, CatalogKind, CatalogRole, CatalogVisibility, parse_runner_manifest_yaml,
     validate_runner_manifest,
 };
 
@@ -16,7 +16,10 @@ skill: demo
 catalog:
   kind: graph
   audience: builder
-  visibility: private
+  visibility: internal
+  role: graph-stage
+  part_of:
+    - runx/demo
 runners:
   default:
     source:
@@ -30,11 +33,14 @@ runners:
         .ok_or_else(|| "expected catalog metadata".to_owned())?;
     assert_eq!(catalog.kind, CatalogKind::Graph);
     assert_eq!(catalog.audience, CatalogAudience::Builder);
-    assert_eq!(catalog.visibility, CatalogVisibility::Private);
+    assert_eq!(catalog.visibility, CatalogVisibility::Internal);
+    assert_eq!(catalog.role, CatalogRole::GraphStage);
+    assert_eq!(catalog.part_of, vec!["runx/demo"]);
     // Typed kinds serialize back to their original snake_case wire strings.
     assert_eq!(catalog.kind.as_str(), "graph");
     assert_eq!(catalog.audience.as_str(), "builder");
-    assert_eq!(catalog.visibility.as_str(), "private");
+    assert_eq!(catalog.visibility.as_str(), "internal");
+    assert_eq!(catalog.role.as_str(), "graph-stage");
     Ok(())
 }
 
@@ -45,6 +51,7 @@ fn catalog_visibility_defaults_to_public_when_absent() -> Result<(), String> {
 catalog:
   kind: skill
   audience: public
+  role: context
 runners:
   default:
     source:
@@ -58,6 +65,7 @@ runners:
         .ok_or_else(|| "expected catalog metadata".to_owned())?;
     assert_eq!(catalog.kind, CatalogKind::Skill);
     assert_eq!(catalog.visibility, CatalogVisibility::Public);
+    assert_eq!(catalog.role, CatalogRole::Context);
     Ok(())
 }
 

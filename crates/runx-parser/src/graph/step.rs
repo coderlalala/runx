@@ -12,6 +12,7 @@ use crate::ValidationError;
 
 struct StepTarget {
     skill: Option<String>,
+    stage: Option<String>,
     tool: Option<String>,
     run: Option<JsonObject>,
 }
@@ -39,6 +40,7 @@ pub fn validate_step(
         id,
         label: optional_non_empty_string(raw_step.get("label"), &format!("{field}.label"))?,
         skill: target.skill,
+        stage: target.stage,
         tool: target.tool,
         run: target.run,
         instructions: optional_string(
@@ -78,7 +80,7 @@ fn validate_context_skills(
     field: &str,
     target: &StepTarget,
 ) -> Result<(), ValidationError> {
-    if context_skills.is_empty() || target.skill.is_some() {
+    if context_skills.is_empty() || target.skill.is_some() || target.stage.is_some() {
         return Ok(());
     }
     if let Some(run) = &target.run {
@@ -87,7 +89,7 @@ fn validate_context_skills(
         }
     }
     Err(validation_error(format!(
-        "{field}.context_skills is only valid for agent-task steps or nested agent skills."
+        "{field}.context_skills is only valid for agent-task steps or nested agent skills/stages."
     )))
 }
 
@@ -108,15 +110,17 @@ fn validate_step_id(
 fn validate_step_target(raw_step: &JsonObject, field: &str) -> Result<StepTarget, ValidationError> {
     let target = StepTarget {
         skill: optional_non_empty_string(raw_step.get("skill"), &format!("{field}.skill"))?,
+        stage: optional_non_empty_string(raw_step.get("stage"), &format!("{field}.stage"))?,
         tool: optional_non_empty_string(raw_step.get("tool"), &format!("{field}.tool"))?,
         run: optional_object(raw_step.get("run"), &format!("{field}.run"))?,
     };
     let target_count = usize::from(target.skill.is_some())
+        + usize::from(target.stage.is_some())
         + usize::from(target.tool.is_some())
         + usize::from(target.run.is_some());
     if target_count != 1 {
         return Err(validation_error(format!(
-            "{field} must declare exactly one of skill, tool, or run."
+            "{field} must declare exactly one of skill, stage, tool, or run."
         )));
     }
     validate_run_type(field, &target.run)?;
@@ -131,7 +135,7 @@ fn validate_runner(
     let runner = optional_non_empty_string(raw_step.get("runner"), &format!("{field}.runner"))?;
     if (target.run.is_some() || target.tool.is_some()) && runner.is_some() {
         return Err(validation_error(format!(
-            "{field}.runner is only valid for nested skill steps."
+            "{field}.runner is only valid for nested skill or stage steps."
         )));
     }
     Ok(runner)
@@ -157,14 +161,14 @@ fn reject_unsupported_step_fields(
         )));
     }
     validate_mode(raw_step, field)?;
-    if ["run", "skill", "tool"]
+    if ["run", "skill", "stage", "tool"]
         .into_iter()
         .filter(|key| raw_step.contains_key(*key))
         .count()
         > 1
     {
         return Err(validation_error(format!(
-            "{field} must not declare more than one of run, skill, or tool."
+            "{field} must not declare more than one of run, skill, stage, or tool."
         )));
     }
     Ok(())

@@ -70,6 +70,7 @@
     "examples/http-tool",
     "examples/nws-weather-points",
     "examples/openapi-tool",
+    "examples/orchestrator-webhooks",
     "examples/post-merge-final-outcome-publisher",
     "examples/thread-outbox-provider-fetch",
     "examples/thread-outbox-provider-fixture",

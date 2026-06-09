@@ -287,19 +287,21 @@ authored source. Do not hand-edit generated `manifest.json` or `run.mjs`.
 
 ## Official Packages
 
-The official catalog has two public kinds:
+The official catalog is explicit about why each package is public:
 
-- skills: `issue-intake`, `issue-triage`, `research`, `draft-content`,
-  `vuln-scan`, `scafld`, `sourcey`, `moltbook`
-- skill graphs: `issue-to-pr`, `release`, `content-pipeline`,
-  `deep-research-brief`, `ecosystem-vuln-scan`, `ecosystem-brief`,
-  `skill-lab`, `skill-testing`
+- canonical governed skills: `charge`, `dispute-respond`, `evolve`,
+  `improve-skill`, `least-privilege-auditor`, `overlay-generator`,
+  `policy-author`, `receipt-auditor`, `refund`, `send-as`, `spend`,
+  `weather-forecast`
+- branded provider skills: `nitrosend`, `nws-weather-forecast`, `stripe-pay`,
+  `x402-pay`
+- context skills: `brand-voice`, `taste-profile`
 
-Builder and operator packages stay in the same `SKILL.md` + `X.yaml` shape,
-but default to private visibility. That internal set currently includes
-`work-plan`, `design-skill`, `prior-art`, `write-harness`,
-`review-receipt`, `review-skill`, `improve-skill`, `reflect-digest`, and
-`evolve`.
+Other bundled packages stay in the same `SKILL.md` + `X.yaml` shape, but are
+internal by default. Internal packages must declare why they remain bundled:
+`graph-stage`, `runtime-path`, `harness-fixture`, or `context`. Owned graph
+stages live below their public skill at `skills/<skill>/graph/<stage>/X.yaml`,
+not as root catalog packages.
 
 For first-party skill proposal work, the core builder bar is explicit:
 proposal packets should name the real pain being solved, explain fit against
@@ -320,8 +322,8 @@ registry, then reference them from an `agent-task` step with `context_skills`:
 
 ```yaml
 context_skills:
-  - ../taste-skill
-  - registry:sourcey/taste-skill@1.0.0
+  - ../taste-profile
+  - registry:runx/taste-profile@1.0.0
 ```
 
 The runtime injects each referenced `SKILL.md` as a generic

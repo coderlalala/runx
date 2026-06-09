@@ -1,0 +1,404 @@
+skill: spend
+version: 0.1.0
+catalog:
+  kind: graph
+  audience: operator
+  visibility: public
+  role: canonical
+runners:
+  mock:
+    default: true
+    type: graph
+    inputs:
+      payment_signal:
+        type: object
+        required: true
+        description: Payment-required signal or challenge.
+      parent_payment_authority:
+        type: object
+        required: true
+        description: Parent payment authority term or authority reference.
+      rail_profile_ref:
+        type: string
+        required: true
+        description: Configured rail profile reference.
+      realm:
+        type: string
+        required: false
+        description: Authority realm.
+      spend_policy:
+        type: object
+        required: false
+        description: Policy limits and approval thresholds.
+      approval_context:
+        type: object
+        required: false
+        description: Prior approval evidence.
+      idempotency_seed:
+        type: string
+        required: false
+        description: Stable idempotency material.
+    graph:
+      name: spend
+      steps:
+        - id: quote
+          stage: pay-quote
+          runner: quote
+          scopes:
+            - payment:quote
+          inputs:
+            payment_signal: "{{payment_signal}}"
+            realm: "{{realm}}"
+            idempotency_seed: "{{idempotency_seed}}"
+          artifacts:
+            wrap_as: payment_quote_packet
+            packet: runx.payment.quote.v1
+        - id: reserve
+          stage: pay-reserve
+          runner: reserve
+          scopes:
+            - payment:reserve
+          mutation: true
+          idempotency_key: pay-reserve
+          inputs:
+            parent_payment_authority: "{{parent_payment_authority}}"
+            spend_policy: "{{spend_policy}}"
+            approval_context: "{{approval_context}}"
+            idempotency_seed: "{{idempotency_seed}}"
+          context:
+            payment_quote_packet: quote.payment_quote_packet.data
+          artifacts:
+            wrap_as: payment_reservation_packet
+            packet: runx.payment.reservation.v1
+        - id: approve-spend
+          run:
+            type: approval
+          inputs:
+            gate_id: spend.mock.approval
+            reason: Approve the reserved mock spend before the rail runner receives spend authority.
+          context:
+            payment_decision: reserve.payment_reservation_packet.data.payment_decision
+            reserved_payment_authority: reserve.payment_reservation_packet.data.reserved_payment_authority
+          artifacts:
+            wrap_as: payment_approval
+            packet: runx.payment.approval.v1
+        - id: fulfill
+          stage: pay-fulfill-rail
+          runner: mock
+          scopes:
+            - payment:spend
+          mutation: true
+          idempotency_key: spend-mock-fulfill
+          inputs:
+            payment_challenge: "{{payment_signal}}"
+            rail_profile_ref: "{{rail_profile_ref}}"
+          context:
+            reserved_payment_authority: reserve.payment_reservation_packet.data.reserved_payment_authority
+            spend_capability_ref: reserve.payment_reservation_packet.data.spend_capability_ref
+            idempotency: reserve.payment_reservation_packet.data.idempotency
+            quote_packet: quote.payment_quote_packet.data
+          artifacts:
+            wrap_as: effect_evidence_packet
+            packet: runx.effect.evidence.v1
+      policy:
+        transitions:
+          - to: fulfill
+            field: approve-spend.payment_approval.data.approved
+            equals: true
+  mpp:
+    default: false
+    type: graph
+    inputs:
+      payment_signal:
+        type: object
+        required: true
+        description: Payment-required signal or challenge.
+      parent_payment_authority:
+        type: object
+        required: true
+        description: Parent payment authority term or authority reference.
+      rail_profile_ref:
+        type: string
+        required: true
+        description: Configured rail profile reference.
+      realm:
+        type: string
+        required: false
+        description: Authority realm.
+      spend_policy:
+        type: object
+        required: false
+        description: Policy limits and approval thresholds.
+      approval_context:
+        type: object
+        required: false
+        description: Prior approval evidence.
+      idempotency_seed:
+        type: string
+        required: false
+        description: Stable idempotency material.
+    graph:
+      name: spend
+      steps:
+        - id: quote
+          stage: pay-quote
+          runner: quote
+          scopes:
+            - payment:quote
+          inputs:
+            payment_signal: "{{payment_signal}}"
+            realm: "{{realm}}"
+            idempotency_seed: "{{idempotency_seed}}"
+          artifacts:
+            wrap_as: payment_quote_packet
+            packet: runx.payment.quote.v1
+        - id: reserve
+          stage: pay-reserve
+          runner: reserve
+          scopes:
+            - payment:reserve
+          mutation: true
+          idempotency_key: pay-reserve
+          inputs:
+            parent_payment_authority: "{{parent_payment_authority}}"
+            spend_policy: "{{spend_policy}}"
+            approval_context: "{{approval_context}}"
+            idempotency_seed: "{{idempotency_seed}}"
+          context:
+            payment_quote_packet: quote.payment_quote_packet.data
+          artifacts:
+            wrap_as: payment_reservation_packet
+            packet: runx.payment.reservation.v1
+        - id: approve-spend
+          run:
+            type: approval
+          inputs:
+            gate_id: spend.mpp.approval
+            reason: Approve the reserved mpp spend before the rail runner receives spend authority.
+          context:
+            payment_decision: reserve.payment_reservation_packet.data.payment_decision
+            reserved_payment_authority: reserve.payment_reservation_packet.data.reserved_payment_authority
+          artifacts:
+            wrap_as: payment_approval
+            packet: runx.payment.approval.v1
+        - id: fulfill
+          stage: pay-fulfill-rail
+          runner: mpp
+          scopes:
+            - payment:spend
+          mutation: true
+          idempotency_key: spend-mpp-fulfill
+          inputs:
+            payment_challenge: "{{payment_signal}}"
+            rail_profile_ref: "{{rail_profile_ref}}"
+          context:
+            reserved_payment_authority: reserve.payment_reservation_packet.data.reserved_payment_authority
+            spend_capability_ref: reserve.payment_reservation_packet.data.spend_capability_ref
+            idempotency: reserve.payment_reservation_packet.data.idempotency
+            quote_packet: quote.payment_quote_packet.data
+          artifacts:
+            wrap_as: effect_evidence_packet
+            packet: runx.effect.evidence.v1
+      policy:
+        transitions:
+          - to: fulfill
+            field: approve-spend.payment_approval.data.approved
+            equals: true
+  stripe-spt:
+    default: false
+    type: graph
+    inputs:
+      payment_signal:
+        type: object
+        required: true
+        description: Payment-required signal or challenge.
+      parent_payment_authority:
+        type: object
+        required: true
+        description: Parent payment authority term or authority reference.
+      rail_profile_ref:
+        type: string
+        required: true
+        description: Configured rail profile reference.
+      realm:
+        type: string
+        required: false
+        description: Authority realm.
+      spend_policy:
+        type: object
+        required: false
+        description: Policy limits and approval thresholds.
+      approval_context:
+        type: object
+        required: false
+        description: Prior approval evidence.
+      idempotency_seed:
+        type: string
+        required: false
+        description: Stable idempotency material.
+    graph:
+      name: spend
+      steps:
+        - id: quote
+          stage: pay-quote
+          runner: quote
+          scopes:
+            - payment:quote
+          inputs:
+            payment_signal: "{{payment_signal}}"
+            realm: "{{realm}}"
+            idempotency_seed: "{{idempotency_seed}}"
+          artifacts:
+            wrap_as: payment_quote_packet
+            packet: runx.payment.quote.v1
+        - id: reserve
+          stage: pay-reserve
+          runner: reserve
+          scopes:
+            - payment:reserve
+          mutation: true
+          idempotency_key: pay-reserve
+          inputs:
+            parent_payment_authority: "{{parent_payment_authority}}"
+            spend_policy: "{{spend_policy}}"
+            approval_context: "{{approval_context}}"
+            idempotency_seed: "{{idempotency_seed}}"
+          context:
+            payment_quote_packet: quote.payment_quote_packet.data
+          artifacts:
+            wrap_as: payment_reservation_packet
+            packet: runx.payment.reservation.v1
+        - id: approve-spend
+          run:
+            type: approval
+          inputs:
+            gate_id: spend.stripe-spt.approval
+            reason: Approve the reserved stripe-spt spend before the rail runner receives spend authority.
+          context:
+            payment_decision: reserve.payment_reservation_packet.data.payment_decision
+            reserved_payment_authority: reserve.payment_reservation_packet.data.reserved_payment_authority
+          artifacts:
+            wrap_as: payment_approval
+            packet: runx.payment.approval.v1
+        - id: fulfill
+          stage: pay-fulfill-rail
+          runner: stripe-spt
+          scopes:
+            - payment:spend
+          mutation: true
+          idempotency_key: spend-stripe-spt-fulfill
+          inputs:
+            payment_challenge: "{{payment_signal}}"
+            rail_profile_ref: "{{rail_profile_ref}}"
+          context:
+            reserved_payment_authority: reserve.payment_reservation_packet.data.reserved_payment_authority
+            spend_capability_ref: reserve.payment_reservation_packet.data.spend_capability_ref
+            idempotency: reserve.payment_reservation_packet.data.idempotency
+            quote_packet: quote.payment_quote_packet.data
+          artifacts:
+            wrap_as: effect_evidence_packet
+            packet: runx.effect.evidence.v1
+      policy:
+        transitions:
+          - to: fulfill
+            field: approve-spend.payment_approval.data.approved
+            equals: true
+  x402:
+    default: false
+    type: graph
+    inputs:
+      payment_signal:
+        type: object
+        required: true
+        description: Payment-required signal or challenge.
+      parent_payment_authority:
+        type: object
+        required: true
+        description: Parent payment authority term or authority reference.
+      rail_profile_ref:
+        type: string
+        required: true
+        description: Configured rail profile reference.
+      realm:
+        type: string
+        required: false
+        description: Authority realm.
+      spend_policy:
+        type: object
+        required: false
+        description: Policy limits and approval thresholds.
+      approval_context:
+        type: object
+        required: false
+        description: Prior approval evidence.
+      idempotency_seed:
+        type: string
+        required: false
+        description: Stable idempotency material.
+    graph:
+      name: spend
+      steps:
+        - id: quote
+          stage: pay-quote
+          runner: quote
+          scopes:
+            - payment:quote
+          inputs:
+            payment_signal: "{{payment_signal}}"
+            realm: "{{realm}}"
+            idempotency_seed: "{{idempotency_seed}}"
+          artifacts:
+            wrap_as: payment_quote_packet
+            packet: runx.payment.quote.v1
+        - id: reserve
+          stage: pay-reserve
+          runner: reserve
+          scopes:
+            - payment:reserve
+          mutation: true
+          idempotency_key: pay-reserve
+          inputs:
+            parent_payment_authority: "{{parent_payment_authority}}"
+            spend_policy: "{{spend_policy}}"
+            approval_context: "{{approval_context}}"
+            idempotency_seed: "{{idempotency_seed}}"
+          context:
+            payment_quote_packet: quote.payment_quote_packet.data
+          artifacts:
+            wrap_as: payment_reservation_packet
+            packet: runx.payment.reservation.v1
+        - id: approve-spend
+          run:
+            type: approval
+          inputs:
+            gate_id: spend.x402.approval
+            reason: Approve the reserved x402 spend before the rail runner receives spend authority.
+          context:
+            payment_decision: reserve.payment_reservation_packet.data.payment_decision
+            reserved_payment_authority: reserve.payment_reservation_packet.data.reserved_payment_authority
+          artifacts:
+            wrap_as: payment_approval
+            packet: runx.payment.approval.v1
+        - id: fulfill
+          stage: pay-fulfill-rail
+          runner: x402
+          scopes:
+            - payment:spend
+          mutation: true
+          idempotency_key: spend-x402-fulfill
+          inputs:
+            payment_challenge: "{{payment_signal}}"
+            rail_profile_ref: "{{rail_profile_ref}}"
+          context:
+            reserved_payment_authority: reserve.payment_reservation_packet.data.reserved_payment_authority
+            spend_capability_ref: reserve.payment_reservation_packet.data.spend_capability_ref
+            idempotency: reserve.payment_reservation_packet.data.idempotency
+            quote_packet: quote.payment_quote_packet.data
+          artifacts:
+            wrap_as: effect_evidence_packet
+            packet: runx.effect.evidence.v1
+      policy:
+        transitions:
+          - to: fulfill
+            field: approve-spend.payment_approval.data.approved
+            equals: true

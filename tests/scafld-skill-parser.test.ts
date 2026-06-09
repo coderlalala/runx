@@ -9,13 +9,14 @@ import { describe, expect, it } from "vitest";
 import { validateRunnerManifestYaml, validateSkillMarkdown } from "./parser-eval.js";
 
 const execFile = promisify(execFileCallback);
+const scafldStageDir = path.resolve("skills/issue-to-pr/graph/scafld");
 
-describe("scafld skill contract", () => {
-  it("keeps the portable skill standard while X stays a thin native scafld consumer", async () => {
-    const skillPath = path.resolve("skills/scafld/SKILL.md");
-    const wrapperPath = path.resolve("skills/scafld/run.mjs");
+describe("scafld graph stage contract", () => {
+  it("keeps the portable stage standard while X stays a thin native scafld consumer", async () => {
+    const skillPath = path.join(scafldStageDir, "SKILL.md");
+    const wrapperPath = path.join(scafldStageDir, "run.mjs");
     const skill = validateSkillMarkdown(await readFile(skillPath, "utf8"), { mode: "strict" });
-    const manifest = validateRunnerManifestYaml(await readFile(path.resolve("skills/scafld/X.yaml"), "utf8"));
+    const manifest = validateRunnerManifestYaml(await readFile(path.join(scafldStageDir, "X.yaml"), "utf8"));
     const wrapper = await readFile(wrapperPath, "utf8");
     const runner = manifest.runners["scafld-cli"];
     const agentRunner = manifest.runners.agent;
@@ -63,7 +64,7 @@ describe("scafld skill contract", () => {
   it("recovers successful command-review results from status when review omits JSON", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "runx-scafld-review-status-"));
     const fakeScafld = path.join(tempDir, "fake-scafld.mjs");
-    const wrapperPath = path.resolve("skills/scafld/run.mjs");
+    const wrapperPath = path.join(scafldStageDir, "run.mjs");
 
     try {
       await writeFile(

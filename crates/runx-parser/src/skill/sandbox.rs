@@ -1,6 +1,7 @@
 use runx_contracts::JsonValue;
 use runx_core::policy::{
-    CwdPolicy, SandboxDeclaration, SandboxProfile, normalize_sandbox_declaration,
+    CwdPolicy, SandboxDeclaration, SandboxProfile, is_reserved_runx_sandbox_env_name,
+    normalize_sandbox_declaration,
 };
 
 use crate::ValidationError;
@@ -21,6 +22,7 @@ pub(super) fn validate_sandbox(
     let cwd_policy = optional_cwd_policy(record.get("cwd_policy"))?;
     let env_allowlist =
         optional_string_array(record.get("env_allowlist"), "sandbox.env_allowlist")?;
+    validate_env_allowlist(env_allowlist.as_deref())?;
     let network = optional_bool(record.get("network"), "sandbox.network")?;
     let writable_paths =
         optional_string_array(record.get("writable_paths"), "sandbox.writable_paths")?
@@ -49,6 +51,20 @@ pub(super) fn validate_sandbox(
         approved_escalation: None,
         raw: record.clone(),
     }))
+}
+
+fn validate_env_allowlist(env_allowlist: Option<&[String]>) -> Result<(), ValidationError> {
+    let Some(env_allowlist) = env_allowlist else {
+        return Ok(());
+    };
+    for name in env_allowlist {
+        if is_reserved_runx_sandbox_env_name(name) {
+            return Err(validation_error(format!(
+                "sandbox.env_allowlist cannot include reserved runx environment variable {name}."
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn required_sandbox_profile(

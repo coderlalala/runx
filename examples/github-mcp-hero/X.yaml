@@ -5,11 +5,15 @@ catalog:
   kind: graph
   audience: operator
   visibility: public
+  role: canonical
 
 harness:
   cases:
     - name: github-mcp-read-seals
       runner: read
+      env:
+        RUNX_PROVIDER_PERMISSION_GRANT_ID: github-mcp-demo-read
+        RUNX_PROVIDER_PERMISSION_GRANTED_SCOPES: repo.read
       inputs:
         repository: runxhq/runx
         issue_number: "241"
@@ -21,6 +25,9 @@ harness:
           disposition: closed
     - name: github-mcp-write-refused
       runner: write-refused
+      env:
+        RUNX_PROVIDER_PERMISSION_GRANT_ID: github-mcp-demo-read
+        RUNX_PROVIDER_PERMISSION_GRANTED_SCOPES: repo.read
       inputs:
         repository: runxhq/runx
         issue_number: "241"
@@ -56,8 +63,6 @@ runners:
           policy:
             provider_permission:
               grant_id: github-mcp-demo-read
-              granted_scopes:
-                - repo.read
               verb: read
           inputs:
             repository: "$input.repository"
@@ -88,8 +93,6 @@ runners:
           policy:
             provider_permission:
               grant_id: github-mcp-demo-read
-              granted_scopes:
-                - repo.read
               verb: read
           inputs:
             repository: "$input.repository"
@@ -103,8 +106,6 @@ runners:
           policy:
             provider_permission:
               grant_id: github-mcp-demo-read
-              granted_scopes:
-                - repo.read
               verb: write
           inputs:
             repository: "$input.repository"

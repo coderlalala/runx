@@ -1,88 +1,10 @@
 skill: evolve
-version: "0.1.2"
-
+version: 0.1.2
 catalog:
   kind: graph
   audience: operator
-  visibility: private
-
-
-harness:
-  cases:
-    - name: evolve-introspect
-      runner: introspect
-      env:
-        RUNX_KNOWLEDGE_DIR: knowledge
-      inputs:
-        repo_root: .
-      caller:
-        answers:
-          agent_task.evolve-introspect.output:
-            opportunity_report:
-              summary: Documentation and release hygiene are the highest-leverage gaps.
-              opportunities:
-                - id: docs-release-notes
-                  title: Add release notes workflow
-                  impact: high
-                  effort: low
-            recommended_objective:
-              objective: add release notes
-              rationale: Clear user-facing gap with bounded implementation scope.
-            change_plan:
-              steps:
-                - draft release notes process
-                - add docs
-              estimated_scope: small
-              risk_assessment: low
-            spec_document:
-              spec_version: "1.1"
-              task_id: evolve_release_notes
-              phases:
-                - scope
-                - model
-                - materialize
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-    - name: evolve-plan-spec
-      runner: evolve
-      env:
-        RUNX_KNOWLEDGE_DIR: knowledge
-      inputs:
-        objective: add release notes
-        repo_root: .
-        terminate: spec
-      caller:
-        answers:
-          agent_task.evolve-plan.output:
-            objective_brief:
-              objective: add release notes
-              target_type: repo
-              target_ref: .
-            diagnosis_report:
-              findings:
-                - docs missing
-              recommended_phases:
-                - scope
-                - model
-            change_plan:
-              steps:
-                - draft release notes
-              estimated_scope: small
-              risk_assessment: low
-            spec_document:
-              spec_version: "1.1"
-              task_id: evolve_release_notes
-              phases:
-                - scope
-                - ingest
-                - model
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-
+  visibility: public
+  role: canonical
 runners:
   introspect:
     type: graph
@@ -93,8 +15,8 @@ runners:
       repo_root:
         type: string
         required: false
-        default: "."
-        description: "Repository root to inspect."
+        default: .
+        description: Repository root to inspect.
     graph:
       name: evolve-introspect
       steps:
@@ -121,17 +43,8 @@ runners:
               recommended_objective: object
               change_plan: object
               spec_document: object
-          instructions: >
-            Deeply analyze the current repository and recommend one bounded,
-            high-leverage improvement grounded in repo_profile and other visible
-            repo evidence. Produce an opportunity_report,
-            recommended_objective, change_plan, and spec_document that a
-            maintainer could review without reverse-engineering hidden context.
-            If the repo evidence is thin or the highest-leverage move is still
-            ambiguous, keep the recommendation narrow and say what evidence is
-            missing instead of inventing a broad rewrite. This is introspection
-            and recommendation only: do not propose hidden execution loops,
-            mutations, or approval gating in this runner.
+          instructions: |
+            Deeply analyze the current repository and recommend one bounded, high-leverage improvement grounded in repo_profile and other visible repo evidence. Produce an opportunity_report, recommended_objective, change_plan, and spec_document that a maintainer could review without reverse-engineering hidden context. If the repo evidence is thin or the highest-leverage move is still ambiguous, keep the recommendation narrow and say what evidence is missing instead of inventing a broad rewrite. This is introspection and recommendation only: do not propose hidden execution loops, mutations, or approval gating in this runner.
           allowed_tools:
             - fs.read
             - git.status
@@ -154,17 +67,17 @@ runners:
       objective:
         type: string
         required: true
-        description: "Objective to evolve the repository toward."
+        description: Objective to evolve the repository toward.
       repo_root:
         type: string
         required: false
-        default: "."
-        description: "Repository root to inspect and evolve."
+        default: .
+        description: Repository root to inspect and evolve.
       terminate:
         type: string
         required: false
-        default: "spec"
-        description: "Bounded termination target. Current shipped runner only supports spec."
+        default: spec
+        description: Bounded termination target. Current shipped runner only supports spec.
     graph:
       name: evolve
       steps:
@@ -198,20 +111,8 @@ runners:
               diagnosis_report: object
               change_plan: object
               spec_document: object
-          instructions: >
-            Using objective, terminate, repo_root, and repo_profile, produce a
-            bounded objective_brief, diagnosis_report, change_plan, and
-            spec_document for the current repository. Keep every field grounded
-            in visible repo evidence; do not generalize beyond what the repo
-            profile and cited surfaces support. This runner ends at plan/spec
-            artifacts only. Do not imply hidden mutation, publish, or
-            autonomous execution. If the evidence is too thin for a responsible
-            patch or PR lane, keep the plan narrow and explicit about the
-            missing evidence instead of inventing scope. spec_document must
-            remain a planning artifact for terminate=spec and must not assume a
-            patch or PR lane already exists. If later execution is needed, name
-            the real downstream skill or substrate explicitly and keep the lane
-            bounded.
+          instructions: |
+            Using objective, terminate, repo_root, and repo_profile, produce a bounded objective_brief, diagnosis_report, change_plan, and spec_document for the current repository. Keep every field grounded in visible repo evidence; do not generalize beyond what the repo profile and cited surfaces support. This runner ends at plan/spec artifacts only. Do not imply hidden mutation, publish, or autonomous execution. If the evidence is too thin for a responsible patch or PR lane, keep the plan narrow and explicit about the missing evidence instead of inventing scope. spec_document must remain a planning artifact for terminate=spec and must not assume a patch or PR lane already exists. If later execution is needed, name the real downstream skill or substrate explicitly and keep the lane bounded.
           allowed_tools:
             - fs.read
             - git.status

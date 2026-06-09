@@ -33,6 +33,7 @@ fn main() -> ExitCode {
         LauncherAction::RunSkill(plan) => runx_cli::skill::run_native_skill(plan),
         LauncherAction::RunDoctor(plan) => runx_cli::doctor::run_native_doctor(plan),
         LauncherAction::RunDev(plan) => runx_cli::dev::run_native_dev(plan),
+        LauncherAction::RunExport(plan) => runx_cli::export::run_native_export(plan),
         LauncherAction::RunTool(plan) => runx_cli::tool::run_native_tool(plan),
         LauncherAction::RunUrlAdd(plan) => runx_cli::url_add::run_native_url_add(plan),
     }

@@ -465,6 +465,37 @@
       ]
     },
     {
+      "id": "export",
+      "usage": "runx export <claude|codex> [skill-ref...]",
+      "aliases": [],
+      "requiredPositionals": [
+        "<claude|codex>"
+      ],
+      "flags": [
+        "--project",
+        "--json"
+      ],
+      "exitCodes": [
+        0,
+        1,
+        2,
+        64
+      ],
+      "parity": {
+        "humanOutput": "semantic",
+        "jsonOutput": "schema-exact",
+        "receipt": "none",
+        "sideEffect": "filesystem",
+        "surfaces": [
+          "skill-export",
+          "cli-presentation"
+        ]
+      },
+      "cases": [
+        "export.validate"
+      ]
+    },
+    {
       "id": "mcp.serve",
       "usage": "runx mcp serve <skill-ref...>",
       "aliases": [],

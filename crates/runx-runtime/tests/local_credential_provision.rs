@@ -7,15 +7,22 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+#[cfg(feature = "http")]
 use std::io::{Read, Write};
+#[cfg(feature = "http")]
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "http")]
 use std::thread;
+#[cfg(feature = "http")]
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "http")]
 use runx_contracts::{JsonValue, sha256_hex};
+#[cfg(feature = "http")]
+use runx_runtime::RunStatus;
 use runx_runtime::orchestrator::LocalCredentialDescriptor;
-use runx_runtime::{LocalOrchestrator, RunResult, RunStatus, SkillRunRequest};
+use runx_runtime::{LocalOrchestrator, RunResult, SkillRunRequest};
 use tempfile::tempdir;
 
 const SECRET: &str = "ghs_local_provision_secret_value";
@@ -116,7 +123,7 @@ fn graph_http_step_uses_local_credential_without_exposing_secret()
         )]
         .into_iter()
         .collect(),
-        env: BTreeMap::new(),
+        env: http_private_network_grant_env(),
         cwd: temp.path().to_path_buf(),
         local_credential: Some(LocalCredentialDescriptor {
             provider: "example-crm".to_owned(),
@@ -155,6 +162,11 @@ fn run_skill(mut request: SkillRunRequest) -> Result<RunResult, Box<dyn std::err
     LocalOrchestrator::default()
         .run_skill(&request)
         .map_err(Into::into)
+}
+
+#[cfg(feature = "http")]
+fn http_private_network_grant_env() -> BTreeMap<String, String> {
+    [("RUNX_HTTP_ALLOW_PRIVATE_NETWORK".to_owned(), "1".to_owned())].into()
 }
 
 /// A cli-tool skill that echoes the delivered `$GITHUB_TOKEN`. The command is a

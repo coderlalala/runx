@@ -336,6 +336,7 @@ skill: remote-delegate
 catalog:
   kind: skill
   audience: operator
+  role: canonical
 runners:
   remote:
     source:

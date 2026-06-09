@@ -12,7 +12,7 @@ mod sandbox;
 mod source;
 mod types;
 
-pub use catalog::{CatalogAudience, CatalogKind, CatalogMetadata, CatalogVisibility};
+pub use catalog::{CatalogAudience, CatalogKind, CatalogMetadata, CatalogRole, CatalogVisibility};
 pub use fixtures::{
     HarnessCallerFixture, HarnessExpectation, ReceiptExpectation, RunnerHarnessCase,
     RunnerHarnessManifest,

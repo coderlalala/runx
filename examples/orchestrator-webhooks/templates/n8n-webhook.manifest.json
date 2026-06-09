@@ -1,0 +1,43 @@
+{
+  "schema": "runx.tool.manifest.v1",
+  "name": "orchestrators.n8n_webhook_post",
+  "version": "0.1.0",
+  "description": "Template: POST a governed runx payload to an n8n webhook.",
+  "source": {
+    "type": "http",
+    "url": "https://n8n.example.test/webhook/runx-governed-effect",
+    "method": "POST",
+    "headers": {
+      "authorization": "Bearer ${secret:RUNX_N8N_WEBHOOK_TOKEN}",
+      "content-type": "application/json"
+    }
+  },
+  "inputs": {
+    "event_id": {
+      "type": "string",
+      "required": true,
+      "description": "Stable event id used by the workflow for deduplication."
+    },
+    "source": {
+      "type": "string",
+      "required": false,
+      "default": "runx",
+      "description": "Human-readable source label for the webhook receiver."
+    },
+    "payload": {
+      "type": "json",
+      "required": true,
+      "description": "JSON payload delivered in the POST body."
+    }
+  },
+  "scopes": [
+    "orchestrator.webhook.post"
+  ],
+  "mutating": true,
+  "idempotency": {
+    "key": "event_id"
+  },
+  "retry": {
+    "max_attempts": 1
+  }
+}

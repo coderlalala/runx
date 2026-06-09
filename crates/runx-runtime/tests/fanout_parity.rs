@@ -1,6 +1,7 @@
 #![cfg(feature = "cli-tool")]
 
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use runx_contracts::{
     FanoutReceiptDecision, FanoutReceiptStrategy, FanoutReceiptSyncPoint, JsonObject, JsonValue,
@@ -259,6 +260,65 @@ fn fanout_runtime_error_branch_records_failure_and_continues()
     Ok(())
 }
 
+#[test]
+fn fanout_successful_retry_feeds_downstream_with_latest_outputs()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let graph_path = write_retry_latest_wins_graph(temp.path())?;
+    let run = run_fixture_graph_file(&graph_path)?;
+
+    assert_eq!(run.graph.name, "fanout-retry-latest-wins");
+    assert_eq!(run.state.status, GraphStatus::Succeeded);
+    assert_step_state(&run, "flaky", GraphStepStatus::Succeeded)?;
+    assert_step_state(&run, "downstream", GraphStepStatus::Succeeded)?;
+    assert_eq!(
+        run.steps
+            .iter()
+            .filter(|step| step.step_id == "flaky")
+            .map(|step| (step.attempt, output_status(step)))
+            .collect::<Vec<_>>(),
+        vec![(1, "failure"), (2, "success")]
+    );
+    assert!(
+        run.steps
+            .iter()
+            .find(|step| step.step_id == "downstream")
+            .is_some_and(|step| step.output.stdout == "fresh")
+    );
+    assert_terminal_receipt_child(&run, "flaky", 2)?;
+    assert_receipt_tree(&run);
+    Ok(())
+}
+
+#[test]
+fn sequential_successful_retry_feeds_downstream_with_latest_outputs()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let graph_path = write_sequential_retry_latest_wins_graph(temp.path())?;
+    let run = run_fixture_graph_file(&graph_path)?;
+
+    assert_eq!(run.graph.name, "sequential-retry-latest-wins");
+    assert_eq!(run.state.status, GraphStatus::Succeeded);
+    assert_step_state(&run, "flaky", GraphStepStatus::Succeeded)?;
+    assert_step_state(&run, "downstream", GraphStepStatus::Succeeded)?;
+    assert_eq!(
+        run.steps
+            .iter()
+            .filter(|step| step.step_id == "flaky")
+            .map(|step| (step.attempt, output_status(step)))
+            .collect::<Vec<_>>(),
+        vec![(1, "failure"), (2, "success")]
+    );
+    assert!(
+        run.steps
+            .iter()
+            .find(|step| step.step_id == "downstream")
+            .is_some_and(|step| step.output.stdout == "fresh")
+    );
+    assert_terminal_receipt_child(&run, "flaky", 2)?;
+    Ok(())
+}
+
 fn fixture() -> Result<FanoutFixture, serde_json::Error> {
     serde_json::from_str(include_str!(
         "../../../fixtures/runtime/fanout/expected.json"
@@ -280,6 +340,118 @@ fn fixture_runtime_options() -> RuntimeOptions {
         created_at: FIXTURE_CREATED_AT.to_owned(),
         ..RuntimeOptions::local_development()
     }
+}
+
+fn write_retry_latest_wins_graph(root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let flaky_dir = root.join("flaky-json");
+    fs::create_dir_all(&flaky_dir)?;
+    fs::write(
+        flaky_dir.join("SKILL.md"),
+        r#"---
+name: flaky-json
+description: Fail once, then emit structured JSON.
+source:
+  type: cli-tool
+  command: sh
+  args:
+    - ./run.sh
+  timeout_seconds: 10
+inputs: {}
+---
+
+Fail once, then emit structured JSON.
+"#,
+    )?;
+    fs::write(
+        flaky_dir.join("run.sh"),
+        r#"#!/bin/sh
+marker=.runx-flaky-seen
+if [ ! -f "$marker" ]; then
+  : > "$marker"
+  printf '%s' 'transient failure' >&2
+  exit 1
+fi
+printf '%s' '{"message":"fresh"}'
+"#,
+    )?;
+
+    let echo_dir = root.join("echo");
+    fs::create_dir_all(&echo_dir)?;
+    fs::write(
+        echo_dir.join("SKILL.md"),
+        r#"---
+name: echo
+description: Echo a message.
+source:
+  type: cli-tool
+  command: sh
+  args:
+    - ./run.sh
+  timeout_seconds: 10
+inputs:
+  message:
+    type: string
+    required: true
+---
+
+Echo a message.
+"#,
+    )?;
+    fs::write(
+        echo_dir.join("run.sh"),
+        r#"#!/bin/sh
+printf '%s' "${RUNX_INPUT_MESSAGE:-}"
+"#,
+    )?;
+
+    let graph_path = root.join("graph.yaml");
+    fs::write(
+        &graph_path,
+        r#"name: fanout-retry-latest-wins
+owner: runx
+fanout:
+  groups:
+    retry_branch:
+      strategy: all
+      on_branch_failure: continue
+steps:
+  - id: flaky
+    mode: fanout
+    fanout_group: retry_branch
+    skill: flaky-json
+    retry:
+      max_attempts: 2
+      backoff_ms: 0
+  - id: downstream
+    skill: echo
+    context:
+      message: flaky.message
+"#,
+    )?;
+    Ok(graph_path)
+}
+
+fn write_sequential_retry_latest_wins_graph(
+    root: &Path,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let graph_path = write_retry_latest_wins_graph(root)?;
+    fs::write(
+        &graph_path,
+        r#"name: sequential-retry-latest-wins
+owner: runx
+steps:
+  - id: flaky
+    skill: flaky-json
+    retry:
+      max_attempts: 2
+      backoff_ms: 0
+  - id: downstream
+    skill: echo
+    context:
+      message: flaky.message
+"#,
+    )?;
+    Ok(graph_path)
 }
 
 fn assert_steps(run: &runx_runtime::GraphRun, expected: &[ExpectedStep]) {
@@ -345,12 +517,63 @@ fn assert_output(
 }
 
 fn assert_receipt_tree(run: &runx_runtime::GraphRun) {
-    let children = run
-        .steps
-        .iter()
-        .map(|step| step.receipt.clone())
-        .collect::<Vec<_>>();
+    let children = current_receipt_children(run);
     assert!(validate_receipt_tree(&run.receipt, &children).is_ok());
+}
+
+fn current_receipt_children(run: &runx_runtime::GraphRun) -> Vec<runx_contracts::Receipt> {
+    let child_digests = run
+        .receipt
+        .lineage
+        .as_ref()
+        .map(|lineage| {
+            lineage
+                .children
+                .iter()
+                .filter_map(|reference| reference.locator.as_ref())
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    run.steps
+        .iter()
+        .filter(|step| {
+            child_digests
+                .iter()
+                .any(|digest| digest == &step.receipt.digest)
+        })
+        .map(|step| step.receipt.clone())
+        .collect::<Vec<_>>()
+}
+
+fn assert_terminal_receipt_child(
+    run: &runx_runtime::GraphRun,
+    step_id: &str,
+    terminal_attempt: u32,
+) -> Result<(), String> {
+    let current_digests = current_receipt_children(run)
+        .into_iter()
+        .map(|receipt| receipt.digest)
+        .collect::<Vec<_>>();
+    for step in run.steps.iter().filter(|step| step.step_id == step_id) {
+        let is_current = current_digests
+            .iter()
+            .any(|digest| digest == &step.receipt.digest);
+        if step.attempt == terminal_attempt {
+            if !is_current {
+                return Err(format!(
+                    "terminal attempt {step_id}#{} is missing from graph receipt children",
+                    step.attempt
+                ));
+            }
+        } else if is_current {
+            return Err(format!(
+                "superseded attempt {step_id}#{} must not be an active graph receipt child",
+                step.attempt
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn assert_sync_points(run: &runx_runtime::GraphRun, expected: &[FanoutReceiptSyncPoint]) {

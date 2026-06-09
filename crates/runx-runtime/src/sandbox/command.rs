@@ -1,3 +1,5 @@
+// rust-style-allow: large-file -- sandbox command assembly keeps backend
+// argument construction and mount-shape tests colocated with the policy it emits.
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -5,7 +7,7 @@ use runx_core::policy::SandboxProfile;
 use runx_parser::SkillSandbox;
 
 use super::backend::SandboxRuntime;
-use super::policy::{normalize_path, resolve_path};
+use super::policy::normalize_path;
 
 pub(super) struct SandboxSpawnCommand<'a> {
     pub(super) runtime: Option<&'a SandboxRuntime>,
@@ -14,7 +16,7 @@ pub(super) struct SandboxSpawnCommand<'a> {
     pub(super) cwd: &'a Path,
     pub(super) skill_directory: &'a Path,
     pub(super) workspace_cwd: Option<&'a Path>,
-    pub(super) writable_paths: &'a [String],
+    pub(super) writable_paths: &'a [PathBuf],
     pub(super) network: bool,
     pub(super) private_tmp: Option<&'a Path>,
 }
@@ -65,7 +67,7 @@ struct BubblewrapCommand<'a> {
     cwd: &'a Path,
     skill_directory: &'a Path,
     workspace_cwd: Option<&'a Path>,
-    writable_paths: &'a [String],
+    writable_paths: &'a [PathBuf],
     network: bool,
     private_tmp: Option<&'a Path>,
 }
@@ -99,7 +101,7 @@ fn bubblewrap_args(input: BubblewrapCommand<'_>) -> Vec<String> {
         "--tmpfs".to_owned(),
         "/tmp".to_owned(),
     ]);
-    for mount_path in readonly_mounts(skill_directory, workspace_root.as_deref(), cwd) {
+    for mount_path in readonly_mounts(skill_directory, workspace_root.as_deref(), cwd, network) {
         args.extend([
             "--ro-bind-try".to_owned(),
             path_string(&mount_path),
@@ -134,9 +136,10 @@ fn readonly_mounts(
     skill_directory: &Path,
     workspace_root: Option<&Path>,
     cwd: &Path,
+    network: bool,
 ) -> Vec<PathBuf> {
     unique_paths(
-        system_readonly_mounts()
+        system_readonly_mounts(network)
             .into_iter()
             .chain(find_package_root(skill_directory))
             .chain([normalize_existing_path(skill_directory)])
@@ -146,38 +149,52 @@ fn readonly_mounts(
     )
 }
 
-fn system_readonly_mounts() -> Vec<PathBuf> {
-    [
-        "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt", "/nix", "/snap",
-    ]
-    .into_iter()
-    .map(PathBuf::from)
-    .collect()
+fn system_readonly_mounts(network: bool) -> Vec<PathBuf> {
+    let mut mounts = ["/usr", "/bin", "/sbin", "/lib", "/lib64"]
+        .into_iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    if network {
+        mounts.extend(
+            [
+                "/etc/hosts",
+                "/etc/resolv.conf",
+                "/etc/nsswitch.conf",
+                "/etc/ssl",
+                "/etc/pki",
+                "/etc/ca-certificates",
+            ]
+            .into_iter()
+            .map(PathBuf::from),
+        );
+    }
+    mounts
 }
 
-fn writable_mounts(writable_paths: &[String], cwd: &Path) -> Vec<PathBuf> {
+fn writable_mounts(writable_paths: &[PathBuf], cwd: &Path) -> Vec<PathBuf> {
     unique_paths(
         writable_paths
             .iter()
-            .map(|path| writable_mount_path(&resolve_path(cwd, path)))
+            .map(|path| writable_mount_path(path, cwd))
             .collect(),
     )
 }
 
-fn writable_mount_path(path: &Path) -> PathBuf {
+fn writable_mount_path(path: &Path, cwd: &Path) -> PathBuf {
+    let path = resolve_pathbuf(cwd, path);
     if path.exists() {
-        return normalize_existing_path(path);
+        return normalize_existing_path(&path);
     }
     path.parent()
         .map(normalize_existing_path)
-        .unwrap_or_else(|| normalize_path(path))
+        .unwrap_or_else(|| normalize_path(&path))
 }
 
 fn sandbox_exec_args(
     command: String,
     command_args: Vec<String>,
     cwd: &Path,
-    writable_paths: &[String],
+    writable_paths: &[PathBuf],
     network: bool,
     private_tmp: Option<&Path>,
 ) -> Vec<String> {
@@ -192,7 +209,7 @@ fn sandbox_exec_args(
 
 pub(super) fn sandbox_exec_profile(
     cwd: &Path,
-    writable_paths: &[String],
+    writable_paths: &[PathBuf],
     network: bool,
     private_tmp: Option<&Path>,
 ) -> String {
@@ -210,7 +227,7 @@ pub(super) fn sandbox_exec_profile(
         profile.push_str("\n(allow mach-lookup)");
     }
     for writable_path in writable_paths {
-        let declared = resolve_path(cwd, writable_path);
+        let declared = resolve_pathbuf(cwd, writable_path);
         let path = sandbox_exec_path_filter_path(&declared);
         if declared.is_dir() {
             profile.push_str(&format!(
@@ -248,6 +265,14 @@ pub(super) fn sandbox_exec_path_filter_path(path: &Path) -> PathBuf {
                 .unwrap_or(parent)
         })
         .unwrap_or_else(|| path.to_path_buf())
+}
+
+fn resolve_pathbuf(base: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    }
 }
 
 pub(super) fn sandbox_profile_string(path: &Path) -> String {
@@ -296,4 +321,53 @@ fn unique_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 
 fn path_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BubblewrapCommand, bubblewrap_args, system_readonly_mounts};
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn bubblewrap_readonly_mounts_do_not_expose_broad_system_config() {
+        let mounts = system_readonly_mounts(false);
+
+        assert!(!mounts.contains(&PathBuf::from("/etc")));
+        assert!(!mounts.contains(&PathBuf::from("/opt")));
+        assert!(!mounts.contains(&PathBuf::from("/nix")));
+        assert!(!mounts.contains(&PathBuf::from("/snap")));
+    }
+
+    #[test]
+    fn bubblewrap_network_mounts_only_curated_etc_paths() {
+        let mounts = system_readonly_mounts(true);
+
+        assert!(!mounts.contains(&PathBuf::from("/etc")));
+        assert!(mounts.contains(&PathBuf::from("/etc/resolv.conf")));
+        assert!(mounts.contains(&PathBuf::from("/etc/hosts")));
+        assert!(mounts.contains(&PathBuf::from("/etc/ssl")));
+    }
+
+    #[test]
+    fn bubblewrap_uses_validated_writable_paths_without_re_resolving_strings() {
+        let args = bubblewrap_args(BubblewrapCommand {
+            command: "tool".to_owned(),
+            command_args: Vec::new(),
+            cwd: Path::new("/workspace/skill"),
+            skill_directory: Path::new("/workspace/skill"),
+            workspace_cwd: Some(Path::new("/workspace")),
+            writable_paths: &[PathBuf::from("/workspace/logs/output.json")],
+            network: false,
+            private_tmp: None,
+        });
+
+        assert!(args.windows(3).any(|window| {
+            window
+                == [
+                    "--bind".to_owned(),
+                    "/workspace/logs".to_owned(),
+                    "/workspace/logs".to_owned(),
+                ]
+        }));
+    }
 }

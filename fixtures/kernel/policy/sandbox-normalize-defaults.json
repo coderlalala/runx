@@ -6,7 +6,7 @@
       "cwdPolicy": "skill-directory",
       "network": false,
       "profile": "readonly",
-      "requireEnforcement": false,
+      "requireEnforcement": true,
       "writablePaths": []
     }
   },

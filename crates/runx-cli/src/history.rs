@@ -4,6 +4,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::cli_args;
 use runx_runtime::journal::{
     HistoryFilter, JournalProjectionError, list_local_history, list_local_history_with_policy,
 };
@@ -146,13 +147,13 @@ fn parse_history_args(args: &[OsString]) -> Result<ParsedHistoryArgs, HistoryCli
     let mut positionals = Vec::new();
     let mut index = 1;
     while index < args.len() {
-        let token = os_arg(args, index)?;
+        let token = cli_args::os_arg(args, index, "history").map_err(invalid_args)?;
         if !token.starts_with("--") {
             positionals.push(token.to_owned());
             index += 1;
             continue;
         }
-        let (flag, inline_value) = split_flag(token);
+        let (flag, inline_value) = cli_args::split_flag(token);
         match flag {
             "--json" => {
                 if inline_value.is_some() {
@@ -162,47 +163,65 @@ fn parse_history_args(args: &[OsString]) -> Result<ParsedHistoryArgs, HistoryCli
                 index += 1;
             }
             "--receipt-dir" => {
-                let (value, next_index) = flag_value(args, index, flag, inline_value)?;
+                let (value, next_index) =
+                    cli_args::flag_value(args, index, flag, inline_value, "history")
+                        .map_err(invalid_args)?;
                 parsed.receipt_dir = Some(PathBuf::from(value));
                 index = next_index;
             }
             "--skill" => {
-                let (value, next_index) = flag_value(args, index, flag, inline_value)?;
+                let (value, next_index) =
+                    cli_args::flag_value(args, index, flag, inline_value, "history")
+                        .map_err(invalid_args)?;
                 parsed.filter.skill = Some(value);
                 index = next_index;
             }
             "--status" => {
-                let (value, next_index) = flag_value(args, index, flag, inline_value)?;
+                let (value, next_index) =
+                    cli_args::flag_value(args, index, flag, inline_value, "history")
+                        .map_err(invalid_args)?;
                 parsed.filter.status = Some(value);
                 index = next_index;
             }
             "--source" => {
-                let (value, next_index) = flag_value(args, index, flag, inline_value)?;
+                let (value, next_index) =
+                    cli_args::flag_value(args, index, flag, inline_value, "history")
+                        .map_err(invalid_args)?;
                 parsed.filter.source = Some(value);
                 index = next_index;
             }
             "--actor" => {
-                let (value, next_index) = flag_value(args, index, flag, inline_value)?;
+                let (value, next_index) =
+                    cli_args::flag_value(args, index, flag, inline_value, "history")
+                        .map_err(invalid_args)?;
                 parsed.filter.actor = Some(value);
                 index = next_index;
             }
             "--artifact-type" | "--artifact_type" | "--artifactType" => {
-                let (value, next_index) = flag_value(args, index, flag, inline_value)?;
+                let (value, next_index) =
+                    cli_args::flag_value(args, index, flag, inline_value, "history")
+                        .map_err(invalid_args)?;
                 parsed.filter.artifact_type = Some(value);
                 index = next_index;
             }
             "--since" => {
-                let (value, next_index) = flag_value(args, index, flag, inline_value)?;
+                let (value, next_index) =
+                    cli_args::flag_value(args, index, flag, inline_value, "history")
+                        .map_err(invalid_args)?;
                 parsed.filter.since = Some(value);
                 index = next_index;
             }
             "--until" => {
-                let (value, next_index) = flag_value(args, index, flag, inline_value)?;
+                let (value, next_index) =
+                    cli_args::flag_value(args, index, flag, inline_value, "history")
+                        .map_err(invalid_args)?;
                 parsed.filter.until = Some(value);
                 index = next_index;
             }
             "--limit" => {
-                let (value, next_index) = flag_value(args, index, flag, inline_value)?;
+                let (value, next_index) =
+                    cli_args::flag_value(args, index, flag, inline_value, "history")
+                        .map_err(invalid_args)?;
                 parsed.filter.limit = Some(value.parse().map_err(|_| {
                     HistoryCliError::InvalidArgs(format!("invalid --limit value '{value}'"))
                 })?);
@@ -284,39 +303,8 @@ fn short_id(value: &str) -> &str {
     value.get(..12).unwrap_or(value)
 }
 
-fn os_arg(args: &[OsString], index: usize) -> Result<&str, HistoryCliError> {
-    args.get(index)
-        .and_then(|arg| arg.to_str())
-        .ok_or_else(|| HistoryCliError::InvalidArgs("history arguments must be UTF-8".to_owned()))
-}
-
-fn split_flag(token: &str) -> (&str, Option<&str>) {
-    token
-        .split_once('=')
-        .map_or((token, None), |(flag, value)| (flag, Some(value)))
-}
-
-fn flag_value(
-    args: &[OsString],
-    index: usize,
-    flag: &str,
-    inline_value: Option<&str>,
-) -> Result<(String, usize), HistoryCliError> {
-    if let Some(value) = inline_value {
-        return Ok((value.to_owned(), index + 1));
-    }
-    let value = os_arg(args, index + 1)
-        .map_err(|_| HistoryCliError::InvalidArgs(format!("{flag} requires a value")))?;
-    if value.starts_with("--") {
-        return Err(HistoryCliError::InvalidArgs(format!(
-            "{flag} requires a value"
-        )));
-    }
-    Ok((value.to_owned(), index + 2))
-}
-
-fn invalid_args(message: &str) -> HistoryCliError {
-    HistoryCliError::InvalidArgs(message.to_owned())
+fn invalid_args(message: impl Into<String>) -> HistoryCliError {
+    HistoryCliError::InvalidArgs(message.into())
 }
 
 #[cfg(test)]

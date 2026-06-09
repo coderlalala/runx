@@ -14,7 +14,9 @@ use runx_runtime::adapters::cli_tool::CliToolAdapter;
 #[cfg(feature = "cli-tool")]
 use runx_runtime::credentials::CredentialDelivery;
 use runx_runtime::sandbox::prepare_process_sandbox;
-use runx_runtime::{INIT_CWD_ENV, RUNX_CWD_ENV, RuntimeError};
+use runx_runtime::{
+    INIT_CWD_ENV, RUNX_CWD_ENV, RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64_ENV, RuntimeError,
+};
 
 const MAX_INLINE_INPUTS_BYTES: usize = 48 * 1024;
 const MAX_INLINE_INPUT_VALUE_BYTES: usize = 8 * 1024;
@@ -45,6 +47,44 @@ fn process_sandbox_always_exposes_runx_cwd_to_skill_authors()
         Some(path_string(&workspace_dir)?.as_str())
     );
     assert!(!plan.env.contains_key(INIT_CWD_ENV));
+    Ok(())
+}
+
+#[test]
+fn process_sandbox_rejects_reserved_env_allowlist_even_when_base_env_has_value()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let skill_dir = temp.path().join("skill");
+    fs::create_dir_all(&skill_dir)?;
+    let mut sandbox = sandbox(
+        CwdPolicy::SkillDirectory,
+        SandboxProfile::UnrestrictedLocalDev,
+    );
+    sandbox.env_allowlist = Some(vec![
+        "PATH".to_owned(),
+        RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64_ENV.to_owned(),
+    ]);
+
+    let Err(error) = prepare_process_sandbox(
+        &source(None, Some(sandbox)),
+        &skill_dir,
+        &JsonObject::new(),
+        &[(
+            RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64_ENV.to_owned(),
+            "seed".to_owned(),
+        )]
+        .into_iter()
+        .collect(),
+    ) else {
+        return Err("reserved env allowlist must fail closed".into());
+    };
+
+    assert!(matches!(
+        error,
+        RuntimeError::SandboxViolation { message }
+            if message.contains("reserved runx environment variable")
+                && message.contains(RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64_ENV)
+    ));
     Ok(())
 }
 

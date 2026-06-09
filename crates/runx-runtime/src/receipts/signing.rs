@@ -19,6 +19,14 @@ pub const RUNX_RECEIPT_SIGN_KID_ENV: &str = "RUNX_RECEIPT_SIGN_KID";
 pub const RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64_ENV: &str = "RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64";
 pub const RUNX_RECEIPT_SIGN_ISSUER_TYPE_ENV: &str = "RUNX_RECEIPT_SIGN_ISSUER_TYPE";
 
+pub(crate) fn is_receipt_signing_env_name(name: &str) -> bool {
+    name.starts_with("RUNX_RECEIPT_SIGN_")
+}
+
+pub(crate) fn strip_receipt_signing_env(env: &mut BTreeMap<String, String>) {
+    env.retain(|name, _| !is_receipt_signing_env_name(name));
+}
+
 pub trait RuntimeReceiptSigner {
     fn issuer(&self) -> ReceiptIssuer;
     fn sign_receipt_body(

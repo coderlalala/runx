@@ -1,122 +1,10 @@
 skill: overlay-generator
-version: "0.1.0"
-
+version: 0.1.0
 catalog:
   kind: skill
   audience: builder
   visibility: public
-
-
-harness:
-  cases:
-    - name: wrap-borrowed-research-skill
-      inputs:
-        skill_ref: vendor/research@1.2.0
-        scope_intent: It should read the web and the repo to gather research, nothing more.
-        objective: Adopt the borrowed research skill into a docs graph under a governed bound.
-      caller:
-        answers:
-          agent_task.overlay-generator.output:
-            overlay_proposal:
-              decision: ready
-              wraps:
-                ref: vendor/research@1.2.0
-                path: ""
-                digest: sha256:9f2c1e7b4a6d8c0e3f5a7b9d1c2e4f60718293a4b5c6d7e8f90112233445566
-              overlay_path: skills-overlays/vendor/research/X.yaml
-              runner:
-                type: agent
-                scopes:
-                  - web.read
-                  - repo.read
-                allowed_tools:
-                  - web.search
-                  - fs.read
-              diagnostics: []
-              rationale: The wrapped ref resolves and is pinned by digest. The scope intent maps to web.read and repo.read, bounded by an explicit allowed-tool set of web.search and fs.read. Nothing wider is granted, so the overlay is ready and the docs graph can reference it instead of the raw SKILL.md.
-              blockers: []
-              needs_input: []
-              success_checkpoint:
-                milestone: overlay_ready
-                description: A governed overlay wrapping vendor/research@1.2.0 with pinned digest and bounded scopes.
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-
-    - name: wrap-local-skill-with-digest
-      inputs:
-        skill_path: ./vendor/summarize/SKILL.md
-        scope_intent: Read-only summarization of files already in the workspace.
-        objective: Pin and govern a local borrowed summarize skill.
-      caller:
-        answers:
-          agent_task.overlay-generator.output:
-            overlay_proposal:
-              decision: ready
-              wraps:
-                ref: ""
-                path: ./vendor/summarize/SKILL.md
-                digest: sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809
-              overlay_path: skills-overlays/vendor/summarize/X.yaml
-              runner:
-                type: agent
-                scopes:
-                  - repo.read
-                allowed_tools:
-                  - fs.read
-              diagnostics: []
-              rationale: The local SKILL.md resolves and is pinned by digest so a later upstream edit raises runx.overlay.digest.stale. Summarization needs only repo.read bounded to fs.read; no write or network scope is granted.
-              blockers: []
-              needs_input: []
-              success_checkpoint:
-                milestone: overlay_ready
-                description: A digest-pinned overlay wrapping a local summarize skill with read-only scope.
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-
-    - name: missing-skill-ref-needs-input
-      inputs:
-        scope_intent: Let it read the repo.
-        objective: Author an overlay.
-      caller:
-        answers:
-          agent_task.overlay-generator.output:
-            overlay_proposal:
-              decision: needs_input
-              wraps:
-                ref: ""
-                path: ""
-                digest: ""
-              overlay_path: ""
-              runner:
-                type: agent
-                scopes: []
-                allowed_tools: []
-              diagnostics:
-                - id: runx.overlay.skill.missing
-                  severity: error
-                  message: Neither a skill_ref nor a skill_path was provided, so there is no skill to wrap.
-              rationale: An overlay must wrap a specific skill. With neither a registry ref nor a local path, there is nothing to resolve or pin, so the skill stops for input rather than emitting an empty overlay.
-              blockers: []
-              needs_input:
-                - Provide the skill to wrap as a registry ref (e.g. vendor/research@1.2.0) or a local path to its SKILL.md.
-              success_checkpoint:
-                milestone: awaiting_wrapped_skill
-                description: The skill stops for a wrapped ref or path rather than emitting an empty, allow-all overlay.
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-
+  role: canonical
 runners:
   generate:
     default: true
@@ -132,16 +20,16 @@ runners:
       skill_ref:
         type: string
         required: false
-        description: "Registry ref of the skill to wrap, e.g. vendor/research@1.2.0."
+        description: Registry ref of the skill to wrap, e.g. vendor/research@1.2.0.
       skill_path:
         type: string
         required: false
-        description: "Local path to a borrowed SKILL.md to wrap."
+        description: Local path to a borrowed SKILL.md to wrap.
       scope_intent:
         type: string
         required: false
-        description: "What the wrapped skill should be allowed to do, in prose."
+        description: What the wrapped skill should be allowed to do, in prose.
       objective:
         type: string
         required: false
-        description: "Operator intent that focuses the bound."
+        description: Operator intent that focuses the bound.

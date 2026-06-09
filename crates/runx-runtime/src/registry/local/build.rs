@@ -122,6 +122,11 @@ pub(super) fn registry_catalog(
             kind: runx_parser::CatalogKind::Skill,
             audience: runx_parser::CatalogAudience::Public,
             visibility: runx_parser::CatalogVisibility::Public,
+            role: runx_parser::CatalogRole::Context,
+            canonical_skill: None,
+            provider: None,
+            runtime_path: None,
+            part_of: Vec::new(),
         })
 }
 
@@ -281,9 +286,14 @@ pub(super) fn normalize_registry_catalog(
             _ => runx_parser::CatalogAudience::Public,
         },
         visibility: match visibility {
-            Some("private") => runx_parser::CatalogVisibility::Private,
+            Some("internal") => runx_parser::CatalogVisibility::Internal,
             _ => runx_parser::CatalogVisibility::Public,
         },
+        role: runx_parser::CatalogRole::Context,
+        canonical_skill: None,
+        provider: None,
+        runtime_path: None,
+        part_of: Vec::new(),
     }
 }
 

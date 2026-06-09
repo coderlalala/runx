@@ -188,6 +188,15 @@
       "notes": "Development lanes run deterministic or recorded harness fixtures."
     },
     {
+      "id": "skill-export",
+      "owner": "runx-cli + runx-runtime",
+      "parityClass": "semantic",
+      "coveredBy": [
+        "export"
+      ],
+      "notes": "Host-agent shims are generated from validated skill packages and delegate back to governed runx skill execution."
+    },
+    {
       "id": "parser",
       "owner": "runx-parser via runx-cli",
       "parityClass": "schema-exact",

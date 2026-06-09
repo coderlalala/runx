@@ -3,7 +3,10 @@ version: 0.1.0
 catalog:
   kind: graph
   audience: operator
-  visibility: private
+  visibility: internal
+  role: harness-fixture
+  part_of:
+    - runx/charge
 harness:
   cases:
     - name: mock-charge-models-receipt-before-forward
@@ -71,7 +74,7 @@ harness:
           schema: runx.receipt.v1
           state: sealed
           disposition: closed
-          reason_code: mock_charge_closed
+          reason_code: graph_closed
         steps:
           - price
           - challenge
@@ -110,77 +113,16 @@ runners:
     graph:
       name: mock-charge
       steps:
-        - id: price
-          skill: ../charge-price
-          runner: price
-          scopes:
-            - payment:quote
+        - id: charge
+          skill: ../charge
+          runner: mock
           inputs:
             mcp_tool_call: "{{mcp_tool_call}}"
             provider_policy: "{{provider_policy}}"
-            parent_payment_authority: "{{parent_payment_authority}}"
-            idempotency_seed: "{{idempotency_seed}}"
-        - id: challenge
-          skill: ../charge-challenge
-          runner: challenge
-          scopes:
-            - payment:quote
-          inputs:
-            provider_policy: "{{provider_policy}}"
-            idempotency_seed: "{{idempotency_seed}}"
-          context:
-            charge_price_packet: price.charge_price_packet.data
-        - id: verify
-          skill: ../charge-verify
-          runner: verify
-          scopes:
-            - payment:verify
-          mutation: true
-          idempotency_key: charge-verify
-          inputs:
             returned_credential: "{{returned_credential}}"
+            parent_payment_authority: "{{parent_payment_authority}}"
             verify_capability_ref: "{{verify_capability_ref}}"
-            settlement_family: mock
-          context:
-            charge_price_packet: price.charge_price_packet.data
-            charge_challenge_packet: challenge.charge_challenge_packet.data
-            priced_payment_authority: price.charge_price_packet.data.requested_payment_authority
-            idempotency: challenge.charge_challenge_packet.data.idempotency
-        - id: seal
-          run:
-            type: agent-task
-            agent: operator
-            task: seal
-            outputs:
-              sealed: boolean
-              receipt_ref: string
-          inputs:
-            receipt_ref: verify.charge_verification_packet.data.sealed_receipt_ref
-            required: true
-          context:
-            settlement_proof: verify.charge_verification_packet.data.settlement_proof
-          artifacts:
-            wrap_as: charge_seal
-            packet: runx.payment.charge_seal.v1
-        - id: forward
-          run:
-            type: agent-task
-            agent: operator
-            task: forward
-            outputs:
-              forwarded: boolean
-              result_ref: string
-          inputs:
-            operation: "{{mcp_tool_call}}"
-          context:
-            sealed_receipt_ref: seal.charge_seal.data.receipt_ref
-          artifacts:
-            wrap_as: forwarded_result
-      policy:
-        transitions:
-          - to: forward
-            field: seal.charge_seal.data.sealed
-            equals: true
+            idempotency_seed: "{{idempotency_seed}}"
     runx:
       payment_authority:
         direction: provider_charge

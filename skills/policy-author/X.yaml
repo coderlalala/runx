@@ -1,176 +1,10 @@
 skill: policy-author
-version: "0.1.0"
-
+version: 0.1.0
 catalog:
   kind: skill
   audience: operator
   visibility: public
-
-
-harness:
-  cases:
-    - name: issue-flow-policy-from-brief
-      inputs:
-        governance_brief: >-
-          Govern issue intake across our three repos: acme/acme, acme/api, and acme/app.
-          Trust GitHub issues and Sentry alerts. Kam owns the platform surface, Chong owns
-          the product surface. Never auto-merge; a human approves every merge; close the
-          source issue only once the fix is verified.
-        objective: Stand up a fail-closed issue-flow policy for the three repos.
-      caller:
-        answers:
-          agent_task.policy-author.output:
-            policy_proposal:
-              decision: ready
-              policy:
-                schema: runx.operational_policy.v1
-                target_repos:
-                  - acme/acme
-                  - acme/api
-                  - acme/app
-                runner:
-                  id: github-actions-issue-intake
-                  kind: github-actions
-                  requires:
-                    - github-actions
-                    - scafld
-                allowed_actions:
-                  - issue-intake
-                  - issue-to-pr
-                  - pr-review
-                sources:
-                  - provider: github
-                    min_confidence: 0.72
-                  - provider: sentry
-                    min_confidence: 0.82
-                owner_routes:
-                  - surface: platform
-                    owner: kam
-                  - surface: product
-                    owner: chong
-                outcomes:
-                  verification_required: true
-                  close_source_issue: when_verified
-                  require_human_merge_gate: true
-                  auto_merge: false
-              lint:
-                status: pass
-                findings: []
-              rationale: Every target surface has a named owner, both sources carry a confidence floor at or above 0.72, mutation is gated behind a human merge with auto-merge off, and the source issue closes only when verified. The lint passes, so the policy is ready.
-              blockers: []
-              needs_input: []
-              success_checkpoint:
-                milestone: policy_ready
-                description: A fail-closed issue-flow operational policy for three repos that passes its own lint.
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-
-    - name: tighten-existing-policy
-      inputs:
-        governance_brief: Tighten our current policy after an audit found auto-merge was on and the docs surface had no owner.
-        existing_policy: >-
-          {"schema":"runx.operational_policy.v1","target_repos":["acme/acme"],"runner":{"id":"github-actions-issue-intake","kind":"github-actions","requires":["github-actions","scafld"]},"allowed_actions":["issue-intake","issue-to-pr"],"sources":[{"provider":"github","min_confidence":0.6}],"owner_routes":[{"surface":"platform","owner":"kam"}],"outcomes":{"verification_required":true,"close_source_issue":"when_verified","require_human_merge_gate":false,"auto_merge":true}}
-        objective: Narrow the policy to close the audit findings; do not widen anything.
-      caller:
-        answers:
-          agent_task.policy-author.output:
-            policy_proposal:
-              decision: ready
-              policy:
-                schema: runx.operational_policy.v1
-                target_repos:
-                  - acme/acme
-                runner:
-                  id: github-actions-issue-intake
-                  kind: github-actions
-                  requires:
-                    - github-actions
-                    - scafld
-                allowed_actions:
-                  - issue-intake
-                  - issue-to-pr
-                sources:
-                  - provider: github
-                    min_confidence: 0.72
-                owner_routes:
-                  - surface: platform
-                    owner: kam
-                  - surface: docs
-                    owner: kam
-                outcomes:
-                  verification_required: true
-                  close_source_issue: when_verified
-                  require_human_merge_gate: true
-                  auto_merge: false
-              lint:
-                status: pass
-                findings: []
-              rationale: The audit findings are closed by narrowing only. auto_merge is turned off, require_human_merge_gate is turned on, the docs surface is routed to an owner, and the GitHub confidence floor is raised from 0.6 to 0.72. No authority was widened.
-              blockers: []
-              needs_input: []
-              success_checkpoint:
-                milestone: policy_tightened
-                description: The audited policy now passes lint with mutation gated, auto-merge off, and every surface owned.
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-
-    - name: vague-brief-needs-input
-      inputs:
-        governance_brief: Set up governance for our repos.
-        objective: Author a policy from the brief.
-      caller:
-        answers:
-          agent_task.policy-author.output:
-            policy_proposal:
-              decision: needs_input
-              policy:
-                schema: runx.operational_policy.v1
-                target_repos: []
-                runner:
-                  id: ""
-                  kind: ""
-                  requires: []
-                allowed_actions: []
-                sources: []
-                owner_routes: []
-                outcomes:
-                  verification_required: true
-                  close_source_issue: never
-                  require_human_merge_gate: true
-                  auto_merge: false
-              lint:
-                status: fail
-                findings:
-                  - id: policy.owner.unrouted
-                    severity: error
-                    message: No target repos or owner routes were provided; cannot route work to a named owner.
-                  - id: policy.source.no_confidence_floor
-                    severity: error
-                    message: No trusted sources or confidence floors were provided.
-              rationale: The brief names neither the repos, the trusted sources, nor the owners, so a fail-closed policy cannot be authored. Stopping for input rather than inventing owners or permissive defaults.
-              blockers: []
-              needs_input:
-                - Which repositories should the policy govern?
-                - Which inbound sources are trusted (GitHub, Sentry, other), and at what confidence?
-                - Who owns each surface?
-              success_checkpoint:
-                milestone: awaiting_governance_inputs
-                description: The skill stops for the repos, sources, and owners rather than emitting a policy that fails its own lint.
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-
+  role: canonical
 runners:
   author:
     default: true
@@ -186,16 +20,16 @@ runners:
       governance_brief:
         type: string
         required: true
-        description: "The governance intent in prose."
+        description: The governance intent in prose.
       existing_policy:
         type: json
         required: false
-        description: "A current runx.operational_policy.v1 to tighten (never widen)."
+        description: A current runx.operational_policy.v1 to tighten (never widen).
       target_repos:
         type: json
         required: false
-        description: "Explicit repository list when not stated in the brief."
+        description: Explicit repository list when not stated in the brief.
       objective:
         type: string
         required: false
-        description: "Operator intent that focuses the pass."
+        description: Operator intent that focuses the pass.

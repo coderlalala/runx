@@ -4,8 +4,8 @@ version: "0.2.1"
 catalog:
   kind: graph
   audience: public
-  visibility: public
-
+  visibility: internal
+  role: context
 harness:
   cases:
     - name: issue-to-pr-dispatches-first-step
@@ -16,7 +16,7 @@ harness:
         thread_locator: local://fixtures/issue-to-pr-smoke
         size: small
         risk: low
-        scafld_bin: ../scafld/fixtures/issue-to-pr-harness-scafld.mjs
+        scafld_bin: fixtures/issue-to-pr-harness-scafld.mjs
       expect:
         status: needs_agent
 
@@ -28,7 +28,7 @@ harness:
         thread_locator: local://fixtures/issue-to-pr-reach-fix
         size: small
         risk: low
-        scafld_bin: ../scafld/fixtures/issue-to-pr-harness-scafld.mjs
+        scafld_bin: fixtures/issue-to-pr-harness-scafld.mjs
       caller:
         answers:
           agent_task.issue-to-pr-author-spec.output:
@@ -338,7 +338,7 @@ runners:
       steps:
         - id: scafld-plan
           label: open task lane
-          skill: ../scafld
+          stage: scafld
           scopes:
             - scafld:spec:write
           mutation: true
@@ -375,7 +375,7 @@ runners:
             Do not depend on git history ranges such as HEAD~1. When validation
             commands are included, use direct repo-local checks such as tests,
             lint, build, or file-content commands. Do not use runx runtime
-            internals or skills/scafld/run.mjs as validation commands; scafld
+            internals or graph/scafld/run.mjs as validation commands; scafld
             is already the lifecycle runner around this graph. For any code
             change, declare at least one targeted test/spec file in Files
             impacted and Phase / Changes and include at least one executable
@@ -431,14 +431,14 @@ runners:
             path: scafld-plan.result.path
         - id: scafld-validate
           label: validate spec
-          skill: ../scafld
+          stage: scafld
           scopes:
             - scafld:spec:validate
           inputs:
             command: validate
         - id: scafld-approve
           label: approve spec
-          skill: ../scafld
+          stage: scafld
           scopes:
             - scafld:spec:approve
           mutation: true
@@ -541,7 +541,7 @@ runners:
             files: author-fix.fix_bundle.data.files
         - id: scafld-build
           label: build to review
-          skill: ../scafld
+          stage: scafld
           scopes:
             - scafld:build
           mutation: true
@@ -549,7 +549,7 @@ runners:
             command: build_to_review
         - id: scafld-status
           label: inspect review state
-          skill: ../scafld
+          stage: scafld
           scopes:
             - scafld:status:read
           inputs:
@@ -561,7 +561,7 @@ runners:
             - git.read
         - id: scafld-review
           label: run scafld review
-          skill: ../scafld
+          stage: scafld
           scopes:
             - scafld:review:write
           mutation: true
@@ -569,7 +569,7 @@ runners:
             command: review
         - id: scafld-complete
           label: complete task
-          skill: ../scafld
+          stage: scafld
           scopes:
             - scafld:archive:write
           mutation: true
@@ -577,14 +577,14 @@ runners:
             command: complete
         - id: scafld-final-status
           label: inspect completed state
-          skill: ../scafld
+          stage: scafld
           scopes:
             - scafld:status:read
           inputs:
             command: status
         - id: scafld-handoff
           label: render handoff
-          skill: ../scafld
+          stage: scafld
           scopes:
             - scafld:handoff:read
           inputs:

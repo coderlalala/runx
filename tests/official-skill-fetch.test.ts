@@ -1,6 +1,6 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -106,7 +106,7 @@ describe("official skill fetch", () => {
     }
   });
 
-  it("copies packaged runtime helpers into the cached official skill directory", async () => {
+  it("copies packaged stage helpers beside cached official graph skills", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "runx-official-fetch-runtime-"));
     const env = {
       ...process.env,
@@ -122,25 +122,57 @@ describe("official skill fetch", () => {
       readonly version: string;
       readonly digest: string;
     }>;
-    const lockEntry = officialLock.find((entry) => entry.skill_id === "runx/scafld");
+    const lockEntry = officialLock.find((entry) => entry.skill_id === "runx/issue-to-pr");
     if (!lockEntry) {
-      throw new Error("Missing runx/scafld entry in official-skills.lock.json.");
+      throw new Error("Missing runx/issue-to-pr entry in official-skills.lock.json.");
     }
 
     try {
-      const registryDir = path.join(tempDir, "registry");
-      publishLocalRegistrySkill({
-        registryDir,
-        subject: path.resolve("skills/scafld/SKILL.md"),
-        profile: path.resolve("skills/scafld/X.yaml"),
-        owner: "runx",
-        version: lockEntry.version,
-        env,
-      });
+      await seedOfficialCacheEntry(env, lockEntry.skill_id);
+      await resolveRunnableSkillReference("issue-to-pr", env);
+      expect(
+        (await stat(
+          path.join(env.RUNX_HOME, "official-skills", "runx", "issue-to-pr", "graph", "scafld", "run.mjs"),
+        )).isFile(),
+      ).toBe(true);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 
-      env.RUNX_REGISTRY_URL = registryDir;
-      const skillPath = await resolveRunnableSkillReference("scafld", env);
-      expect((await stat(path.join(skillPath, "run.mjs"))).isFile()).toBe(true);
+  it("copies graph stages beside cached official graph skills", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "runx-official-fetch-stages-"));
+    const env = {
+      ...process.env,
+      RUNX_CWD: path.join(tempDir, "project"),
+      RUNX_HOME: path.join(tempDir, "home"),
+      RUNX_REGISTRY_URL: "https://runx.example.test",
+      RUNX_DEV_RUST_CLI_BIN: nativeRunxBinaryForTest(),
+    };
+    const officialLock = JSON.parse(
+      await readFile(path.resolve("packages/cli/src/official-skills.lock.json"), "utf8"),
+    ) as ReadonlyArray<{
+      readonly skill_id: string;
+      readonly version: string;
+      readonly digest: string;
+    }>;
+    const lockEntry = officialLock.find((entry) => entry.skill_id === "runx/spend");
+    if (!lockEntry) {
+      throw new Error("Missing runx/spend entry in official-skills.lock.json.");
+    }
+
+    try {
+      await seedOfficialCacheEntry(env, lockEntry.skill_id);
+      const skillPath = await resolveRunnableSkillReference("spend", env);
+      expect(skillPath).toBe(path.join(env.RUNX_HOME, "official-skills", "runx", "spend"));
+      for (const stage of ["pay-quote", "pay-reserve", "pay-fulfill-rail"]) {
+        expect(
+          (await stat(
+            path.join(env.RUNX_HOME, "official-skills", "runx", "spend", "graph", stage, "X.yaml"),
+          )).isFile(),
+          stage,
+        ).toBe(true);
+      }
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -183,6 +215,33 @@ function publishLocalRegistrySkill(input: {
     throw new Error(`failed to publish local registry fixture: ${result.stderr || result.stdout}`);
   }
   signPublishedRegistryEntry(input.registryDir, signingKey);
+}
+
+async function seedOfficialCacheEntry(env: NodeJS.ProcessEnv, skillId: string): Promise<void> {
+  const [owner, skillName] = skillId.split("/");
+  if (!owner || !skillName) {
+    throw new Error(`invalid official skill id ${skillId}`);
+  }
+  const target = path.join(env.RUNX_HOME ?? "", "official-skills", owner, skillName);
+  const source = path.resolve("skills", skillName);
+  await mkdir(target, { recursive: true });
+  await writeFile(
+    path.join(target, "SKILL.md"),
+    await readFile(path.join(source, "SKILL.md"), "utf8"),
+    "utf8",
+  );
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    if (entry.name === "SKILL.md") {
+      continue;
+    }
+    const sourcePath = path.join(source, entry.name);
+    const targetPath = path.join(target, entry.name);
+    if (entry.isDirectory()) {
+      await cp(sourcePath, targetPath, { recursive: true, force: true });
+    } else if (entry.isFile()) {
+      await writeFile(targetPath, await readFile(sourcePath));
+    }
+  }
 }
 
 async function writeTestFile(filePath: string, contents: string): Promise<void> {

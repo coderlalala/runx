@@ -1779,7 +1779,10 @@ version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "base64",
+ "bytes",
  "criterion",
+ "http",
+ "http-body-util",
  "hyper",
  "hyper-util",
  "proptest",
@@ -1799,6 +1802,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tower-service",
  "url",
  "wait-timeout",
 ]

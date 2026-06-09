@@ -3,7 +3,10 @@ version: 0.1.0
 catalog:
   kind: graph
   audience: operator
-  visibility: private
+  visibility: internal
+  role: harness-fixture
+  part_of:
+    - runx/refund
 harness:
   cases:
     - name: mock-refund-links-original-receipt
@@ -63,14 +66,14 @@ harness:
               refund_idempotency_key: refund:paid-search-001
             refund_receipt_ref: receipt:refund:mock:paid-search-001
         approvals:
-          mock-refund.approval: true
+          refund.mock.approval: true
       expect:
         status: sealed
         receipt:
           schema: runx.receipt.v1
           state: sealed
           disposition: closed
-          reason_code: mock_refund_closed
+          reason_code: graph_closed
         steps:
           - quote
           - reserve
@@ -108,64 +111,16 @@ runners:
     graph:
       name: mock-refund
       steps:
-        - id: quote
-          skill: ../refund-quote
-          runner: quote
-          scopes:
-            - payment:quote
-            - payment:refund
+        - id: refund
+          skill: ../refund
+          runner: mock
           inputs:
             original_receipt_ref: "{{original_receipt_ref}}"
             original_receipt: "{{original_receipt}}"
             refund_request: "{{refund_request}}"
-        - id: reserve
-          skill: ../refund-reserve
-          runner: reserve
-          scopes:
-            - payment:refund
-          mutation: true
-          idempotency_key: refund-reserve
-          inputs:
             parent_payment_authority: "{{parent_payment_authority}}"
             approval_context: "{{approval_context}}"
             idempotency_seed: "{{idempotency_seed}}"
-          context:
-            refund_quote_packet: quote.refund_quote_packet.data
-        - id: approve-refund
-          run:
-            type: approval
-          inputs:
-            gate_id: mock-refund.approval
-            reason: Approve the linked refund reservation before settlement.
-          context:
-            refund_decision: reserve.refund_reservation_packet.data.payment_decision
-            refund_reservation: reserve.refund_reservation_packet.data.reservation
-            refund_idempotency: reserve.refund_reservation_packet.data.idempotency
-          artifacts:
-            wrap_as: refund_approval
-        - id: settlement
-          run:
-            type: agent-task
-            agent: operator
-            task: settlement
-            outputs:
-              refund_closure: object
-              refund_proof: object
-              refund_receipt_ref: string
-          inputs:
-            settlement_family: mock
-          context:
-            refund_reservation: reserve.refund_reservation_packet.data.reservation
-            refund_idempotency: reserve.refund_reservation_packet.data.idempotency
-            reserved_refund_authority: reserve.refund_reservation_packet.data.reserved_payment_authority
-          artifacts:
-            wrap_as: refund_rail_packet
-            packet: runx.effect.evidence.v1
-      policy:
-        transitions:
-          - to: settlement
-            field: approve-refund.refund_approval.data.approved
-            equals: true
     runx:
       payment_authority:
         direction: provider_refund

@@ -1,0 +1,13 @@
+name: missing-brand-needs-agent
+kind: skill
+target: ..
+runner: voice
+inputs:
+  source_material:
+    - proof-first, governed, no vague claims
+expect:
+  status: needs_agent
+metadata:
+  public_skill: brand-voice
+  source_case: missing-brand-needs-agent
+  source: skills-fixture

@@ -426,6 +426,35 @@ fn native_graph_skill_run_pauses_and_resumes_agent_task() -> Result<(), Box<dyn 
         .join("runs")
         .join(format!("{run_id}.graph-state.json"));
     let original_state = fs::read_to_string(&state_path)?;
+    assert!(
+        fs::read_dir(state_path.parent().ok_or("missing graph state parent")?)?
+            .filter_map(Result::ok)
+            .all(|entry| !entry.file_name().to_string_lossy().ends_with(".tmp")),
+        "graph state writes must not leave temporary files behind"
+    );
+    fs::write(&state_path, "{")?;
+    let malformed_answers_path = temp.path().join("malformed-graph-answers.json");
+    fs::write(&malformed_answers_path, "{}")?;
+    let malformed = match run_skill(SkillRunRequest {
+        skill_path: skill_dir.clone(),
+        receipt_dir: Some(receipt_dir.clone()),
+        run_id: Some(run_id.to_owned()),
+        answers_path: Some(malformed_answers_path),
+        inputs: inputs.clone(),
+        env: BTreeMap::new(),
+        cwd: temp.path().to_path_buf(),
+        local_credential: None,
+    }) {
+        Ok(_) => return Err("malformed graph state should fail".into()),
+        Err(error) => error,
+    };
+    assert!(
+        malformed.to_string().contains("graph state file")
+            && malformed.to_string().contains("cannot resume safely"),
+        "malformed graph state must fail with a clear resume error; got: {malformed}"
+    );
+    fs::write(&state_path, &original_state)?;
+
     let mut mismatched_state: JsonValue = serde_json::from_str(&original_state)?;
     object_mut(&mut mismatched_state, "graph state")?.insert(
         "runner_name".to_owned(),
@@ -780,20 +809,20 @@ fn graph_agent_task_injects_registry_skill_as_current_context()
     ingest_skill_markdown(
         &store,
         r#"---
-name: taste-skill
+name: taste-profile
 description: Portable taste guidance for downstream agents.
 source:
   type: agent
   agent: critic
   task: apply taste judgement
 ---
-# Taste Skill
+# Taste Profile
 
 Prefer clear product taste over ornamental flourish. Flag incoherent hierarchy,
 weak contrast, and interaction states that feel bolted on.
 "#,
         IngestSkillOptions {
-            owner: Some("sourcey".to_owned()),
+            owner: Some("runx".to_owned()),
             version: Some("1.0.0".to_owned()),
             created_at: Some(FIXTURE_CREATED_AT.to_owned()),
             ..IngestSkillOptions::default()
@@ -801,7 +830,7 @@ weak contrast, and interaction states that feel bolted on.
     )?;
     let skill_dir = write_graph_agent_task_with_context_skill(
         temp.path(),
-        "registry:sourcey/taste-skill@1.0.0",
+        "registry:runx/taste-profile@1.0.0",
     )?;
     let env = [(
         "RUNX_REGISTRY_DIR".to_owned(),
@@ -838,11 +867,181 @@ weak contrast, and interaction states that feel bolted on.
     );
     let data = object_field(context_entry, "data").ok_or("missing context data")?;
     assert_eq!(string_field(data, "source"), Some("runx-registry"));
-    assert_eq!(string_field(data, "skill_id"), Some("sourcey/taste-skill"));
+    assert_eq!(string_field(data, "skill_id"), Some("runx/taste-profile"));
     assert_eq!(string_field(data, "version"), Some("1.0.0"));
-    assert!(string_field(data, "content").is_some_and(|content| content.contains("# Taste Skill")));
+    assert!(
+        string_field(data, "content").is_some_and(|content| content.contains("# Taste Profile"))
+    );
     let meta = object_field(context_entry, "meta").ok_or("missing context meta")?;
     assert!(string_field(meta, "hash").is_some_and(|hash| hash.starts_with("sha256:")));
+
+    Ok(())
+}
+
+#[test]
+fn graph_agent_task_rejects_parent_path_context_skill() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempdir()?;
+    let context_dir = temp.path().join("taste-profile");
+    fs::create_dir_all(&context_dir)?;
+    fs::write(
+        context_dir.join("SKILL.md"),
+        "---\nname: taste-profile\n---\n# Taste Profile\n",
+    )?;
+    let skill_dir = write_graph_agent_task_with_context_skill(temp.path(), "../taste-profile")?;
+
+    let error = match run_skill(SkillRunRequest {
+        skill_path: skill_dir,
+        receipt_dir: Some(temp.path().join("receipts")),
+        run_id: None,
+        answers_path: None,
+        inputs: BTreeMap::new(),
+        env: BTreeMap::new(),
+        cwd: temp.path().to_path_buf(),
+        local_credential: None,
+    }) {
+        Ok(_) => return Err("parent-path context skill should fail".into()),
+        Err(error) => error,
+    };
+
+    assert!(
+        error.to_string().contains("must not contain '..'"),
+        "unexpected error: {error}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn graph_agent_task_rejects_graph_stage_context_skill() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempdir()?;
+    let skill_dir = write_graph_agent_task_with_context_skill(temp.path(), "context-stage")?;
+    let stage_dir = skill_dir.join("context-stage");
+    fs::create_dir_all(&stage_dir)?;
+    fs::write(
+        stage_dir.join("SKILL.md"),
+        r#"---
+name: context-stage
+source:
+  type: agent
+  agent: builder
+  task: internal implementation detail
+---
+# Context Stage
+"#,
+    )?;
+    fs::write(
+        stage_dir.join("X.yaml"),
+        r#"skill: context-stage
+catalog:
+  kind: skill
+  audience: builder
+  visibility: internal
+  role: graph-stage
+  part_of:
+    - graph-agent-context-skill
+runners:
+  main:
+    default: true
+    type: agent
+    agent: builder
+    task: internal implementation detail
+"#,
+    )?;
+
+    let error = match run_skill(SkillRunRequest {
+        skill_path: skill_dir,
+        receipt_dir: Some(temp.path().join("receipts")),
+        run_id: None,
+        answers_path: None,
+        inputs: BTreeMap::new(),
+        env: BTreeMap::new(),
+        cwd: temp.path().to_path_buf(),
+        local_credential: None,
+    }) {
+        Ok(_) => return Err("graph stage context skill should fail".into()),
+        Err(error) => error,
+    };
+
+    assert!(
+        error.to_string().contains("catalog.role=graph-stage"),
+        "unexpected error: {error}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn graph_agent_task_rejects_registry_runtime_path_context_skill()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempdir()?;
+    let registry_dir = temp.path().join("registry");
+    let store = create_file_registry_store(&registry_dir);
+    ingest_skill_markdown(
+        &store,
+        r#"---
+name: runtime-helper
+description: Internal runtime helper.
+source:
+  type: agent
+  agent: builder
+  task: internal helper
+---
+# Runtime Helper
+"#,
+        IngestSkillOptions {
+            owner: Some("sourcey".to_owned()),
+            version: Some("1.0.0".to_owned()),
+            created_at: Some(FIXTURE_CREATED_AT.to_owned()),
+            profile_document: Some(
+                r#"skill: runtime-helper
+catalog:
+  kind: skill
+  audience: builder
+  visibility: internal
+  role: runtime-path
+  part_of:
+    - graph-agent-context-skill
+runners:
+  main:
+    default: true
+    type: agent
+    agent: builder
+    task: internal helper
+"#
+                .to_owned(),
+            ),
+            ..IngestSkillOptions::default()
+        },
+    )?;
+    let skill_dir = write_graph_agent_task_with_context_skill(
+        temp.path(),
+        "registry:sourcey/runtime-helper@1.0.0",
+    )?;
+    let env = [(
+        "RUNX_REGISTRY_DIR".to_owned(),
+        registry_dir.to_string_lossy().into_owned(),
+    )]
+    .into_iter()
+    .collect::<BTreeMap<_, _>>();
+
+    let error = match run_skill(SkillRunRequest {
+        skill_path: skill_dir,
+        receipt_dir: Some(temp.path().join("receipts")),
+        run_id: None,
+        answers_path: None,
+        inputs: BTreeMap::new(),
+        env,
+        cwd: temp.path().to_path_buf(),
+        local_credential: None,
+    }) {
+        Ok(_) => return Err("registry runtime-path context skill should fail".into()),
+        Err(error) => error,
+    };
+
+    assert!(
+        error.to_string().contains("catalog.role=runtime-path"),
+        "unexpected error: {error}"
+    );
 
     Ok(())
 }
@@ -1279,6 +1478,47 @@ fn native_graph_skill_run_does_not_rerun_final_step() -> Result<(), Box<dyn std:
     let output = object(&result.output, "counter graph skill result")?;
     assert_eq!(string_field(output, "status"), Some("sealed"));
     assert_eq!(fs::read_to_string(count_file)?, "1");
+
+    Ok(())
+}
+
+#[cfg(feature = "cli-tool")]
+#[test]
+fn native_graph_skill_run_executes_graph_stage_cli_tool_skill()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempdir()?;
+    let skill_dir = write_graph_stage_cli_skill(temp.path())?;
+    let receipt_dir = temp.path().join("receipts");
+    let inputs = [(
+        "thread_title".to_owned(),
+        JsonValue::String("Stage graph bug".to_owned()),
+    )]
+    .into_iter()
+    .collect::<BTreeMap<_, _>>();
+
+    let result = run_skill(SkillRunRequest {
+        skill_path: skill_dir,
+        receipt_dir: Some(receipt_dir),
+        run_id: None,
+        answers_path: None,
+        inputs,
+        env: BTreeMap::new(),
+        cwd: temp.path().to_path_buf(),
+        local_credential: None,
+    })?;
+
+    let output = object(&result.output, "stage graph skill result")?;
+    assert_eq!(string_field(output, "status"), Some("sealed"));
+    let payload = object_field(output, "payload").ok_or("missing payload")?;
+    let nested_claim = step_claim(payload, "nested").ok_or("missing nested skill claim")?;
+    let nested = object_field(nested_claim, "nested").ok_or("missing nested output")?;
+    assert_eq!(string_field(nested, "message"), Some("Stage graph bug"));
+    let steps = array_field(payload, "steps").ok_or("missing graph steps")?;
+    let nested_step_summary = object(&steps[0], "nested step summary")?;
+    assert_eq!(
+        string_field(nested_step_summary, "skill"),
+        Some("child-echo")
+    );
 
     Ok(())
 }
@@ -1867,6 +2107,59 @@ runners:
       steps:
         - id: nested
           skill: ../child-echo
+          inputs:
+            message: $input.thread_title
+"#,
+    )?;
+    Ok(skill_dir)
+}
+
+#[cfg(feature = "cli-tool")]
+fn write_graph_stage_cli_skill(root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let skill_dir = root.join("graph-stage-cli");
+    let stage_dir = skill_dir.join("graph/child-echo");
+    fs::create_dir_all(&stage_dir)?;
+    fs::write(
+        stage_dir.join("SKILL.md"),
+        r#"---
+name: child-echo
+source:
+  type: cli-tool
+  command: node
+  args:
+    - run.mjs
+  input_mode: stdin
+---
+# Child Echo
+"#,
+    )?;
+    fs::write(
+        stage_dir.join("run.mjs"),
+        r#"import fs from "node:fs";
+const raw = fs.readFileSync(0, "utf8");
+const input = raw.trim() ? JSON.parse(raw) : {};
+console.log(JSON.stringify({ nested: { message: input.message } }));
+"#,
+    )?;
+
+    fs::create_dir_all(&skill_dir)?;
+    fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: graph-stage-cli\n---\n# Graph Stage CLI\n",
+    )?;
+    fs::write(
+        skill_dir.join("X.yaml"),
+        r#"
+skill: graph-stage-cli
+runners:
+  graph:
+    default: true
+    type: graph
+    graph:
+      name: graph-stage-cli
+      steps:
+        - id: nested
+          stage: child-echo
           inputs:
             message: $input.thread_title
 "#,

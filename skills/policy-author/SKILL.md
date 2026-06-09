@@ -86,19 +86,33 @@ The fail-closed lint emits these; any error blocks the proposal:
   `verification_required`.
 - `policy.action.unknown` (error): an allowed action is not a known lane.
 
-## Quality Profile
+## Procedure
 
-- Purpose: produce one complete, fail-closed operational policy that a reviewer
-  can adopt as-is.
-- Audience: the operator standing up governance and the reviewer approving it.
-- Artifact contract: a full policy plus a lint result with every check named.
-- Evidence bar: derive every repo, source, owner, and floor from the brief or
-  the existing policy; never invent an owner or a permissive default.
-- Voice bar: direct governance review; lead with the posture and the gates.
-- Strategic bar: the narrowest policy that still permits the stated work; tighten
-  on every pass.
-- Stop conditions: `needs_input` when the brief omits owners, target repos, or
-  the risk posture; never emit a policy that fails its own lint.
+1. Validate that the brief names the governed work, the target repo or surface,
+   and the intended owner or escalation route.
+2. Extract all repos, sources, actions, owners, confidence floors, and outcome
+   rules from the brief and any existing policy.
+3. If tightening an existing policy, diff proposed changes against the current
+   grant. Flag any widened action, lower confidence floor, removed owner, or
+   removed human gate as a separate human decision.
+4. Draft the smallest complete `runx.operational_policy.v1` that allows the
+   stated work and denies everything else.
+5. Run the lint diagnostics. Any `error` finding prevents `decision: ready`.
+6. Emit the policy, lint result, rationale, blockers, and success checkpoint.
+
+## Edge cases and stop conditions
+
+- **No owner route:** return `needs_input`; an ownerless surface is never
+  governed by default.
+- **Mutation without a human gate:** return `reject` or `needs_input`; do not
+  emit a ready mutating policy without `require_human_merge_gate: true`.
+- **Auto-merge requested:** block the proposal unless the user explicitly
+  performs a separate authority-widening decision outside this skill.
+- **Unknown action lane:** return `needs_input` with the unknown action names.
+- **Source without confidence floor:** return `needs_input`; implicit trust is
+  not a policy.
+- **Conflicting owner routes:** return `needs_input` and cite the conflicting
+  surfaces and owners.
 
 ## Output schema (`policy_proposal`)
 

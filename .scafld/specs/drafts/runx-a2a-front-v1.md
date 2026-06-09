@@ -40,14 +40,15 @@ build when demand pulls, not before.
 - Enable `a2a` in runx-cli and split the fixture transport into a live HTTP one
   (submit a task to a peer agent, poll to completion, seal the remote-reported
   result under an authority cap).
-- A governed-delegation / portfolio-router skill that exercises the front, with a
+- A governed-delegation / portfolio-router branded facade or demo graph that
+  exercises the front through canonical delegation/federation semantics, with a
   sealed receipt and an out-of-scope refusal.
 
 ## Scope
 
 In scope:
 - Enable the feature; live a2a transport behind the runtime-supervised lane; a
-  governed-delegation skill + harness; the demo.
+  governed-delegation facade/demo harness; the demo.
 
 Out of scope:
 - a2a as a default/showcase pattern (host-drives stays the default; runx does not

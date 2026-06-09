@@ -46,8 +46,10 @@ with the agent tool-use loop, and the skill-catalog reshape. MPP is a later spec
   (`spt_…`/`ch_…`), runx never holding the card.
 - The launch demo: one authority file, three acts (over-cap refusal, x402 buy,
   Stripe buy), all sealed + offline-verifiable, driven by the agent tool-use loop.
-- Collapse the 20 flat payment skills to one pay/charge/refund engine + thin
-  per-rail faces (x402-pay / stripe-pay / mpp-pay).
+- Collapse payment internals to shared spend/charge/refund engines while keeping
+  market-facing branded catalog facades where users recognize the provider:
+  `x402-pay` and `stripe-pay` delegate to canonical `spend`; `mpp-pay` promotes
+  only when MPP has a real adoption surface.
 
 ## Scope
 
@@ -60,9 +62,10 @@ In scope:
 - Phase 2 Stripe SPT: wire the built-but-unwired `cloud/packages/stripe-executor`
   into the governed spend path (`executeGovernedPayment` / `payment-spend.ts`).
 - The agent tool-use loop (gap 10) in `cloud/packages/agent-runner`.
-- Skill reshape (gap 9): demote the 10 step-nodes + mock-* to internals; keep
-  x402-pay / stripe-pay / mpp-pay as thin faces over one engine; tier/internal
-  filter in `skill-refs.ts` + the official lock.
+- Skill reshape (gap 9): move the step nodes toward owner-local graph stages under
+  `skills/<name>/graph/<stage>/`; keep `mock-*` fixture-only; keep `x402-pay` and
+  `stripe-pay` as branded catalog facades over canonical `spend`; promote
+  `mpp-pay` later only if it becomes a recognizable user-facing surface.
 - The HN/launch demo per payment-rails-demo.md (refuse-first, x402, Stripe, offline
   verify with `verify.mjs`).
 
@@ -149,8 +152,8 @@ Dependencies: Phase 1
 Objective: a real test-mode Stripe charge under the same authority + governed path.
 
 Changes:
-- Wire `stripe-executor` into `executeGovernedPayment`; the `stripe-pay` face seals a
-  receipt resolving the `ch_`.
+- Wire `stripe-executor` into `executeGovernedPayment`; the `stripe-pay` branded
+  facade seals a canonical spend receipt resolving the `ch_`.
 
 Acceptance:
 - [ ] `ac2` command - stripe SPT charge seals + verifies offline

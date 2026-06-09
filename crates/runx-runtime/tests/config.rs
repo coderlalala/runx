@@ -4,8 +4,8 @@ use std::path::Path;
 
 use runx_runtime::{
     ConfigError, ConfigKey, LocalProfileSource, ManagedAgentConfig, RunxAgentConfig,
-    RunxConfigFile, load_local_agent_api_key, load_managed_agent_config, load_runx_config_file,
-    lookup_runx_config_value, managed_agent_provider, mask_runx_config_file,
+    RunxConfigFile, SecretString, load_local_agent_api_key, load_managed_agent_config,
+    load_runx_config_file, lookup_runx_config_value, managed_agent_provider, mask_runx_config_file,
     resolve_local_skill_profile, resolve_runx_global_home_dir, update_runx_config_value,
     write_runx_config_file,
 };
@@ -172,7 +172,7 @@ fn config_loads_managed_agent_env_precedence_and_local_key_fallback()
         Some(ManagedAgentConfig {
             provider: managed_agent_provider::OPENAI.into(),
             model: "gpt-test".to_owned(),
-            api_key: "sk-explicit".to_owned(),
+            api_key: SecretString::new("sk-explicit"),
         })
     );
 
@@ -195,7 +195,7 @@ fn config_loads_managed_agent_env_precedence_and_local_key_fallback()
         Some(ManagedAgentConfig {
             provider: managed_agent_provider::ANTHROPIC.into(),
             model: "claude-test".to_owned(),
-            api_key: "local-secret".to_owned(),
+            api_key: SecretString::new("local-secret"),
         })
     );
 
@@ -205,10 +205,11 @@ fn config_loads_managed_agent_env_precedence_and_local_key_fallback()
         ("RUNX_AGENT_MODEL", "claude-env"),
         ("ANTHROPIC_API_KEY", "anthropic-env-secret"),
     ]);
-    assert_eq!(
-        load_managed_agent_config(&provider_env, temp.path())?.map(|config| config.api_key),
-        Some("anthropic-env-secret".to_owned())
-    );
+    let provider_config = load_managed_agent_config(&provider_env, temp.path())?;
+    let debug = format!("{provider_config:?}");
+    assert!(provider_config.is_some());
+    assert!(!debug.contains("anthropic-env-secret"));
+    assert!(debug.contains("[redacted-credential]"));
     Ok(())
 }
 
@@ -258,7 +259,7 @@ fn config_matches_blank_env_overlay_edges() -> Result<(), Box<dyn std::error::Er
     ]);
     assert_eq!(
         load_managed_agent_config(&blank_generic_key, temp.path())?.map(|config| config.api_key),
-        Some("local-secret".to_owned())
+        Some(SecretString::new("local-secret"))
     );
     Ok(())
 }

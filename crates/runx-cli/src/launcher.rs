@@ -2,7 +2,9 @@
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
+use crate::cli_args::{flag_value, optional_flag_value, os_arg, split_flag};
 use crate::config::ConfigPlan;
+use crate::export::ExportPlan;
 use crate::kernel::{KernelInputSource, KernelPlan};
 use crate::mcp::McpPlan;
 use crate::parser::{ParserInputSource, ParserPlan};
@@ -16,6 +18,7 @@ pub enum LauncherAction {
     Error(String),
     RunDev(DevPlan),
     RunDoctor(DoctorPlan),
+    RunExport(ExportPlan),
     RunInit(InitPlan),
     RunList(ListPlan),
     RunMcp(McpPlan),
@@ -176,6 +179,11 @@ pub fn plan_launcher(args: Vec<OsString>) -> LauncherAction {
         return parse_dev_plan(&args).map_or_else(LauncherAction::Error, LauncherAction::RunDev);
     }
 
+    if first_arg_is(&args, "export") {
+        return crate::export::parse_export_plan(&args)
+            .map_or_else(LauncherAction::Error, LauncherAction::RunExport);
+    }
+
     if first_arg_is(&args, "list") {
         return parse_list_plan(&args).map_or_else(LauncherAction::Error, LauncherAction::RunList);
     }
@@ -250,7 +258,8 @@ Commands:
   runx parser eval --input <file|-> --json
   runx doctor [path] [--json]
   runx dev [root] [--lane lane] [--json]
-  runx mcp serve <skill-ref...> [--receipt-dir dir] [--http-listen addr]
+  runx export <claude|codex> [skill-ref...] [--project] [--json]
+  runx mcp serve <skill-ref...> [--receipt-dir dir] [--http-listen [addr]] [--http-allow-non-loopback]
   runx skill <skill-ref|skill-dir|SKILL.md> [--input k=v] [--receipt-dir dir] [--run-id id] [--answers file] [--json]
   runx harness <fixture.yaml...|skill-dir|SKILL.md> [--receipt-dir dir] [--json]
   runx tool build <tool-dir>|--all [--json]
@@ -1143,54 +1152,6 @@ fn registry_subject(
             Ok(positionals.remove(0))
         }
     }
-}
-
-fn os_arg<'a>(args: &'a [OsString], index: usize, command: &str) -> Result<&'a str, String> {
-    args.get(index)
-        .and_then(|arg| arg.to_str())
-        .ok_or_else(|| format!("{command} arguments must be UTF-8"))
-}
-
-fn split_flag(token: &str) -> (&str, Option<&str>) {
-    token
-        .split_once('=')
-        .map_or((token, None), |(flag, value)| (flag, Some(value)))
-}
-
-fn flag_value(
-    args: &[OsString],
-    index: usize,
-    flag: &str,
-    inline_value: Option<&str>,
-    command: &str,
-) -> Result<(String, usize), String> {
-    if let Some(value) = inline_value {
-        return Ok((value.to_owned(), index + 1));
-    }
-    let value = os_arg(args, index + 1, command).map_err(|_| format!("{flag} requires a value"))?;
-    if value.starts_with("--") {
-        return Err(format!("{flag} requires a value"));
-    }
-    Ok((value.to_owned(), index + 2))
-}
-
-fn optional_flag_value(
-    args: &[OsString],
-    index: usize,
-    inline_value: Option<&str>,
-    command: &str,
-) -> Result<(Option<String>, usize), String> {
-    if let Some(value) = inline_value {
-        return Ok((Some(value.to_owned()), index + 1));
-    }
-    let Some(value) = args.get(index + 1).and_then(|arg| arg.to_str()) else {
-        return Ok((None, index + 1));
-    };
-    if value.starts_with('-') {
-        return Ok((None, index + 1));
-    }
-    os_arg(args, index + 1, command)?;
-    Ok((Some(value.to_owned()), index + 2))
 }
 
 fn truthy(value: &str) -> bool {

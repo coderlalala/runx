@@ -10,16 +10,16 @@ describe("rewriteSiblingSkillRefs", () => {
     graph:
       steps:
         - id: a
-          skill: ../scafld
+          skill: ../research
         - id: b
           skill: ../leaf
 `;
-    const versions = new Map([["scafld", "sha-1"], ["leaf", "sha-2"]]);
+    const versions = new Map([["research", "sha-1"], ["leaf", "sha-2"]]);
     const result = rewriteSiblingSkillRefs(text, "runx", versions);
     expect(result.didRewrite).toBe(true);
-    expect(result.text).toContain("skill: runx/scafld@sha-1");
+    expect(result.text).toContain("skill: runx/research@sha-1");
     expect(result.text).toContain("skill: runx/leaf@sha-2");
-    expect(result.text).not.toContain("skill: ../scafld");
+    expect(result.text).not.toContain("skill: ../research");
     expect(result.text).not.toContain("skill: ../leaf");
   });
 

@@ -321,8 +321,8 @@ function checkRuntimeAsyncHttpContract(crateName, manifest) {
   if (!/^mcp\s*=\s*\["dep:rmcp", "dep:tokio", "tokio\/process", "tokio\/io-util", "tokio\/sync", "tokio\/rt-multi-thread"\]\s*$/mu.test(featuresBody)) {
     findings.push("runx-runtime mcp feature must be exactly [\"dep:rmcp\", \"dep:tokio\", \"tokio/process\", \"tokio/io-util\", \"tokio/sync\", \"tokio/rt-multi-thread\"]");
   }
-  if (!/^mcp-http-server\s*=\s*\["mcp", "rmcp\/transport-streamable-http-server", "dep:hyper", "dep:hyper-util"\]\s*$/mu.test(featuresBody)) {
-    findings.push("runx-runtime mcp-http-server feature must be exactly [\"mcp\", \"rmcp/transport-streamable-http-server\", \"dep:hyper\", \"dep:hyper-util\"]");
+  if (!/^mcp-http-server\s*=\s*\[\s*"mcp",\s*"rmcp\/transport-streamable-http-server",\s*"dep:bytes",\s*"dep:http",\s*"dep:http-body-util",\s*"dep:hyper",\s*"dep:hyper-util",\s*"dep:tower-service",\s*\]\s*$/mu.test(featuresBody)) {
+    findings.push("runx-runtime mcp-http-server feature must be exactly [\"mcp\", \"rmcp/transport-streamable-http-server\", \"dep:bytes\", \"dep:http\", \"dep:http-body-util\", \"dep:hyper\", \"dep:hyper-util\", \"dep:tower-service\"]");
   }
 
   const reqwest = dependencyInlineSpec(manifest, "dependencies", "reqwest");

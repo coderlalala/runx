@@ -1,15 +1,20 @@
+import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import { authorityTermSchema, contractSchemaMatches, validateContractSchemaForDiagnostics } from "@runxhq/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  validateRunnerManifestYaml,
+  parseRunnerManifestYaml,
+  validateRunnerManifest,
+  type SkillRunnerDefinition as RunnerDefinition,
+  type SkillRunnerManifest,
+} from "../packages/cli/src/cli-parser/index.js";
+import {
   validateSkillMarkdown,
-  type RunnerDefinition,
 } from "./parser-eval.js";
-import { buildRegistryFixtureVersion } from "./registry-fixtures.js";
 
 const paymentSecretKeyPattern = /(?:^|_)(?:pan|cvv|cvc|card_number|cardnumber|account_number|routing_number|private_key|seed_phrase|mnemonic|secret_key|api_key|access_token|refresh_token|client_secret|merchant_secret|provider_secret|raw_secret|raw_token|bearer_token|password|credential_material|secret_material|key_material)(?:$|_)/i;
 const paymentSecretMetadataFields = new Set(["receives_rail_secret_material"]);
@@ -17,12 +22,21 @@ const retiredReceiptFields = new Set(["schema_version", "source_type"]);
 const canonicalConsumerPaymentSkillNames = new Set([
   "mock-pay",
   "mpp-pay",
+  "spend",
+  "stripe-pay",
+  "x402-pay",
+]);
+const paymentGraphStageNames = new Set([
+  "charge-challenge",
+  "charge-price",
+  "charge-verify",
   "pay-fulfill-rail",
   "pay-quote",
   "pay-recover",
   "pay-reserve",
-  "stripe-pay",
-  "x402-pay",
+  "refund-quote",
+  "refund-recover",
+  "refund-reserve",
 ]);
 const retiredConsumerPaymentSkillNames = new Set([
   "payment-authorize-reserve",
@@ -40,6 +54,7 @@ const forbiddenX402PaymentAliases = new Set([
   "x402-refund",
 ]);
 const explicitGovernedPaymentSkillNames = new Set([
+  "charge",
   "charge-challenge",
   "charge-price",
   "charge-verify",
@@ -48,6 +63,7 @@ const explicitGovernedPaymentSkillNames = new Set([
   "mock-refund",
   "mpp-charge",
   "mpp-refund",
+  "refund",
   "refund-quote",
   "refund-recover",
   "refund-reserve",
@@ -60,7 +76,24 @@ const expectedChargePacketMetadata = new Map([
   ["charge-challenge", { runner: "challenge", output: "charge_challenge_packet", packet: "runx.payment.charge_challenge.v1" }],
   ["charge-verify", { runner: "verify", output: "charge_verification_packet", packet: "runx.payment.charge_verification.v1" }],
 ]);
-const chargeGraphSkillNames = new Set(["mock-charge", "mpp-charge", "stripe-charge"]);
+const chargeGraphSkillNames = new Set(["charge"]);
+const canonicalPaymentStageRefs: Readonly<Record<string, readonly string[]>> = {
+  charge: ["charge-price", "charge-challenge", "charge-verify"],
+  refund: ["refund-quote", "refund-reserve"],
+  spend: ["pay-quote", "pay-reserve", "pay-fulfill-rail"],
+};
+const canonicalPaymentDelegateRefs: Readonly<Record<string, string>> = {
+  "mock-charge": "../charge",
+  "mock-pay": "../spend",
+  "mock-refund": "../refund",
+  "mpp-charge": "../charge",
+  "mpp-pay": "../spend",
+  "mpp-refund": "../refund",
+  "stripe-charge": "../charge",
+  "stripe-pay": "../spend",
+  "stripe-refund": "../refund",
+  "x402-pay": "../spend",
+};
 
 describe("payment skill execution profiles", () => {
   it("uses canonical consumer payment skill names without legacy aliases", async () => {
@@ -69,11 +102,48 @@ describe("payment skill execution profiles", () => {
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name),
     );
+    const stages = new Set((await discoverGraphStageDirs()).map((dir) => path.basename(dir)));
 
     expect([...canonicalConsumerPaymentSkillNames].filter((name) => !entries.has(name))).toEqual([]);
+    expect([...paymentGraphStageNames].filter((name) => !stages.has(name))).toEqual([]);
+    expect([...paymentGraphStageNames].filter((name) => entries.has(name))).toEqual([]);
     expect([...retiredConsumerPaymentSkillNames].filter((name) => entries.has(name))).toEqual([]);
     expect([...forbiddenX402PaymentAliases].filter((name) => entries.has(name))).toEqual([]);
     expect(entries.has("crypto-pay"), "crypto-pay stays a reserved placeholder, not an exposed skill").toBe(false);
+  });
+
+  it("keeps canonical payment roots as owner-local stage graphs", async () => {
+    for (const [skillName, expectedStages] of Object.entries(canonicalPaymentStageRefs)) {
+      const manifest = parseRunnerManifest(await readFile(path.resolve("skills", skillName, "X.yaml"), "utf8"));
+      const graphRunners = Object.values(manifest.runners).filter((runner) => runner.source.graph);
+
+      expect(graphRunners.length, `${skillName} graph runners`).toBeGreaterThan(0);
+      for (const runner of graphRunners) {
+        const steps = runner.source.graph?.steps ?? [];
+        const stageRefs = steps.flatMap((step) => step.stage ? [step.stage] : []);
+        const skillRefs = steps.flatMap((step) => step.skill ? [step.skill] : []);
+
+        expect(stageRefs, `${skillName}.${runner.name} stage refs`).toEqual(expectedStages);
+        expect(skillRefs, `${skillName}.${runner.name} canonical graph skill refs`).toEqual([]);
+        for (const stage of stageRefs) {
+          expect(existsSync(path.resolve("skills", skillName, "graph", stage, "X.yaml")), `${skillName}/${stage}`).toBe(true);
+          expect(existsSync(path.resolve("skills", stage)), stage).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("keeps branded and runtime payment wrappers as single canonical skill delegates", async () => {
+    for (const [skillName, canonicalRef] of Object.entries(canonicalPaymentDelegateRefs)) {
+      const manifest = parseRunnerManifest(await readFile(path.resolve("skills", skillName, "X.yaml"), "utf8"));
+
+      for (const runner of Object.values(manifest.runners)) {
+        const steps = runner.source.graph?.steps ?? [];
+        expect(steps, `${skillName}.${runner.name} graph steps`).toHaveLength(1);
+        expect(steps[0]?.skill, `${skillName}.${runner.name} canonical skill ref`).toBe(canonicalRef);
+        expect(steps[0]?.stage, `${skillName}.${runner.name} stage internals`).toBeUndefined();
+      }
+    }
   });
 
   it("parse payment profiles and ingest packaged skills without raw payment credential fields", async () => {
@@ -82,7 +152,7 @@ describe("payment skill execution profiles", () => {
     for (const skillDir of skillDirs) {
       const skillName = path.basename(skillDir);
       const profileDocument = await readFile(path.join(skillDir, "X.yaml"), "utf8");
-      const manifest = validateRunnerManifestYaml(profileDocument);
+      const manifest = parseRunnerManifest(profileDocument);
 
       expect(manifest.skill, `${skillName} profile names its skill`).toBe(skillName);
       expect(Object.keys(manifest.runners), `${skillName} declares runners`).not.toHaveLength(0);
@@ -93,7 +163,7 @@ describe("payment skill execution profiles", () => {
         const skill = validateSkillMarkdown(markdown, { mode: "strict" });
         expect(manifest.skill ?? skill.name, `${skill.name} profile skill binding`).toBe(skill.name);
 
-        const version = await buildRegistryFixtureVersion(markdown, {
+        const version = buildPaymentRegistryFixtureVersion(markdown, {
           owner: "runx-pay",
           version: "validation",
           profileDocument,
@@ -112,7 +182,7 @@ describe("payment skill execution profiles", () => {
     for (const skillDir of skillDirs) {
       const skillName = path.basename(skillDir);
       const profileDocument = await readFile(path.join(skillDir, "X.yaml"), "utf8");
-      const manifest = validateRunnerManifestYaml(profileDocument);
+      const manifest = parseRunnerManifest(profileDocument);
 
       expect(findRetiredReceiptFields(manifest.raw.document), `${skillName} retired receipt fields`).toEqual([]);
       expect(findInvalidPaymentAuthorityTerms(manifest.raw.document), `${skillName} payment authority term examples`).toEqual([]);
@@ -132,8 +202,8 @@ describe("payment skill execution profiles", () => {
         }
         const outputDeclarations = new Map<string, Readonly<Record<string, OutputDeclaration>>>();
         for (const step of graph.steps) {
-          if (step.skill) {
-            const nested = await loadNestedRunner(skillDir, step.skill, step.runner);
+          if (step.skill || step.stage) {
+            const nested = await loadNestedRunner(skillDir, step.skill ?? step.stage ?? "", step.runner);
             expect(nested.error, `${skillName}.${runnerName}.${step.id} nested runner`).toBeUndefined();
           }
           outputDeclarations.set(step.id, await loadStepOutputDeclarations(skillDir, step));
@@ -186,13 +256,13 @@ interface OutputDeclaration {
 }
 
 async function discoverPaymentSkillDirs(): Promise<readonly string[]> {
-  const skillsRoot = path.resolve("skills");
-  const entries = await readdir(skillsRoot, { withFileTypes: true });
-  const candidates = await Promise.all(
-    entries
+  const roots = [path.resolve("skills"), ...(await discoverGraphStageDirs())];
+  const discovered = await Promise.all(roots.map(async (root) => {
+    const entries = await readdir(root, { withFileTypes: true });
+    const candidates = await Promise.all(entries
       .filter((entry) => entry.isDirectory())
       .map(async (entry) => {
-        const skillDir = path.join(skillsRoot, entry.name);
+        const skillDir = path.join(root, entry.name);
         const profileDocument = await readOptionalFile(path.join(skillDir, "X.yaml"));
         if (!profileDocument) {
           return undefined;
@@ -201,9 +271,28 @@ async function discoverPaymentSkillDirs(): Promise<readonly string[]> {
           return skillDir;
         }
         return /\bresource_family:\s*payment\b|\bpayment[.:_-]/.test(profileDocument) ? skillDir : undefined;
-      }),
-  );
-  return candidates.filter((entry): entry is string => entry !== undefined).sort();
+      }));
+    return candidates.filter((entry): entry is string => entry !== undefined);
+  }));
+  return discovered.flat().sort();
+}
+
+async function discoverGraphStageDirs(): Promise<readonly string[]> {
+  const skillsRoot = path.resolve("skills");
+  const skills = await readdir(skillsRoot, { withFileTypes: true });
+  const stageGroups = await Promise.all(skills
+    .filter((entry) => entry.isDirectory())
+    .map(async (entry) => {
+      const graphDir = path.join(skillsRoot, entry.name, "graph");
+      if (!existsSync(graphDir)) {
+        return [];
+      }
+      const stages = await readdir(graphDir, { withFileTypes: true });
+      return stages
+        .filter((stage) => stage.isDirectory())
+        .map((stage) => path.join(graphDir, stage.name));
+    }));
+  return stageGroups.flat().sort();
 }
 
 async function readOptionalFile(filePath: string): Promise<string | undefined> {
@@ -304,24 +393,24 @@ async function loadDeclaredPacketIds(): Promise<ReadonlySet<string>> {
 
 async function loadNestedRunner(
   skillDir: string,
-  skillRef: string,
+  ref: string,
   runnerName: string | undefined,
 ): Promise<{ readonly error?: string; readonly runner?: RunnerDefinition }> {
-  const profilePath = resolveNestedProfilePath(skillDir, skillRef);
+  const profilePath = resolveNestedProfilePath(skillDir, ref) ?? resolveStageProfilePath(skillDir, ref);
   if (!profilePath) {
-    return { error: `missing profile for ${skillRef}` };
+    return { error: `missing profile for ${ref}` };
   }
-  const manifest = validateRunnerManifestYaml(await readFile(profilePath, "utf8"));
+  const manifest = parseRunnerManifest(await readFile(profilePath, "utf8"));
   const runner = runnerName ? manifest.runners[runnerName] : Object.values(manifest.runners).find((candidate) => candidate.default) ?? Object.values(manifest.runners)[0];
   return runner ? { runner } : { error: `missing runner ${runnerName ?? "(default)"}` };
 }
 
 async function loadStepOutputDeclarations(
   skillDir: string,
-  step: { readonly skill?: string; readonly run?: Readonly<Record<string, unknown>>; readonly runner?: string; readonly artifacts?: Readonly<Record<string, unknown>> },
+  step: { readonly skill?: string; readonly stage?: string; readonly run?: Readonly<Record<string, unknown>>; readonly runner?: string; readonly artifacts?: Readonly<Record<string, unknown>> },
 ): Promise<Readonly<Record<string, OutputDeclaration>>> {
-  if (step.skill) {
-    const nested = await loadNestedRunner(skillDir, step.skill, step.runner);
+  if (step.skill || step.stage) {
+    const nested = await loadNestedRunner(skillDir, step.skill ?? step.stage ?? "", step.runner);
     return nested.runner ? outputDeclarationsFromArtifacts(nested.runner.raw) : {};
   }
   return outputDeclarationsFromArtifacts({ ...(step.run ?? {}), artifacts: step.artifacts });
@@ -370,7 +459,46 @@ function validateGraphFieldReference(
 function resolveNestedProfilePath(skillDir: string, ref: string): string | undefined {
   const resolved = path.resolve(skillDir, ref);
   const directory = path.basename(resolved).toLowerCase() === "skill.md" ? path.dirname(resolved) : resolved;
-  return path.join(directory, "X.yaml");
+  const profilePath = path.join(directory, "X.yaml");
+  return existsSync(profilePath) ? profilePath : undefined;
+}
+
+function resolveStageProfilePath(skillDir: string, ref: string): string | undefined {
+  if (path.isAbsolute(ref) || ref.split(/[\\/]/).includes("..")) {
+    return undefined;
+  }
+  const profilePath = path.join(skillDir, "graph", ref, "X.yaml");
+  return existsSync(profilePath) ? profilePath : undefined;
+}
+
+function parseRunnerManifest(profileDocument: string): SkillRunnerManifest {
+  return validateRunnerManifest(parseRunnerManifestYaml(profileDocument));
+}
+
+function buildPaymentRegistryFixtureVersion(
+  markdown: string,
+  options: { readonly owner: string; readonly version: string; readonly profileDocument: string },
+): {
+  readonly profile_document: string;
+  readonly profile_digest: string;
+  readonly runner_names: readonly string[];
+} {
+  const skill = validateSkillMarkdown(markdown, { mode: "strict" });
+  const manifest = parseRunnerManifest(options.profileDocument);
+
+  expect(manifest.skill ?? skill.name, `${skill.name} profile skill binding`).toBe(skill.name);
+  expect(options.owner).toBeTruthy();
+  expect(options.version).toBeTruthy();
+
+  return {
+    profile_document: options.profileDocument,
+    profile_digest: sha256(options.profileDocument),
+    runner_names: Object.keys(manifest.runners),
+  };
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

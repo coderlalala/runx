@@ -1,0 +1,214 @@
+skill: nitrosend
+version: 0.1.0
+catalog:
+  kind: skill
+  audience: public
+  visibility: public
+  role: branded
+  canonical_skill: runx/send-as
+  provider: nitrosend
+  runtime_path: mcp
+runners:
+  send-campaign:
+    default: true
+    type: agent-task
+    agent: builder
+    task: send-campaign
+    outputs:
+      campaign_plan: object
+    artifacts:
+      wrap_as: campaign_plan_packet
+      packet: nitrosend.campaign_plan.v1
+    inputs:
+      objective:
+        type: string
+        required: true
+        description: One bounded campaign-send objective.
+      account_status_json:
+        type: string
+        required: true
+        description: JSON string from nitro_get_status.
+      audience_brief:
+        type: string
+        required: false
+        description: Audience description, list name, segment, or all-contacts confirmation context.
+      operator_context:
+        type: string
+        required: false
+        description: Extra operator guardrails.
+      client_surface:
+        type: string
+        required: false
+        description: Caller surface, usually runx_skill_cli or mcp_direct.
+  build-flow:
+    type: agent-task
+    agent: builder
+    task: build-flow-plan
+    outputs:
+      flow_plan: object
+    artifacts:
+      wrap_as: flow_packet
+      packet: nitrosend.flow.v1
+    inputs:
+      objective:
+        type: string
+        required: true
+        description: One bounded automation-flow objective.
+      account_status_json:
+        type: string
+        required: true
+        description: JSON string from nitro_get_status.
+      flow_brief:
+        type: string
+        required: false
+        description: Trigger and step intent in prose.
+      operator_context:
+        type: string
+        required: false
+        description: Extra operator guardrails.
+      client_surface:
+        type: string
+        required: false
+        description: Caller surface, usually runx_skill_cli or mcp_direct.
+  send-transactional:
+    type: agent-task
+    agent: builder
+    task: send-transactional-plan
+    outputs:
+      transactional_plan: object
+    artifacts:
+      wrap_as: transactional_packet
+      packet: nitrosend.transactional.v1
+    inputs:
+      objective:
+        type: string
+        required: true
+        description: One bounded transactional-send objective.
+      recipient:
+        type: string
+        required: false
+        description: The single recipient address or phone.
+      data:
+        type: string
+        required: false
+        description: Merge variables for personalization, as a JSON string.
+      account_status_json:
+        type: string
+        required: false
+        description: JSON string from nitro_get_status.
+      operator_context:
+        type: string
+        required: false
+        description: Extra operator guardrails.
+  compose-email:
+    type: agent-task
+    agent: builder
+    task: compose-email-plan
+    outputs:
+      email_design: object
+    artifacts:
+      wrap_as: email_design_packet
+      packet: nitrosend.email_design.v1
+    inputs:
+      objective:
+        type: string
+        required: true
+        description: One bounded email design objective.
+      account_status_json:
+        type: string
+        required: false
+        description: JSON string from nitro_get_status.
+      brand_brief:
+        type: string
+        required: false
+        description: Voice or layout guidance beyond the saved brand.
+      operator_context:
+        type: string
+        required: false
+        description: Extra operator guardrails.
+  analytics:
+    type: agent-task
+    agent: researcher
+    task: analytics-report
+    outputs:
+      analytics_report: object
+    artifacts:
+      wrap_as: analytics_packet
+      packet: nitrosend.analytics.v1
+    inputs:
+      objective:
+        type: string
+        required: true
+        description: The analytics question.
+      scope:
+        type: string
+        required: false
+        description: account, campaign, or flow.
+      entity_id:
+        type: string
+        required: false
+        description: The campaign or flow id for scoped analysis.
+      period:
+        type: string
+        required: false
+        description: e.g. 30d or 90d.
+      account_status_json:
+        type: string
+        required: false
+        description: JSON string from nitro_get_status.
+      operator_context:
+        type: string
+        required: false
+        description: Extra operator guardrails.
+  import-contacts:
+    type: agent-task
+    agent: builder
+    task: import-contacts-plan
+    outputs:
+      import_plan: object
+    artifacts:
+      wrap_as: import_packet
+      packet: nitrosend.import.v1
+    inputs:
+      objective:
+        type: string
+        required: true
+        description: One bounded contact-import objective.
+      source_brief:
+        type: string
+        required: false
+        description: Where the contacts come from and the consent basis.
+      records:
+        type: string
+        required: false
+        description: Inline records as a JSON string, under 100.
+      account_status_json:
+        type: string
+        required: false
+        description: JSON string from nitro_get_status.
+      operator_context:
+        type: string
+        required: false
+        description: Extra operator guardrails.
+  segment-from-prose:
+    type: agent-task
+    agent: builder
+    task: segment-from-prose-plan
+    outputs:
+      segment_plan: object
+    artifacts:
+      wrap_as: segment_from_prose_packet
+      packet: nitrosend.segment_from_prose.v1
+    inputs:
+      segment_brief:
+        type: string
+        required: true
+        description: Free-text segment brief.
+      segment_name:
+        type: string
+        required: false
+        description: Preferred segment name, when the caller has one.
+      preview_only:
+        type: string
+        required: false
+        description: String boolean. Defaults to true.

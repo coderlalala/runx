@@ -23,6 +23,7 @@ use crate::host::{Host, NoopHost};
 use crate::journal::ExecutionJournal;
 use crate::lifecycle::LifecycleEvent;
 use crate::receipts::paths::{RUNX_CWD_ENV, RUNX_PROJECT_DIR_ENV, RUNX_RECEIPT_DIR_ENV};
+use crate::receipts::signing::strip_receipt_signing_env;
 use crate::receipts::{
     RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64_ENV, RUNX_RECEIPT_SIGN_ISSUER_TYPE_ENV,
     RUNX_RECEIPT_SIGN_KID_ENV, RuntimeReceiptSignatureConfig, RuntimeReceiptSignaturePolicy,
@@ -73,11 +74,12 @@ impl RuntimeOptions {
         Self::from_env(safe_default_env())
     }
 
-    pub fn from_env(env: BTreeMap<String, String>) -> Result<Self, RuntimeError> {
+    pub fn from_env(mut env: BTreeMap<String, String>) -> Result<Self, RuntimeError> {
         let receipt_services =
             ReceiptServices::from_env(&env).map_err(|error| RuntimeError::ReceiptInvalid {
                 message: error.to_string(),
             })?;
+        strip_receipt_signing_env(&mut env);
         Ok(Self {
             created_at: crate::time::now_iso8601(),
             env,
@@ -112,6 +114,7 @@ fn safe_default_env_from(
         RUNX_RUN_ID_ENV,
         RUNX_PROJECT_DIR_ENV,
         RUNX_CWD_ENV,
+        "RUNX_HTTP_ALLOW_PRIVATE_NETWORK",
         "RUNX_REGISTRY_DIR",
         "RUNX_REGISTRY_URL",
     ];
@@ -537,6 +540,36 @@ mod tests {
                 .to_string()
                 .contains("production receipt signer key material is malformed")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_options_strip_receipt_signing_env_after_signer_construction() -> Result<(), String> {
+        let env = [
+            (RUNX_RECEIPT_SIGN_KID_ENV.to_owned(), "kid_prod".to_owned()),
+            (
+                RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64_ENV.to_owned(),
+                "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=".to_owned(),
+            ),
+            (
+                RUNX_RECEIPT_SIGN_ISSUER_TYPE_ENV.to_owned(),
+                "hosted".to_owned(),
+            ),
+            ("RUNX_CWD".to_owned(), "/workspace".to_owned()),
+        ]
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+
+        let options = RuntimeOptions::from_env(env).map_err(|error| error.to_string())?;
+
+        assert!(!options.env.contains_key(RUNX_RECEIPT_SIGN_KID_ENV));
+        assert!(
+            !options
+                .env
+                .contains_key(RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64_ENV)
+        );
+        assert!(!options.env.contains_key(RUNX_RECEIPT_SIGN_ISSUER_TYPE_ENV));
+        assert_eq!(options.env.get("RUNX_CWD"), Some(&"/workspace".to_owned()));
         Ok(())
     }
 }

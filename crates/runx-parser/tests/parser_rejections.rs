@@ -90,7 +90,7 @@ steps:
       agent: builder
       task: apply taste
     context_skills:
-      - registry:sourcey/taste-skill@1.0.0
+      - registry:runx/taste-profile@1.0.0
 "#,
         )
         .map_err(|error| error.to_string())?,
@@ -99,7 +99,34 @@ steps:
 
     assert_eq!(
         graph.steps[0].context_skills,
-        vec!["registry:sourcey/taste-skill@1.0.0"]
+        vec!["registry:runx/taste-profile@1.0.0"]
+    );
+    Ok(())
+}
+
+#[test]
+fn graph_accepts_stage_steps() -> Result<(), String> {
+    let graph = validate_graph(
+        parse_graph_yaml(
+            r#"
+name: stage-graph
+steps:
+  - id: quote
+    stage: pay-quote
+    runner: quote
+    context_skills:
+      - registry:runx/taste-profile@1.0.0
+"#,
+        )
+        .map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+
+    assert_eq!(graph.steps[0].stage.as_deref(), Some("pay-quote"));
+    assert_eq!(graph.steps[0].runner.as_deref(), Some("quote"));
+    assert_eq!(
+        graph.steps[0].context_skills,
+        vec!["registry:runx/taste-profile@1.0.0"]
     );
     Ok(())
 }
@@ -116,7 +143,7 @@ steps:
       type: cli-tool
       command: echo
     context_skills:
-      - ../taste-skill
+      - ../taste-profile
 "#,
         )
         .map_err(|error| error.to_string())?,

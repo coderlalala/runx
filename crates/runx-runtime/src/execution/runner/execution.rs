@@ -402,6 +402,7 @@ impl GraphExecution {
                     failure_mode: StepFailureMode::RecordAndContinue,
                 },
                 result.run,
+                false,
             )?;
         }
         Ok(())
@@ -635,10 +636,11 @@ impl GraphExecution {
     {
         let step = self.find_step(graph, plan.step_id)?;
         enforce_transition_gates(graph, step, &self.runs)?;
+        let retry_remaining = retry_budget_remaining(step, plan.attempt);
         self.record_lifecycle(host, LifecycleEvent::step_started(plan.step_id))?;
         self.start_step(runtime, plan.step_id);
         let run = self.execute_step_plan(runtime, graph_dir, graph, step, host, plan)?;
-        self.commit_step_run(runtime, host, plan, run)
+        self.commit_step_run(runtime, host, plan, run, retry_remaining)
     }
 
     fn execute_step_plan<A>(
@@ -732,6 +734,7 @@ impl GraphExecution {
         host: &mut dyn Host,
         plan: StepExecutionPlan<'_>,
         run: StepRun,
+        retry_remaining: bool,
     ) -> Result<(), RuntimeError>
     where
         A: SkillAdapter,
@@ -744,7 +747,7 @@ impl GraphExecution {
             self.fail_step(runtime, plan.step_id, &run);
             host.log(format!("step {} failed", plan.step_id))?;
             self.record_lifecycle(host, LifecycleEvent::step_failed(plan.step_id))?;
-            if plan.failure_mode == StepFailureMode::RecordAndContinue {
+            if plan.failure_mode == StepFailureMode::RecordAndContinue || retry_remaining {
                 self.push_run(run);
                 Ok(())
             } else {
@@ -758,9 +761,7 @@ impl GraphExecution {
 
     fn push_run(&mut self, run: StepRun) {
         let index = self.runs.len();
-        self.run_positions
-            .entry(run.step_id.clone())
-            .or_insert(index);
+        self.run_positions.insert(run.step_id.clone(), index);
         self.runs.push(run);
     }
 
@@ -987,9 +988,16 @@ fn join_parallel_fanout_handles(
 fn run_positions(runs: &[StepRun]) -> BTreeMap<String, usize> {
     let mut positions = BTreeMap::new();
     for (index, run) in runs.iter().enumerate() {
-        positions.entry(run.step_id.clone()).or_insert(index);
+        positions.insert(run.step_id.clone(), index);
     }
     positions
+}
+
+fn retry_budget_remaining(step: &GraphStep, attempt: u32) -> bool {
+    let max_attempts = step.retry.as_ref().map_or(1, |retry| {
+        u32::try_from(retry.max_attempts).unwrap_or(u32::MAX)
+    });
+    attempt < max_attempts
 }
 
 fn fanout_policy_requires_outputs(policy: &FanoutGroupPolicy) -> bool {

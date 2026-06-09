@@ -50,8 +50,9 @@ set.
 
 These directories are intentionally not user-facing demos by themselves:
 `adapter-kit`, `byo-http-tool`, `external-adapter-tool`, `host-protocol`,
-`http-tool`, `nws-weather-points`, `openapi-tool`, `post-merge-final-outcome-publisher`,
-`thread-outbox-provider-fetch`, `thread-outbox-provider-fixture`, and
+`http-tool`, `nws-weather-points`, `openapi-tool`, `orchestrator-webhooks`,
+`post-merge-final-outcome-publisher`, `thread-outbox-provider-fetch`,
+`thread-outbox-provider-fixture`, and
 `thread-outbox-provider-push`.
 
 `external-adapter` and `thread-outbox-provider` are graph-step sources, not

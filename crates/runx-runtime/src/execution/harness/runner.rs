@@ -23,7 +23,7 @@ use runx_parser::{
 };
 use thiserror::Error;
 
-use super::super::graph::load_skill;
+use super::super::graph::{load_skill, materialize_graph_inputs};
 use super::assertions::{assert_expectations, status_from_disposition};
 use super::fixtures::{
     HarnessExpectedStatus, HarnessFixture, HarnessFixtureError, HarnessFixtureKind,
@@ -352,6 +352,9 @@ where
     A: SkillAdapter,
 {
     let (skill_name, invocation) = skill_fixture_invocation(fixture, skill_dir, &options)?;
+    if invocation.source.source_type == runx_parser::SourceKind::Graph {
+        return run_graph_skill_fixture(fixture, skill_name, invocation, adapter, options);
+    }
     let (skill_output, disposition, reason_code, summary) =
         run_skill_invocation(fixture, invocation, adapter)?;
     let receipt = step_receipt_with_disposition_and_policy(
@@ -375,6 +378,51 @@ where
         steps: Vec::new(),
         skill_output: Some(skill_output),
     })
+}
+
+fn run_graph_skill_fixture<A>(
+    fixture: &HarnessFixture,
+    skill_name: String,
+    invocation: SkillInvocation,
+    adapter: A,
+    mut options: RuntimeOptions,
+) -> Result<HarnessReplayOutput, HarnessReplayError>
+where
+    A: SkillAdapter,
+{
+    let graph = invocation
+        .source
+        .graph
+        .clone()
+        .ok_or_else(|| RuntimeError::UnsupportedSource {
+            source_kind: "graph runner without source.graph".to_owned(),
+        })?;
+    let graph = materialize_graph_inputs(graph, &invocation.inputs);
+    options.env = invocation.env.clone();
+    options
+        .env
+        .entry(crate::execution::runner::RUNX_RUN_ID_ENV.to_owned())
+        .or_insert_with(|| format!("harness-{}", fixture.name));
+    let runtime = Runtime::new(adapter, options);
+    let mut host = FixtureHost::new(fixture);
+    let graph_run = runtime.run_graph_with_host(&invocation.skill_directory, graph, &mut host)?;
+    let mut output = replay_output_from_graph(fixture, graph_run);
+    if output.skill_output.is_none() {
+        output.skill_output = output
+            .steps
+            .iter()
+            .rev()
+            .find(|run| run.output.succeeded())
+            .or_else(|| output.steps.last())
+            .map(|run| run.output.clone());
+    }
+    if output.steps.is_empty() {
+        return Err(RuntimeError::UnsupportedSource {
+            source_kind: format!("graph runner {skill_name} produced no steps"),
+        }
+        .into());
+    }
+    Ok(output)
 }
 
 fn skill_fixture_invocation(
@@ -609,9 +657,25 @@ impl Host for FixtureHost<'_> {
             ResolutionRequest::Approval { id, gate } => {
                 fixture_approval_response(self.fixture, &id, &gate.id)
             }
-            ResolutionRequest::Input { .. } | ResolutionRequest::AgentAct { .. } => Ok(None),
+            ResolutionRequest::AgentAct { id, .. } => {
+                fixture_agent_act_response(self.fixture, id.as_str())
+            }
+            ResolutionRequest::Input { .. } => Ok(None),
         }
     }
+}
+
+fn fixture_agent_act_response(
+    fixture: &HarnessFixture,
+    request_id: &str,
+) -> Result<Option<ResolutionResponse>, RuntimeError> {
+    let Some(answer) = fixture_answer(fixture, "answers", request_id, request_id) else {
+        return Ok(None);
+    };
+    Ok(Some(ResolutionResponse {
+        actor: ResolutionResponseActor::Agent,
+        payload: answer.clone(),
+    }))
 }
 
 fn fixture_approval_response(

@@ -63,6 +63,7 @@ fn tool_catalogs_inspect_fixture_mcp_echo() -> Result<(), Box<dyn std::error::Er
         search_from_directory: root,
         tool_roots: Vec::new(),
         fixture_catalog_enabled: true,
+        allow_explicit_manifest_path: true,
     })?;
 
     assert_eq!(report.status, ToolBuildStatus::Success);
@@ -83,6 +84,7 @@ fn tool_catalogs_inspect_local_manifest() -> Result<(), Box<dyn std::error::Erro
         search_from_directory: temp_root.clone(),
         tool_roots: Vec::new(),
         fixture_catalog_enabled: false,
+        allow_explicit_manifest_path: true,
     })?;
 
     assert_eq!(report.status, ToolBuildStatus::Success);
@@ -140,6 +142,7 @@ fn tool_catalogs_inspect_prefers_local_manifest_over_fixture_catalog()
         search_from_directory: temp_root,
         tool_roots: Vec::new(),
         fixture_catalog_enabled: true,
+        allow_explicit_manifest_path: true,
     })?;
 
     assert_eq!(report.tool.provenance.origin, ToolInspectOrigin::Local);

@@ -1,0 +1,13 @@
+name: missing-subject-needs-agent
+kind: skill
+target: ..
+runner: profile
+inputs:
+  evidence:
+    - concise, proof-first, no decorative cards
+expect:
+  status: needs_agent
+metadata:
+  public_skill: taste-profile
+  source_case: missing-subject-needs-agent
+  source: skills-fixture

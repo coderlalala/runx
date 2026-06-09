@@ -28,6 +28,7 @@ pub mod doctor;
 pub mod effects;
 pub mod error;
 pub mod execution;
+pub mod export;
 pub mod host;
 pub mod journal;
 mod json_render;
@@ -81,7 +82,7 @@ pub use credentials::{
     CredentialDelivery, CredentialDeliveryError, CredentialDeliveryProfile, CredentialMaterialRole,
     CredentialResolution, CredentialResolutionRequest, CredentialSupervisor,
     InMemoryMaterialResolver, MaterialCredentialSupervisor, MaterialResolver,
-    ResolvedCredentialMaterial, SecretEnv,
+    ResolvedCredentialMaterial, SecretEnv, SecretString,
 };
 pub use dev::{
     DevFixtureResult, DevFixtureStatus, DevLoopOptions, DevReport, DevReportStatus,

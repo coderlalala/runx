@@ -132,12 +132,24 @@ export type PostRunReflectPolicy = "auto" | "always" | "never";
 
 export type CatalogKind = "skill" | "graph";
 export type CatalogAudience = "public" | "builder" | "operator";
-export type CatalogVisibility = "public" | "private";
+export type CatalogVisibility = "public" | "internal";
+export type CatalogRole =
+  | "canonical"
+  | "branded"
+  | "context"
+  | "graph-stage"
+  | "runtime-path"
+  | "harness-fixture";
 
 export interface CatalogMetadata {
   readonly kind: CatalogKind;
   readonly audience: CatalogAudience;
   readonly visibility: CatalogVisibility;
+  readonly role: CatalogRole;
+  readonly canonicalSkill?: string;
+  readonly provider?: string;
+  readonly runtimePath?: string;
+  readonly partOf?: readonly string[];
 }
 
 export interface HarnessCallerFixture {
@@ -409,6 +421,11 @@ function validateCatalogMetadata(value: Record<string, unknown> | undefined, lab
   const kind = requiredNullableString(value.kind, `${label}.kind`);
   const audience = requiredNullableString(value.audience, `${label}.audience`);
   const visibility = optionalNullableString(value.visibility, `${label}.visibility`) ?? "public";
+  const role = requiredNullableString(value.role, `${label}.role`);
+  const canonicalSkill = optionalNullableString(value.canonical_skill, `${label}.canonical_skill`);
+  const provider = optionalNullableString(value.provider, `${label}.provider`);
+  const runtimePath = optionalNullableString(value.runtime_path, `${label}.runtime_path`);
+  const partOf = optionalNullableStringArray(value.part_of, `${label}.part_of`);
 
   if (kind !== "skill" && kind !== "graph") {
     throw new SkillValidationError(`${label}.kind must be skill or graph.`);
@@ -416,14 +433,45 @@ function validateCatalogMetadata(value: Record<string, unknown> | undefined, lab
   if (audience !== "public" && audience !== "builder" && audience !== "operator") {
     throw new SkillValidationError(`${label}.audience must be public, builder, or operator.`);
   }
-  if (visibility !== "public" && visibility !== "private") {
-    throw new SkillValidationError(`${label}.visibility must be public or private.`);
+  if (visibility !== "public" && visibility !== "internal") {
+    throw new SkillValidationError(`${label}.visibility must be public or internal.`);
+  }
+  if (
+    role !== "canonical" &&
+    role !== "branded" &&
+    role !== "context" &&
+    role !== "graph-stage" &&
+    role !== "runtime-path" &&
+    role !== "harness-fixture"
+  ) {
+    throw new SkillValidationError(
+      `${label}.role must be canonical, branded, context, graph-stage, runtime-path, or harness-fixture.`,
+    );
+  }
+  if (visibility === "public" && !["canonical", "branded", "context"].includes(role)) {
+    throw new SkillValidationError(`${label}.role cannot be ${role} when visibility is public.`);
+  }
+  if (role === "branded") {
+    if (!canonicalSkill) {
+      throw new SkillValidationError(`${label}.canonical_skill is required when catalog.role is branded.`);
+    }
+    if (!provider) {
+      throw new SkillValidationError(`${label}.provider is required when catalog.role is branded.`);
+    }
+  }
+  if ((role === "graph-stage" || role === "runtime-path" || role === "harness-fixture") && !partOf?.length) {
+    throw new SkillValidationError(`${label}.part_of is required when catalog.role is ${role}.`);
   }
 
   return {
     kind,
     audience,
     visibility,
+    role,
+    canonicalSkill,
+    provider,
+    runtimePath,
+    partOf,
   };
 }
 

@@ -131,6 +131,7 @@ mod tests {
             id: "ship".to_owned(),
             label: None,
             skill: None,
+            stage: None,
             tool: None,
             run: None,
             instructions: None,

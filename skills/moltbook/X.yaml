@@ -4,9 +4,8 @@ version: "0.1.1"
 catalog:
   kind: skill
   audience: public
-  visibility: public
-
-
+  visibility: internal
+  role: context
 harness:
   cases:
     - name: moltbook-scan-finds-opportunity

@@ -1,67 +1,54 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 
-import { validateRunnerManifestYaml, validateSkillMarkdown } from "./parser-eval.js";
+import {
+  parseRunnerManifestYaml,
+  validateRunnerManifest,
+  type SkillRunnerManifest,
+} from "../packages/cli/src/cli-parser/index.js";
+import { validateSkillMarkdown } from "./parser-eval.js";
 import { resolveRunxBinary } from "./runx-binary.js";
 
-const officialSkillPackages = [
-  "charge-challenge",
-  "charge-price",
-  "charge-verify",
-  "content-pipeline",
-  "deep-research-brief",
-  "design-skill",
+const publicCatalogPackages = [
+  "brand-voice",
+  "charge",
   "dispute-respond",
-  "draft-content",
-  "ecosystem-brief",
-  "ecosystem-vuln-scan",
   "evolve",
   "improve-skill",
-  "issue-intake",
-  "issue-triage",
-  "issue-to-pr",
-  "mock-charge",
-  "mock-pay",
-  "mock-refund",
-  "moltbook",
-  "mpp-charge",
-  "mpp-pay",
-  "mpp-refund",
-  "pay-fulfill-rail",
-  "pay-quote",
-  "pay-recover",
-  "pay-reserve",
-  "prior-art",
-  "reflect-digest",
-  "refund-quote",
-  "refund-recover",
-  "refund-reserve",
-  "release",
-  "research",
-  "review-receipt",
-  "review-skill",
-  "scafld",
-  "skill-lab",
-  "skill-testing",
-  "sourcey",
-  "stripe-charge",
+  "least-privilege-auditor",
+  "nitrosend",
+  "nws-weather-forecast",
+  "overlay-generator",
+  "policy-author",
+  "receipt-auditor",
+  "refund",
+  "send-as",
+  "spend",
   "stripe-pay",
-  "stripe-refund",
-  "vuln-scan",
-  "work-plan",
-  "write-harness",
+  "taste-profile",
+  "weather-forecast",
   "x402-pay",
 ] as const;
 
+const publicSkillRequiredHeadings = [
+  "What this skill does",
+  "When to use this skill",
+  "When not to use this skill",
+  "Procedure",
+  "Edge cases and stop conditions",
+  "Output schema",
+  "Worked example",
+  "Inputs",
+] as const;
+
 const currentPaymentRegistrySkillIds = [
-  "runx/charge-challenge",
-  "runx/charge-price",
-  "runx/charge-verify",
+  "runx/charge",
   "runx/dispute-respond",
   "runx/mock-charge",
   "runx/mock-pay",
@@ -69,18 +56,30 @@ const currentPaymentRegistrySkillIds = [
   "runx/mpp-charge",
   "runx/mpp-pay",
   "runx/mpp-refund",
-  "runx/pay-fulfill-rail",
-  "runx/pay-quote",
-  "runx/pay-recover",
-  "runx/pay-reserve",
-  "runx/refund-quote",
-  "runx/refund-recover",
-  "runx/refund-reserve",
+  "runx/refund",
+  "runx/spend",
   "runx/stripe-charge",
-  "runx/stripe-pay",
   "runx/stripe-refund",
+  "runx/stripe-pay",
   "runx/x402-pay",
 ] as const;
+
+const paymentGraphStageOwners: Readonly<Record<string, string>> = {
+  "charge-challenge": "charge",
+  "charge-price": "charge",
+  "charge-verify": "charge",
+  "pay-fulfill-rail": "spend",
+  "pay-quote": "spend",
+  "pay-recover": "spend",
+  "pay-reserve": "spend",
+  "refund-quote": "refund",
+  "refund-recover": "refund",
+  "refund-reserve": "refund",
+};
+
+const issueToPrGraphStageOwners: Readonly<Record<string, string>> = {
+  scafld: "issue-to-pr",
+};
 
 const retiredPaymentRegistrySkillIds = [
   "runx/payment-authorize-reserve",
@@ -112,6 +111,9 @@ function isPaymentRegistrySkillId(skillId: string): boolean {
     skillId.startsWith("runx/pay-") ||
     skillId.startsWith("runx/charge-") ||
     skillId.startsWith("runx/refund-") ||
+    skillId === "runx/charge" ||
+    skillId === "runx/refund" ||
+    skillId === "runx/spend" ||
     skillId.startsWith("runx/x402-") ||
     skillId === "runx/dispute-respond" ||
     /^runx\/(?:mock|mpp|stripe)-(?:charge|pay|refund)$/.test(skillId)
@@ -139,7 +141,6 @@ const harnessedShowcasePackages = [
   "release",
   "skill-lab",
   "research",
-  "scafld",
   "skill-testing",
   "sourcey",
   "vuln-scan",
@@ -156,7 +157,7 @@ const receiptSigningEnv = {
 
 describe("official skill catalog", () => {
   it("ships official skills as portable packages plus checked-in execution profiles", async () => {
-    for (const skillName of officialSkillPackages) {
+    for (const skillName of officialSkillPackages()) {
       const skillDir = path.resolve("skills", skillName);
       const skillMarkdownPath = path.join(skillDir, "SKILL.md");
       const manifestPath = path.join(skillDir, "X.yaml");
@@ -174,7 +175,68 @@ describe("official skill catalog", () => {
     }
   });
 
-  it("keeps the official payment catalog on the current skill shape", async () => {
+  it("keeps the public official catalog limited to implemented catalog skills", async () => {
+    const publicSkills = officialSkillPackages().filter((skillName) => catalogVisibility(skillName) === "public");
+
+    expect(publicSkills).toEqual([...publicCatalogPackages].sort());
+  });
+
+  it("keeps public official skills at the execution-context documentation bar", () => {
+    for (const skillName of officialSkillPackages()) {
+      if (catalogVisibility(skillName) !== "public") {
+        continue;
+      }
+      const skillMarkdown = readFileSync(path.resolve("skills", skillName, "SKILL.md"), "utf8");
+
+      expect(
+        hasMarkdownHeading(skillMarkdown, "Quality Profile"),
+        `${skillName} should express quality criteria through execution instructions, not a public rubric`,
+      ).toBe(false);
+      for (const heading of publicSkillRequiredHeadings) {
+        expect(hasMarkdownHeading(skillMarkdown, heading), `${skillName} missing ## ${heading}`).toBe(true);
+      }
+      expect(
+        /\b(needs_input|needs_agent|needs_more_evidence|reject|refused|escalated)\b/.test(skillMarkdown),
+        `${skillName} must name a non-ready stop decision`,
+      ).toBe(true);
+      expect(
+        /\b(authority|grant|scope|gate|receipt|proof)\b/i.test(skillMarkdown),
+        `${skillName} must document the governing authority, gate, receipt, or proof surface`,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps public catalog manifests scenario-free", () => {
+    for (const skillName of officialSkillPackages()) {
+      if (catalogVisibility(skillName) !== "public") {
+        continue;
+      }
+      const manifest = validateRunnerManifestYaml(readFileSync(path.resolve("skills", skillName, "X.yaml"), "utf8"));
+
+      expect(manifest.harness, `${skillName} must keep concrete scenarios in fixtures, not X.yaml`).toBeUndefined();
+    }
+  });
+
+  it("keeps public packages covered by standalone runner fixtures", () => {
+    for (const skillName of officialSkillPackages()) {
+      if (catalogVisibility(skillName) !== "public") {
+        continue;
+      }
+      const manifest = validateRunnerManifestYaml(readFileSync(path.resolve("skills", skillName, "X.yaml"), "utf8"));
+      const fixtures = publicSkillFixtureCases(skillName);
+      const runnerNames = Object.keys(manifest.runners).sort();
+      const coveredRunners = new Set(fixtures.map((entry) => entry.runner).filter(isNonEmptyString));
+
+      const missing = runnerNames.filter((runner) => !coveredRunners.has(runner));
+
+      expect(fixtures.length, `${skillName} needs standalone fixtures`).toBeGreaterThan(0);
+      expect(fixtures.every((entry) => entry.kind === "skill"), `${skillName} fixtures must target the skill`).toBe(true);
+      expect(fixtures.every((entry) => entry.target === ".."), `${skillName} fixtures must target their parent skill`).toBe(true);
+      expect(missing, `${skillName} missing standalone fixture coverage for runners`).toEqual([]);
+    }
+  });
+
+  it("keeps graph stages out of the official skills catalog", async () => {
     const entries = JSON.parse(
       await readFile(path.resolve("packages", "cli", "src", "official-skills.lock.json"), "utf8"),
     ) as ReadonlyArray<{ readonly skill_id: string }>;
@@ -186,6 +248,48 @@ describe("official skill catalog", () => {
     expect(entryIds.filter(isPaymentRegistrySkillId).sort()).toEqual(
       [...currentPaymentRegistrySkillIds].sort(),
     );
+    for (const [stage, owner] of Object.entries(paymentGraphStageOwners)) {
+      expect(existsSync(path.resolve("skills", owner, "graph", stage, "X.yaml")), stage).toBe(true);
+      expect(ids.has(`runx/${stage}`), stage).toBe(false);
+      expect(existsSync(path.resolve("skills", stage)), stage).toBe(false);
+    }
+    for (const [stage, owner] of Object.entries(issueToPrGraphStageOwners)) {
+      expect(existsSync(path.resolve("skills", owner, "graph", stage, "X.yaml")), stage).toBe(true);
+      expect(ids.has(`runx/${stage}`), stage).toBe(false);
+      expect(existsSync(path.resolve("skills", stage)), stage).toBe(false);
+    }
+    expect([...paymentCatalogPublicIds()].sort()).toEqual([
+      "runx/charge",
+      "runx/dispute-respond",
+      "runx/refund",
+      "runx/spend",
+      "runx/stripe-pay",
+      "runx/x402-pay",
+    ]);
+  });
+
+  it("classifies internal official packages by why they remain bundled", () => {
+    for (const skillName of officialSkillPackages()) {
+      const manifest = validateRunnerManifestYaml(readFileSync(path.resolve("skills", skillName, "X.yaml"), "utf8"));
+      const catalog = manifest.catalog as {
+        readonly visibility?: "public" | "internal";
+        readonly role?: string;
+        readonly partOf?: readonly string[];
+      } | undefined;
+      expect(catalog?.visibility, `${skillName} visibility`).toMatch(/^(public|internal)$/);
+      expect(catalog?.role, `${skillName} role`).toBeTruthy();
+
+      if (catalog?.visibility === "public") {
+        expect(
+          ["canonical", "branded", "context"].includes(catalog.role ?? ""),
+          `${skillName} public role`,
+        ).toBe(true);
+      }
+      if (["graph-stage", "runtime-path", "harness-fixture"].includes(catalog?.role ?? "")) {
+        expect(catalog?.visibility, `${skillName} stage visibility`).toBe("internal");
+        expect(catalog?.partOf?.length, `${skillName} part_of`).toBeGreaterThan(0);
+      }
+    }
   });
 
   it("keeps evaluator-facing packages runnable through native inline harness fixtures", async () => {
@@ -195,6 +299,9 @@ describe("official skill catalog", () => {
       for (const skillName of harnessedShowcasePackages) {
         const manifestPath = path.resolve("skills", skillName, "X.yaml");
         const manifest = validateRunnerManifestYaml(await readFile(manifestPath, "utf8"));
+        if (catalogVisibility(skillName) === "public") {
+          continue;
+        }
         if (Object.values(manifest.runners).some((runner) => runner.source.graph)) {
           continue;
         }
@@ -231,3 +338,55 @@ describe("official skill catalog", () => {
     expect(executedCases).toBeGreaterThan(0);
   }, 60_000);
 });
+
+function officialSkillPackages(): readonly string[] {
+  return readdirSync(path.resolve("skills"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .filter((entry) => existsSync(path.resolve("skills", entry.name, "SKILL.md")))
+    .filter((entry) => existsSync(path.resolve("skills", entry.name, "X.yaml")))
+    .map((entry) => entry.name)
+    .sort();
+}
+
+function catalogVisibility(skillName: string): "public" | "internal" {
+  const manifest = validateRunnerManifestYaml(readFileSync(path.resolve("skills", skillName, "X.yaml"), "utf8"));
+  const catalog = manifest.catalog as { readonly visibility?: "public" | "internal" } | undefined;
+  return catalog?.visibility ?? "public";
+}
+
+function paymentCatalogPublicIds(): readonly string[] {
+  return officialSkillPackages()
+    .map((skillName) => `runx/${skillName}`)
+    .filter(isPaymentRegistrySkillId)
+    .filter((skillId) => catalogVisibility(skillId.slice("runx/".length)) === "public");
+}
+
+function hasMarkdownHeading(markdown: string, heading: string): boolean {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^## ${escapedHeading}(?:\\b|\\s|$)`, "m").test(markdown);
+}
+
+type PublicSkillFixtureCase = {
+  readonly kind?: string;
+  readonly target?: string;
+  readonly runner?: string;
+};
+
+function publicSkillFixtureCases(skillName: string): readonly PublicSkillFixtureCase[] {
+  const fixturesDir = path.resolve("skills", skillName, "fixtures");
+  if (!existsSync(fixturesDir)) {
+    return [];
+  }
+  return readdirSync(fixturesDir)
+    .filter((entry) => entry.endsWith(".yaml") || entry.endsWith(".yml"))
+    .sort()
+    .map((entry) => parseYaml(readFileSync(path.join(fixturesDir, entry), "utf8")) as PublicSkillFixtureCase);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function validateRunnerManifestYaml(profileDocument: string): SkillRunnerManifest {
+  return validateRunnerManifest(parseRunnerManifestYaml(profileDocument));
+}

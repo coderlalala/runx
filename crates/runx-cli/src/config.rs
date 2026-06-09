@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::Path;
 
+use crate::cli_args::{os_arg, split_flag};
 use runx_runtime::{
     ConfigError, RunxConfigFile, load_runx_config_file, lookup_runx_config_value,
     mask_runx_config_file, parse_config_key, resolve_runx_home_dir, update_runx_config_value,
@@ -81,7 +82,7 @@ impl From<serde_json::Error> for ConfigCliError {
 // rust-style-allow: long-function because config set/get/list share one small
 // flag grammar and keeping it adjacent avoids divergent command parsing.
 pub fn parse_config_plan(args: &[OsString]) -> Result<ConfigPlan, String> {
-    let command = os_arg(args, 0)?;
+    let command = os_arg(args, 0, "config")?;
     if command != "config" {
         return Err("config parser requires the config command".to_owned());
     }
@@ -100,7 +101,7 @@ pub fn parse_config_plan(args: &[OsString]) -> Result<ConfigPlan, String> {
     let mut positionals = Vec::new();
     let mut index = 2;
     while index < args.len() {
-        let token = os_arg(args, index)?;
+        let token = os_arg(args, index, "config")?;
         if !token.starts_with("--") {
             positionals.push(token.to_owned());
             index += 1;
@@ -278,18 +279,6 @@ fn render_key_value(title: &str, status: &str, rows: &[(&str, Option<&str>)]) ->
     );
     lines.push(String::new());
     lines.join("\n")
-}
-
-fn os_arg(args: &[OsString], index: usize) -> Result<&str, String> {
-    args.get(index)
-        .and_then(|arg| arg.to_str())
-        .ok_or_else(|| "config arguments must be UTF-8".to_owned())
-}
-
-fn split_flag(token: &str) -> (&str, Option<&str>) {
-    token
-        .split_once('=')
-        .map_or((token, None), |(flag, value)| (flag, Some(value)))
 }
 
 #[derive(Serialize)]

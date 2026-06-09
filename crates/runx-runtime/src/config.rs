@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+use crate::credentials::SecretString;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunxConfigFile {
@@ -57,7 +59,7 @@ pub struct ManagedAgentConfig {
     /// non-empty string is accepted; new providers do not need a code edit.
     pub provider: NonEmptyString,
     pub model: String,
-    pub api_key: String,
+    pub api_key: SecretString,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -315,7 +317,7 @@ pub fn load_managed_agent_config(
     Ok(Some(ManagedAgentConfig {
         provider,
         model,
-        api_key,
+        api_key: SecretString::new(api_key),
     }))
 }
 

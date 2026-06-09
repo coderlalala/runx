@@ -31,6 +31,7 @@ use crate::runtime_http::{
 use runx_parser::SourceKind;
 
 const HTTP_SKILL: &str = "http";
+const RUNX_HTTP_ALLOW_PRIVATE_NETWORK_ENV: &str = "RUNX_HTTP_ALLOW_PRIVATE_NETWORK";
 
 /// A governed HTTP call: a method, a URL, and the request headers (auth and the
 /// like, already resolved). Inputs are mapped to the query string (GET, DELETE) or
@@ -248,6 +249,12 @@ fn merged_inputs(invocation: &SkillInvocation) -> JsonObject {
     inputs
 }
 
+fn operator_allows_private_network(env: &BTreeMap<String, String>) -> bool {
+    env.get(RUNX_HTTP_ALLOW_PRIVATE_NETWORK_ENV)
+        .map(|value| value.trim().to_ascii_lowercase())
+        .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+}
+
 /// The governed HTTP skill adapter: reads `url`/`method`/`headers` from an `http`
 /// source, resolves credential headers, and runs the call through the governed
 /// transport. The default constructs a [`ReqwestHttpTransport`]; the engine itself
@@ -279,9 +286,16 @@ impl SkillAdapter for HttpSkillAdapter {
                 request.credential_delivery.secret_env(),
             )?,
         };
-        // Default transport blocks private/loopback networks; the source must
-        // explicitly opt in to reach them (mirrors the sandbox network opt-in).
-        let transport = if http.allow_private_network.unwrap_or(false) {
+        // Default transport blocks private/loopback networks. Private-network
+        // access requires both the source flag and an operator-carried runtime
+        // grant so a manifest cannot self-authorize SSRF-sensitive reachability.
+        let allow_private_network = http.allow_private_network.unwrap_or(false);
+        if allow_private_network && !operator_allows_private_network(&request.env) {
+            return Err(failure(format!(
+                "http source requested private-network access but operator grant {RUNX_HTTP_ALLOW_PRIVATE_NETWORK_ENV}=1 is not set"
+            )));
+        }
+        let transport = if allow_private_network {
             ReqwestHttpTransport::with_private_network_access()
         } else {
             ReqwestHttpTransport::new()
@@ -319,6 +333,8 @@ mod tests {
     use super::*;
     use crate::runtime_http::{RuntimeHttpError, RuntimeHttpResponse};
     use std::cell::RefCell;
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
 
     struct StubTransport {
         status: u16,
@@ -352,6 +368,68 @@ mod tests {
             .iter()
             .map(|(key, value)| ((*key).to_owned(), JsonValue::String((*value).to_owned())))
             .collect()
+    }
+
+    fn http_invocation(
+        allow_private_network: Option<bool>,
+        env: BTreeMap<String, String>,
+    ) -> SkillInvocation {
+        SkillInvocation {
+            skill_name: "fixture.http".to_owned(),
+            source: runx_parser::SkillSource {
+                source_type: SourceKind::Http,
+                command: None,
+                args: Vec::new(),
+                cwd: None,
+                timeout_seconds: None,
+                input_mode: None,
+                sandbox: None,
+                server: None,
+                catalog_ref: None,
+                tool: None,
+                arguments: None,
+                agent_card_url: None,
+                agent_identity: None,
+                agent: None,
+                task: None,
+                hook: None,
+                outputs: None,
+                graph: None,
+                http: Some(runx_parser::SkillHttpSource {
+                    url: "http://127.0.0.1:9/metadata".to_owned(),
+                    method: Some("GET".to_owned()),
+                    headers: None,
+                    allow_private_network,
+                }),
+                raw: JsonObject::new(),
+            },
+            inputs: JsonObject::new(),
+            resolved_inputs: JsonObject::new(),
+            current_context: Vec::new(),
+            skill_directory: PathBuf::from("."),
+            env,
+            credential_delivery: crate::credentials::CredentialDelivery::none(),
+        }
+    }
+
+    #[test]
+    fn manifest_private_network_flag_requires_operator_grant() -> Result<(), RuntimeError> {
+        let result = HttpSkillAdapter.invoke(http_invocation(Some(true), BTreeMap::new()));
+        let message = match result {
+            Err(RuntimeError::SkillFailed { message, .. }) => message,
+            other => {
+                return Err(RuntimeError::SkillFailed {
+                    skill_name: "http-test".to_owned(),
+                    message: format!("expected operator-gate failure, got: {other:?}"),
+                });
+            }
+        };
+
+        assert!(
+            message.contains("operator grant RUNX_HTTP_ALLOW_PRIVATE_NETWORK=1 is not set"),
+            "unexpected failure: {message}"
+        );
+        Ok(())
     }
 
     #[test]

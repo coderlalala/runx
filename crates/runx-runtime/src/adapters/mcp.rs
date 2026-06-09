@@ -23,7 +23,10 @@ mod types;
 
 pub use adapter::McpAdapter;
 #[cfg(feature = "mcp-http-server")]
-pub use http_server::{serve_mcp_http_server, serve_mcp_http_server_blocking};
+pub use http_server::{
+    DEFAULT_MCP_HTTP_LISTEN_ADDR, McpHttpServerSecurity, generate_mcp_http_bearer_token,
+    serve_mcp_http_server, serve_mcp_http_server_blocking,
+};
 pub use server::{mcp_tool_result_from_host_result, serve_mcp_json_rpc};
 pub use templates::{map_mcp_arguments, stringify_mcp_tool_result};
 pub use transport::{FixtureMcpTransport, ProcessMcpTransport};

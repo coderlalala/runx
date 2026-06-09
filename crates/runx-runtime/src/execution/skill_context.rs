@@ -1,20 +1,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path};
 
-use runx_contracts::schema::NonEmptyString;
-use runx_contracts::{
-    ContextArtifactMeta, ContextArtifactProducer, ContextEntry, ContextEntryVersion, JsonObject,
-    JsonValue, sha256_prefixed,
-};
+use runx_contracts::{ContextEntry, JsonObject, sha256_prefixed};
 
 use crate::RuntimeError;
 use crate::registry::{RegistryResolveOptions, create_file_registry_store, resolve_registry_skill};
 
-const CONTEXT_ENTRY_TYPE: &str = "runx.skill.context";
-const CONTEXT_PRODUCER_SKILL: &str = "runx-runtime";
-const CONTEXT_PRODUCER_RUNNER: &str = "skill-context";
-const PENDING_RUN_ID: &str = "rx_pending";
+mod catalog;
+mod entry;
+
+use catalog::{validate_local_context_manifest, validate_registry_context_profile};
+use entry::{SkillContextEntryInput, insert_string, skill_context_entry};
+
 const MAX_CONTEXT_SKILLS: usize = 12;
 const MAX_CONTEXT_SKILL_BYTES: usize = 64 * 1024;
 const MAX_CONTEXT_SKILLS_TOTAL_BYTES: usize = 256 * 1024;
@@ -81,12 +79,7 @@ fn load_local_context_skill(
     env: &BTreeMap<String, String>,
     created_at: &str,
 ) -> Result<ContextEntry, RuntimeError> {
-    if Path::new(reference).is_absolute() {
-        return Err(RuntimeError::InvalidRunStep {
-            step_id: step_id.to_owned(),
-            reason: format!("context skill '{reference}' must be a relative path or registry ref"),
-        });
-    }
+    validate_local_context_ref(step_id, reference)?;
     let skill_dir = graph_dir.join(reference);
     let skill_path = skill_dir.join("SKILL.md");
     let metadata = fs::metadata(&skill_path)
@@ -100,6 +93,7 @@ fn load_local_context_skill(
         .map_err(|source| RuntimeError::io(format!("reading {}", skill_path.display()), source))?;
     let raw = runx_parser::parse_skill_markdown(&markdown)?;
     let skill = runx_parser::validate_skill(raw).map_err(RuntimeError::from)?;
+    validate_local_context_manifest(step_id, reference, &skill_dir)?;
     let digest = sha256_prefixed(markdown.as_bytes());
     let mut data = JsonObject::new();
     insert_string(&mut data, "ref", reference);
@@ -157,6 +151,7 @@ fn load_registry_context_skill(
 
     let digest = prefixed_digest(&resolution.digest);
     validate_context_skill_size(step_id, reference, resolution.markdown.len())?;
+    validate_registry_context_profile(step_id, reference, resolution.profile_document.as_deref())?;
     let mut data = JsonObject::new();
     insert_string(&mut data, "ref", reference);
     insert_string(&mut data, "source", &resolution.source);
@@ -179,50 +174,44 @@ fn load_registry_context_skill(
     })
 }
 
-struct SkillContextEntryInput<'a> {
-    step_id: &'a str,
-    reference: &'a str,
-    env: &'a BTreeMap<String, String>,
-    created_at: &'a str,
-    digest: &'a str,
-    size_bytes: u64,
-    data: JsonObject,
-}
-
-fn skill_context_entry(input: SkillContextEntryInput<'_>) -> Result<ContextEntry, RuntimeError> {
-    let artifact_id = sha256_prefixed(
-        format!(
-            "{CONTEXT_ENTRY_TYPE}\0{}\0{}",
-            input.reference, input.digest
-        )
-        .as_bytes(),
-    );
-    Ok(ContextEntry {
-        entry_type: Some(non_empty(CONTEXT_ENTRY_TYPE)?),
-        version: ContextEntryVersion::V1,
-        data: input.data,
-        meta: ContextArtifactMeta {
-            artifact_id: non_empty(artifact_id)?,
-            run_id: non_empty(
-                input
-                    .env
-                    .get(crate::execution::runner::RUNX_RUN_ID_ENV)
-                    .map(String::as_str)
-                    .unwrap_or(PENDING_RUN_ID),
-            )?,
-            step_id: Some(non_empty(input.step_id)?),
-            producer: ContextArtifactProducer {
-                skill: non_empty(CONTEXT_PRODUCER_SKILL)?,
-                runner: non_empty(CONTEXT_PRODUCER_RUNNER)?,
-            },
-            created_at: non_empty(input.created_at)?,
-            hash: non_empty(input.digest)?,
-            size_bytes: input.size_bytes,
-            parent_artifact_id: None,
-            receipt_id: None,
-            redacted: false,
-        },
-    })
+fn validate_local_context_ref(step_id: &str, reference: &str) -> Result<(), RuntimeError> {
+    if reference.trim().is_empty() {
+        return Err(RuntimeError::InvalidRunStep {
+            step_id: step_id.to_owned(),
+            reason: "context skill ref must not be empty".to_owned(),
+        });
+    }
+    let path = Path::new(reference);
+    if path.is_absolute() {
+        return Err(RuntimeError::InvalidRunStep {
+            step_id: step_id.to_owned(),
+            reason: format!("context skill '{reference}' must be a relative path or registry ref"),
+        });
+    }
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                return Err(RuntimeError::InvalidRunStep {
+                    step_id: step_id.to_owned(),
+                    reason: format!("context skill '{reference}' must not contain '..'"),
+                });
+            }
+            Component::Normal(name) if name == "graph" => {
+                return Err(RuntimeError::InvalidRunStep {
+                    step_id: step_id.to_owned(),
+                    reason: format!("context skill '{reference}' must not target graph stages"),
+                });
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(RuntimeError::InvalidRunStep {
+                    step_id: step_id.to_owned(),
+                    reason: format!("context skill '{reference}' must be a relative path"),
+                });
+            }
+            Component::CurDir | Component::Normal(_) => {}
+        }
+    }
+    Ok(())
 }
 
 fn is_registry_ref(reference: &str) -> bool {
@@ -253,14 +242,4 @@ fn prefixed_digest(digest: &str) -> String {
     } else {
         format!("sha256:{digest}")
     }
-}
-
-fn non_empty(value: impl Into<String>) -> Result<NonEmptyString, RuntimeError> {
-    NonEmptyString::new(value.into()).ok_or_else(|| RuntimeError::ReceiptInvalid {
-        message: "skill context artifact included an empty required field".to_owned(),
-    })
-}
-
-fn insert_string(object: &mut JsonObject, key: &str, value: &str) {
-    object.insert(key.to_owned(), JsonValue::String(value.to_owned()));
 }

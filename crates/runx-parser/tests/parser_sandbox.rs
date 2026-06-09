@@ -31,7 +31,7 @@ source:
     );
     assert_eq!(sandbox.network, Some(true));
     assert!(sandbox.writable_paths.is_empty());
-    assert_eq!(sandbox.require_enforcement, Some(false));
+    assert_eq!(sandbox.require_enforcement, Some(true));
     assert!(sandbox.raw.contains_key("profile"));
     Ok(())
 }
@@ -61,6 +61,69 @@ source:
 
     assert!(sandbox.approved_escalation.is_none());
     assert!(sandbox.raw.contains_key("approvedEscalation"));
+    Ok(())
+}
+
+#[test]
+fn sandbox_env_allowlist_rejects_receipt_signing_env() -> Result<(), String> {
+    let raw = parse_skill_markdown(
+        r#"---
+name: cli-tool
+source:
+  type: cli-tool
+  command: node
+  sandbox:
+    profile: readonly
+    env_allowlist:
+      - PATH
+      - RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64
+---
+# CLI tool
+"#,
+    )
+    .map_err(|error| error.to_string())?;
+
+    let error = validate_skill(raw)
+        .err()
+        .ok_or_else(|| "reserved env allowlist unexpectedly passed".to_owned())?;
+
+    assert!(
+        error
+            .to_string()
+            .contains("reserved runx environment variable RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64"),
+        "unexpected error: {error}"
+    );
+    Ok(())
+}
+
+#[test]
+fn sandbox_env_allowlist_rejects_runx_secret_like_env() -> Result<(), String> {
+    let raw = parse_skill_markdown(
+        r#"---
+name: cli-tool
+source:
+  type: cli-tool
+  command: node
+  sandbox:
+    profile: readonly
+    env_allowlist:
+      - RUNX_AGENT_API_KEY
+---
+# CLI tool
+"#,
+    )
+    .map_err(|error| error.to_string())?;
+
+    let error = validate_skill(raw)
+        .err()
+        .ok_or_else(|| "reserved env allowlist unexpectedly passed".to_owned())?;
+
+    assert!(
+        error
+            .to_string()
+            .contains("reserved runx environment variable RUNX_AGENT_API_KEY"),
+        "unexpected error: {error}"
+    );
     Ok(())
 }
 

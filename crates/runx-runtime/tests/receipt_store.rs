@@ -124,6 +124,14 @@ fn exact_read_list_and_rebuild_index_succeed() -> Result<(), Box<dyn std::error:
     write_json(temp.path(), &receipt_file_name(&success.id), &success)?;
     write_json(temp.path(), &receipt_file_name(&abnormal.id), &abnormal)?;
     fs::write(temp.path().join("notes.txt"), "ignored")?;
+    write_json(
+        temp.path(),
+        "effect-state.json",
+        &json!({
+            "schema_version": "runx.effect_state.v1",
+            "families": {}
+        }),
+    )?;
     let store = LocalReceiptStore::new(temp.path());
 
     let receipt = store.read_exact(&success.id)?;

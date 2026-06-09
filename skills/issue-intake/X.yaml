@@ -1,12 +1,10 @@
 skill: issue-intake
-version: "0.1.2"
-
+version: 0.1.2
 catalog:
   kind: skill
   audience: public
-  visibility: public
-
-
+  visibility: internal
+  role: context
 harness:
   cases:
     - name: bounded-docs-fix
@@ -33,14 +31,15 @@ harness:
               locator: github://example/repo/issues/101
               thread_locator: github://example/repo/issues/101
               title: README should point users to issue-to-pr
-              body_preview: The public docs should present issue-to-pr as the canonical command.
+              body_preview: The public docs should present issue-to-pr as the canonical
+                command.
               hydration_status: complete
           redaction:
             status: not_required
             summary: No provider secrets or direct identifiers were present.
           summary: Bounded docs evidence is ready for triage.
-          created_at: "2026-05-15T00:00:00Z"
-          updated_at: "2026-05-15T00:00:00Z"
+          created_at: 2026-05-15T00:00:00Z
+          updated_at: 2026-05-15T00:00:00Z
         product_context: OSS runx documentation
         operator_context: Prefer the canonical issue-to-pr name in user-facing replies.
       caller:
@@ -49,8 +48,10 @@ harness:
             intake_report:
               category: docs
               severity: low
-              summary: The docs are outdated and still point users at the removed skill name instead of the canonical skill name.
-              suggested_reply: We'll update the public docs to point at issue-to-pr as the canonical command.
+              summary: The docs are outdated and still point users at the removed skill name
+                instead of the canonical skill name.
+              suggested_reply: We'll update the public docs to point at issue-to-pr as the
+                canonical command.
               recommended_lane: issue-to-pr
               rationale: The report is a bounded one-repo documentation fix with low risk.
               needs_human: false
@@ -61,7 +62,8 @@ harness:
               thread_change_request:
                 task_id: docs_issue_to_pr_command
                 thread_title: README should point users to issue-to-pr
-                thread_body: The public docs should present issue-to-pr as the canonical command.
+                thread_body: The public docs should present issue-to-pr as the canonical
+                  command.
                 thread_locator: github://example/repo/issues/101
                 outbox_entry:
                   entry_id: github_issue_101
@@ -74,7 +76,8 @@ harness:
             change_set:
               change_set_id: change_set_docs_work_101
               thread_locator: github://example/repo/issues/101
-              summary: Update the public docs to point at issue-to-pr as the canonical skill name.
+              summary: Update the public docs to point at issue-to-pr as the canonical skill
+                name.
               category: docs
               severity: low
               recommended_lane: issue-to-pr
@@ -105,7 +108,8 @@ harness:
                   source_locator: github://example/repo/issues/101
                   thread_locator: github://example/repo/issues/101
                   title: README should point users to issue-to-pr
-                  body_preview: The public docs should present issue-to-pr as the canonical command.
+                  body_preview: The public docs should present issue-to-pr as the canonical
+                    command.
               dedupe:
                 algorithm: sha256
                 source_locator: github://example/repo/issues/101
@@ -133,17 +137,18 @@ harness:
                     locator: github://example/repo/issues/101
                     thread_locator: github://example/repo/issues/101
                     title: README should point users to issue-to-pr
-                    body_preview: The public docs should present issue-to-pr as the canonical command.
+                    body_preview: The public docs should present issue-to-pr as the canonical
+                      command.
                     hydration_status: complete
                 redaction:
                   status: not_required
                   summary: No provider secrets or direct identifiers were present.
                 summary: Bounded docs evidence is ready for triage.
-                created_at: "2026-05-15T00:00:00Z"
-                updated_at: "2026-05-15T00:00:00Z"
+                created_at: 2026-05-15T00:00:00Z
+                updated_at: 2026-05-15T00:00:00Z
               status_summary: Bounded docs fix is ready for issue-to-pr.
-              created_at: "2026-05-15T00:00:00Z"
-              updated_at: "2026-05-15T00:00:00Z"
+              created_at: 2026-05-15T00:00:00Z
+              updated_at: 2026-05-15T00:00:00Z
       expect:
         status: sealed
         receipt:
@@ -153,7 +158,8 @@ harness:
     - name: feature-needs-decomposition
       inputs:
         thread_title: Add abandoned cart recovery across email and SMS
-        thread_body: We need a generated workflow, copy, timing rules, and reporting for abandoned cart recovery.
+        thread_body: We need a generated workflow, copy, timing rules, and reporting for
+          abandoned cart recovery.
         thread_locator: support://request/982
         product_context: Multi-channel marketing automation product
       caller:
@@ -162,10 +168,13 @@ harness:
             intake_report:
               category: feature_request
               severity: medium
-              summary: The request is a multi-step product capability that spans workflow design, content, and reporting.
-              suggested_reply: This needs decomposition into a governed implementation plan before code changes start.
+              summary: The request is a multi-step product capability that spans workflow
+                design, content, and reporting.
+              suggested_reply: This needs decomposition into a governed implementation plan
+                before code changes start.
               recommended_lane: work-plan
-              rationale: The request spans multiple deliverables and should be broken into governed steps first.
+              rationale: The request spans multiple deliverables and should be broken into
+                governed steps first.
               needs_human: true
               commence_decision: approve
               action_decision: proceed_to_plan
@@ -199,7 +208,8 @@ harness:
             change_set:
               change_set_id: change_set_abandoned_cart_982
               thread_locator: support://request/982
-              summary: Add abandoned cart recovery across email and SMS with coordinated backend, UI, and MCP work.
+              summary: Add abandoned cart recovery across email and SMS with coordinated
+                backend, UI, and MCP work.
               category: feature_request
               severity: medium
               recommended_lane: work-plan
@@ -220,9 +230,11 @@ harness:
                   rationale: The surfaced tools and contracts may need updates.
               shared_invariants:
                 - Preserve current checkout and cart tracking semantics.
-                - Plan before mutation; do not start repo workers from support text alone.
+                - Plan before mutation; do not start repo workers from support
+                  text alone.
               success_criteria:
-                - A phased workspace change plan is authored before repo mutation.
+                - A phased workspace change plan is authored before repo
+                  mutation.
                 - Child workers preserve one shared abandoned-cart objective.
             signal:
               schema: runx.signal.v1
@@ -233,7 +245,8 @@ harness:
                   source_locator: support://request/982
                   thread_locator: support://request/982
                   title: Add abandoned cart recovery across email and SMS
-                  body_preview: We need a generated workflow, copy, timing rules, and reporting for abandoned cart recovery.
+                  body_preview: We need a generated workflow, copy, timing rules, and reporting
+                    for abandoned cart recovery.
               dedupe:
                 algorithm: sha256
                 source_locator: support://request/982
@@ -245,12 +258,13 @@ harness:
                 action: work-plan
                 recommended_lane: work-plan
                 needs_human: true
-                rationale: The request spans multiple deliverables and should be planned before mutation.
+                rationale: The request spans multiple deliverables and should be planned before
+                  mutation.
               change_set:
                 change_set_id: change_set_abandoned_cart_982
               status_summary: Cross-surface feature request is ready for work-plan.
-              created_at: "2026-05-15T00:00:00Z"
-              updated_at: "2026-05-15T00:00:00Z"
+              created_at: 2026-05-15T00:00:00Z
+              updated_at: 2026-05-15T00:00:00Z
       expect:
         status: sealed
         receipt:
@@ -269,7 +283,8 @@ harness:
               category: question
               severity: low
               summary: The user is asking for operator guidance, not a product mutation.
-              suggested_reply: Share the documented API key rotation steps and confirm whether they need a UI walkthrough.
+              suggested_reply: Share the documented API key rotation steps and confirm whether
+                they need a UI walkthrough.
               recommended_lane: reply-only
               rationale: No code or planning lane is required to answer this request.
               needs_human: false
@@ -294,7 +309,8 @@ harness:
               shared_invariants:
                 - Do not open a mutation lane for guidance-only requests.
               success_criteria:
-                - The operator sends or adapts the documented API key rotation guidance.
+                - The operator sends or adapts the documented API key rotation
+                  guidance.
             signal:
               schema: runx.signal.v1
               signal_id: sig_support_983
@@ -304,7 +320,8 @@ harness:
                   source_locator: support://request/983
                   thread_locator: support://request/983
                   title: How do I rotate my API key?
-                  body_preview: I only need the operator instructions for rotating an API key safely.
+                  body_preview: I only need the operator instructions for rotating an API key
+                    safely.
               dedupe:
                 algorithm: sha256
                 source_locator: support://request/983
@@ -323,8 +340,8 @@ harness:
                 state: closed
                 summary: Guidance-only request should be answered without mutation.
               status_summary: Reply-only request does not need a PR lane.
-              created_at: "2026-05-15T00:00:00Z"
-              updated_at: "2026-05-15T00:00:00Z"
+              created_at: 2026-05-15T00:00:00Z
+              updated_at: 2026-05-15T00:00:00Z
       expect:
         status: sealed
         receipt:
@@ -334,7 +351,8 @@ harness:
     - name: request-review-before-mutation
       inputs:
         thread_title: Clarify the affected repo before we start
-        thread_body: The report mentions API failures and docs drift, but it is not yet clear whether this is one bounded fix or cross-repo work.
+        thread_body: The report mentions API failures and docs drift, but it is not yet
+          clear whether this is one bounded fix or cross-repo work.
         thread_locator: github://example/repo/issues/984
         outbox_entry:
           entry_id: github_issue_984
@@ -349,15 +367,20 @@ harness:
             intake_report:
               category: other
               severity: medium
-              summary: The report is directionally actionable but still too ambiguous to start a worker or planner safely.
-              suggested_reply: Please confirm which repo owns the failing path before we start governed mutation.
+              summary: The report is directionally actionable but still too ambiguous to start
+                a worker or planner safely.
+              suggested_reply: Please confirm which repo owns the failing path before we start
+                governed mutation.
               recommended_lane: manual-review
-              rationale: The maintainer needs to confirm the target surface before runx opens a downstream lane.
+              rationale: The maintainer needs to confirm the target surface before runx opens
+                a downstream lane.
               needs_human: false
               commence_decision: approve
               action_decision: request_review
               review_target: thread
-              review_comment: Please confirm whether the failing path belongs to the API repo, the docs repo, or both. runx is holding mutation until the target surface is explicit.
+              review_comment: Please confirm whether the failing path belongs to the API repo,
+                the docs repo, or both. runx is holding mutation until the
+                target surface is explicit.
               operator_notes:
                 - Do not open issue-to-pr until the target repo is explicit.
             change_set:
@@ -379,11 +402,13 @@ harness:
                 - surface: workspace
                   kind: other
                   mutating: false
-                  rationale: Repo ownership is still ambiguous, so the supervisor must stop at a public review comment first.
+                  rationale: Repo ownership is still ambiguous, so the supervisor must stop at a
+                    public review comment first.
               shared_invariants:
                 - Do not guess the target repo from incomplete issue text.
               success_criteria:
-                - The maintainer confirms the target surface before any planner or worker starts.
+                - The maintainer confirms the target surface before any planner
+                  or worker starts.
             signal:
               schema: runx.signal.v1
               signal_id: sig_support_984
@@ -393,7 +418,8 @@ harness:
                   source_locator: github://example/repo/issues/984
                   thread_locator: github://example/repo/issues/984
                   title: Clarify the affected repo before we start
-                  body_preview: The report mentions API failures and docs drift, but target ownership is ambiguous.
+                  body_preview: The report mentions API failures and docs drift, but target
+                    ownership is ambiguous.
               dedupe:
                 algorithm: sha256
                 source_locator: github://example/repo/issues/984
@@ -405,19 +431,19 @@ harness:
                 action: manual-review
                 recommended_lane: manual-review
                 needs_human: false
-                rationale: The maintainer needs to confirm the target surface before mutation starts.
+                rationale: The maintainer needs to confirm the target surface before mutation
+                  starts.
               change_set:
                 change_set_id: change_set_support_984
               status_summary: Mutation is blocked until the target surface is confirmed.
-              created_at: "2026-05-15T00:00:00Z"
-              updated_at: "2026-05-15T00:00:00Z"
+              created_at: 2026-05-15T00:00:00Z
+              updated_at: 2026-05-15T00:00:00Z
       expect:
         status: sealed
         receipt:
           schema: runx.receipt.v1
           state: sealed
           disposition: closed
-
 runners:
   intake:
     default: true
@@ -436,44 +462,46 @@ runners:
       thread_title:
         type: string
         required: false
-        description: "Canonical thread title."
+        description: Canonical thread title.
       thread_body:
         type: string
         required: false
-        description: "Canonical thread body or request text."
+        description: Canonical thread body or request text.
       thread_locator:
         type: string
         required: false
-        description: "Canonical locator for the bounded thread."
+        description: Canonical locator for the bounded thread.
       thread:
         type: json
         required: false
-        description: "Portable thread when the caller already has it."
+        description: Portable thread when the caller already has it.
       outbox_entry:
         type: json
         required: false
-        description: "Current outbox entry for replies, status, or refreshes."
+        description: Current outbox entry for replies, status, or refreshes.
       signal:
         type: json
         required: false
-        description: "Optional runx.signal.v1 observation supplied by the source adapter."
+        description: Optional runx.signal.v1 observation supplied by the source adapter.
       product_context:
         type: string
         required: false
-        description: "Product or repo context that constrains the intake decision."
+        description: Product or repo context that constrains the intake decision.
       operator_context:
         type: string
         required: false
-        description: "Tone, escalation, or operator posture guidance."
+        description: Tone, escalation, or operator posture guidance.
       source_event:
         type: json
         required: false
-        description: "Optional admitted source event used to seed the portable signal packet."
+        description: Optional admitted source event used to seed the portable signal packet.
       source_policy:
         type: json
         required: false
-        description: "Optional consuming-repo source admission policy; channel and owner rules stay outside runx core."
+        description: Optional consuming-repo source admission policy; channel and owner
+          rules stay outside runx core.
       operational_policy:
         type: json
         required: false
-        description: "Optional runx.operational_policy.v1 packet for source, target, runner, and source-thread admission."
+        description: Optional runx.operational_policy.v1 packet for source, target,
+          runner, and source-thread admission.

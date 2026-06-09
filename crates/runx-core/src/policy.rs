@@ -29,7 +29,10 @@ pub use public_work::{
     evaluate_public_pull_request_candidate, normalize_public_work_policy,
 };
 pub use retry::admit_retry_policy;
-pub use sandbox::{admit_sandbox, normalize_sandbox_declaration, sandbox_requires_approval};
+pub use sandbox::{
+    admit_sandbox, is_reserved_runx_sandbox_env_name, normalize_sandbox_declaration,
+    sandbox_requires_approval,
+};
 pub use types::{
     AdmissionDecision, AuthorityKind, AuthorityProof, AuthorityProofApproval,
     AuthorityProofApprovalDecision, AuthorityProofApprovalDecisionValue,

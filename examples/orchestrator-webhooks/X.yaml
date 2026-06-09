@@ -1,0 +1,36 @@
+skill: orchestrator-webhooks
+version: "0.1.0"
+
+catalog:
+  kind: graph
+  audience: operator
+  visibility: public
+  role: example
+
+runners:
+  n8n:
+    default: true
+    type: graph
+    inputs:
+      event_id:
+        type: string
+        required: true
+        description: Stable event id for downstream idempotency.
+      source:
+        type: string
+        required: false
+        default: runx
+        description: Human-readable source label for the webhook receiver.
+      payload:
+        type: json
+        required: true
+        description: JSON payload to deliver to the workflow webhook.
+    graph:
+      name: orchestrator-webhooks
+      steps:
+        - id: post_to_n8n
+          tool: orchestrators.n8n_webhook_post
+          inputs:
+            event_id: "$input.event_id"
+            source: "$input.source"
+            payload: "$input.payload"

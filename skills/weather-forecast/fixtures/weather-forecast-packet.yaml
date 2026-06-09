@@ -1,0 +1,52 @@
+name: weather-forecast-packet
+kind: skill
+target: ..
+runner: normalize
+inputs:
+  location: Washington Monument
+  horizon: tomorrow
+  purpose: outdoor product demo planning
+  forecast_evidence:
+    provider: nws
+    gridpoint: LWX/97,71
+    generated_at: 2026-06-09T00:00:00Z
+    periods:
+      - name: Tomorrow
+        shortForecast: Chance Showers
+        windSpeed: 8 mph
+caller:
+  answers:
+    agent_task.weather-forecast.output:
+      decision: ready
+      location: Washington Monument
+      horizon: tomorrow
+      forecast_packet:
+        summary: NWS evidence indicates possible showers during the planning horizon.
+        periods:
+          - name: Tomorrow
+            forecast: Chance Showers
+            wind: 8 mph
+        hazards:
+          - rain could affect an outdoor demo
+        confidence: medium
+        generated_at: 2026-06-09T00:00:00Z
+      provider_evidence:
+        provider: nws
+        source_refs:
+          - gridpoints/LWX/97,71/forecast
+        receipt_refs: []
+      safety_notes:
+        - Not for emergency, aviation, maritime, or life-safety decisions.
+      stop_conditions:
+        - Do not reschedule or notify attendees without a downstream action gate.
+      receipt_notes:
+        authority: context-only
+        mutation: false
+expect:
+  status: sealed
+  receipt:
+    schema: runx.receipt.v1
+metadata:
+  public_skill: weather-forecast
+  source_case: weather-forecast-packet
+  source: skills-fixture

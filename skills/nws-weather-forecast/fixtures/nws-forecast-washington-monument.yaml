@@ -1,0 +1,14 @@
+name: nws-forecast-washington-monument
+kind: skill
+target: ..
+runner: forecast
+inputs:
+  office: LWX
+  grid_x: "97"
+  grid_y: "71"
+expect:
+  status: sealed
+metadata:
+  public_skill: nws-weather-forecast
+  source_case: nws-forecast-washington-monument
+  source: skills-fixture

@@ -144,7 +144,7 @@ impl<'a> PriorRunIndex<'a> {
     pub(crate) fn new(prior_runs: &'a [StepRun]) -> Self {
         let mut runs = BTreeMap::new();
         for run in prior_runs {
-            runs.entry(run.step_id.as_str()).or_insert(run);
+            runs.insert(run.step_id.as_str(), run);
         }
         Self { runs }
     }

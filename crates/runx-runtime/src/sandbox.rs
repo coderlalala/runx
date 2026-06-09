@@ -25,7 +25,7 @@ use self::env::{
 use self::metadata::sandbox_metadata_with_runtime;
 use self::policy::{
     resolve_cwd, resolve_cwd_value, resolved_writable_paths, validate_sandbox,
-    validate_writable_paths, workspace_cwd,
+    validated_writable_paths, workspace_cwd,
 };
 use self::template::resolve_template;
 
@@ -88,7 +88,8 @@ pub fn prepare_process_sandbox(
         .map(|arg| resolve_template(arg, inputs, base_env))
         .collect();
     let writable_paths = resolved_writable_paths(sandbox, inputs, base_env);
-    validate_writable_paths(sandbox, &writable_paths, &cwd, workspace_cwd.as_deref())?;
+    let validated_writable_paths =
+        validated_writable_paths(sandbox, &writable_paths, &cwd, workspace_cwd.as_deref())?;
     let runtime = resolve_sandbox_runtime(sandbox, base_env)?;
     let private_tmp_enabled = sandbox_private_tmp_enabled(sandbox, runtime.as_ref());
     let mut cleanup_paths = Vec::new();
@@ -108,7 +109,7 @@ pub fn prepare_process_sandbox(
         cwd: &cwd,
         skill_directory,
         workspace_cwd: workspace_cwd.as_deref(),
-        writable_paths: &writable_paths,
+        writable_paths: &validated_writable_paths,
         network: sandbox_network_enabled(sandbox),
         private_tmp: cleanup_paths.first().map(PathBuf::as_path),
     });
@@ -143,7 +144,8 @@ pub fn prepare_mcp_process_sandbox(
         workspace_cwd.as_deref(),
     )?;
     let writable_paths = resolved_writable_paths(sandbox, &JsonObject::new(), base_env);
-    validate_writable_paths(sandbox, &writable_paths, &cwd, workspace_cwd.as_deref())?;
+    let validated_writable_paths =
+        validated_writable_paths(sandbox, &writable_paths, &cwd, workspace_cwd.as_deref())?;
     let runtime = resolve_sandbox_runtime(sandbox, base_env)?;
     let private_tmp_enabled = sandbox_private_tmp_enabled(sandbox, runtime.as_ref());
     let mut cleanup_paths = Vec::new();
@@ -163,7 +165,7 @@ pub fn prepare_mcp_process_sandbox(
         cwd: &cwd,
         skill_directory,
         workspace_cwd: workspace_cwd.as_deref(),
-        writable_paths: &writable_paths,
+        writable_paths: &validated_writable_paths,
         network: sandbox_network_enabled(sandbox),
         private_tmp: cleanup_paths.first().map(PathBuf::as_path),
     });
@@ -197,7 +199,7 @@ mod tests {
         sandbox_exec_path_filter_path, sandbox_exec_profile, sandbox_profile_string,
     };
     use super::env::{cleanup_paths_quietly, prepare_sandbox_tmp_env};
-    use super::policy::{resolved_writable_paths, validate_writable_paths};
+    use super::policy::{resolved_writable_paths, validated_writable_paths};
 
     #[test]
     fn writable_paths_omit_unresolved_optional_templates() {
@@ -281,7 +283,7 @@ mod tests {
     fn sandbox_exec_profile_keeps_legitimate_writable_path() {
         let profile = sandbox_exec_profile(
             Path::new("/workspace"),
-            &["logs/output".to_owned()],
+            &[PathBuf::from("/workspace/logs/output")],
             false,
             None,
         );
@@ -294,7 +296,7 @@ mod tests {
     fn sandbox_exec_profile_sanitizes_metacharacters_if_validation_is_bypassed() {
         let profile = sandbox_exec_profile(
             Path::new("/workspace"),
-            &["safe\")) (allow network*)".to_owned()],
+            &[PathBuf::from("safe\")) (allow network*)")],
             false,
             None,
         );
@@ -355,7 +357,7 @@ mod tests {
             raw: JsonObject::new(),
         };
 
-        let error = validate_writable_paths(
+        let error = validated_writable_paths(
             Some(&sandbox),
             &["safe\")) (allow network*)".to_owned()],
             &workspace,
@@ -387,12 +389,13 @@ mod tests {
             raw: JsonObject::new(),
         };
 
-        validate_writable_paths(
+        validated_writable_paths(
             Some(&sandbox),
             &["dist/cache/output.json".to_owned()],
             &workspace,
             Some(&workspace),
         )
+        .map(|_| ())
         .map_err(|source| source.to_string())
     }
 
@@ -417,7 +420,7 @@ mod tests {
             raw: JsonObject::new(),
         };
 
-        let error = validate_writable_paths(
+        let error = validated_writable_paths(
             Some(&sandbox),
             &["link/escape.txt".to_owned()],
             &workspace,

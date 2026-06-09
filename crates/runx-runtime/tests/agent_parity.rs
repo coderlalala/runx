@@ -10,7 +10,7 @@ use runx_runtime::adapters::agent::{
     AgentToolExecutionTrace,
 };
 use runx_runtime::{
-    InvocationStatus, ManagedAgentConfig, RuntimeError, RuntimeOptions, SkillAdapter,
+    InvocationStatus, ManagedAgentConfig, RuntimeError, RuntimeOptions, SecretString, SkillAdapter,
     SkillInvocation, managed_agent_provider, run_harness_fixture_with_adapter,
 };
 
@@ -391,7 +391,7 @@ fn config() -> ManagedAgentConfig {
     ManagedAgentConfig {
         provider: managed_agent_provider::OPENAI.into(),
         model: "gpt-test".to_owned(),
-        api_key: "sk-test".to_owned(),
+        api_key: SecretString::new("sk-test"),
     }
 }
 

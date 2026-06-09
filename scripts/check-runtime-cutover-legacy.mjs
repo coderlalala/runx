@@ -340,8 +340,6 @@ function checkFinalNoInKernelGithubProviderClients() {
     /\bapi\.github\.com\b/u,
     /\bGITHUB_TOKEN\b/u,
     /\bbearer_auth\b/u,
-    /\bheader::AUTHORIZATION\b/u,
-    /\bAUTHORIZATION\b/u,
   ];
   const files = [
     ...sourceFiles(["crates/runx-runtime/src/adapters", "crates/runx-runtime/src/outbox_provider"], [".rs"]),

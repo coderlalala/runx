@@ -1,0 +1,66 @@
+name: campaign-send-plan-ready
+kind: skill
+target: ..
+runner: plan
+inputs:
+  objective: Schedule the June newsletter to the subscribers list.
+  principal: account:nitrosend-demo
+  provider_context:
+    provider: nitrosend
+    account_ref: acct_demo
+    runtime_path: mcp
+    domain_verified: true
+  audience:
+    type: list
+    ref: newsletter-subscribers
+  content_ref:
+    draft_ref: campaign:jun-newsletter
+    digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    subject_or_title: June product update
+  consent_basis: Subscribers opted in to the newsletter list.
+  operator_context: Live delivery requires explicit operator approval.
+caller:
+  answers:
+    agent_task.send-as.output:
+      send_plan:
+        decision: ready
+        action_family: send-as
+        principal:
+          type: account
+          ref: account:nitrosend-demo
+        provider:
+          name: nitrosend
+          account_ref: acct_demo
+          runtime_path: mcp
+        send_class: campaign
+        channel: email
+        audience:
+          type: list
+          ref: newsletter-subscribers
+          requires_reconfirmation: false
+        content:
+          draft_ref: campaign:jun-newsletter
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          subject_or_title: June product update
+        gates:
+          preflight_required: true
+          human_approval_required: true
+          approval_ref: approval:pending
+        blockers: []
+        provider_actions:
+          - nitro_review_delivery
+          - nitro_send_test_message
+          - nitro_control_delivery
+        evidence_refs:
+          - provider_context:nitrosend
+        success_checkpoint:
+          milestone: send_ready_for_approval
+          description: A digest-bound campaign send is ready for preflight and explicit approval.
+expect:
+  status: sealed
+  receipt:
+    schema: runx.receipt.v1
+metadata:
+  public_skill: send-as
+  source_case: campaign-send-plan-ready
+  source: skills-fixture

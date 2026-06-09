@@ -4,9 +4,8 @@ version: "0.1.2"
 catalog:
   kind: graph
   audience: builder
-  visibility: private
-
-
+  visibility: internal
+  role: context
 harness:
   cases:
     - name: reflect-digest-empty-knowledge

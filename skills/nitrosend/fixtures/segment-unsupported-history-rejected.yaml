@@ -1,0 +1,26 @@
+name: segment-unsupported-history-rejected
+kind: skill
+target: ..
+runner: segment-from-prose
+inputs:
+  segment_brief: Contacts who opened a recent campaign or clicked a product link but have not purchased in 60 days.
+  segment_name: Open Click History Without Purchase
+  preview_only: "true"
+caller:
+  answers:
+    agent_task.segment-from-prose-plan.output:
+      segment_plan:
+        decision: reject
+        rationale: The request depends on open/click history and purchase history that are not segment filters.
+        unsupported_requirements:
+          - email open/click history
+          - purchase history
+        rejection_reason: Nitrosend segments cannot currently filter on campaign opens, link clicks, or purchase history.
+expect:
+  status: sealed
+  receipt:
+    schema: runx.receipt.v1
+metadata:
+  public_skill: nitrosend
+  source_case: segment-unsupported-history-rejected
+  source: skills-fixture

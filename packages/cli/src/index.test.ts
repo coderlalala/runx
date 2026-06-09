@@ -864,7 +864,7 @@ Answer the prompt directly.
     const publishStderr = createMemoryStream();
     await expect(
       runCli(
-        ["skill", "publish", "skills/sourcey", "--owner", "acme", "--version", "1.0.0", "--registry", registryDir, "--json"],
+        ["skill", "publish", "skills/receipt-auditor", "--owner", "acme", "--version", "1.0.0", "--registry", registryDir, "--json"],
         { stdin: process.stdin, stdout: publishStdout, stderr: publishStderr },
         { ...process.env, RUNX_CWD: process.cwd() },
       ),
@@ -872,7 +872,7 @@ Answer the prompt directly.
     expect(publishStderr.contents()).toBe("");
 
     const exitCode = await runCli(
-      ["skill", "search", "sourcey"],
+      ["skill", "search", "receipt-auditor"],
       { stdin: process.stdin, stdout, stderr },
       {
         ...process.env,
@@ -884,12 +884,12 @@ Answer the prompt directly.
 
     expect(exitCode).toBe(0);
     expect(stderr.contents()).toBe("");
-    expect(stdout.contents()).toContain("acme/sourcey");
+    expect(stdout.contents()).toContain("acme/receipt-auditor");
     expect(stdout.contents()).toContain("runx registry");
     expect(stdout.contents()).toContain("run  ");
     expect(stdout.contents()).toContain("add  ");
-    expect(stdout.contents()).toContain("runx skill add acme/sourcey@1.0.0 --registry https://runx.example.test");
-    expect(stdout.contents()).toContain("runx skill sourcey");
+    expect(stdout.contents()).toContain("runx skill add acme/receipt-auditor@1.0.0 --registry https://runx.example.test");
+    expect(stdout.contents()).toContain("runx skill receipt-auditor");
   });
 
   it("routes hosted registry installs to the native subprocess", async () => {

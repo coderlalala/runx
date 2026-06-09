@@ -4,43 +4,7 @@ catalog:
   kind: skill
   audience: operator
   visibility: public
-harness:
-  cases:
-    - name: dispute-respond-prepares-evidence
-      runner: respond
-      inputs:
-        dispute_event:
-          dispute_id: dispute_mock_001
-          settlement_family: mock
-          reason: payer_claimed_not_received
-        original_receipt_ref: receipt:charge:mock:paid-search-001
-        prior_refund_receipt_refs: []
-        evidence_refs:
-          - receipt:charge:mock:paid-search-001
-      caller:
-        answers:
-          agent_task.dispute-respond.output:
-            dispute_response:
-              dispute_id: dispute_mock_001
-              original_receipt_ref: receipt:charge:mock:paid-search-001
-              response_status: ready
-            dispute_evidence:
-              evidence_refs:
-                - receipt:charge:mock:paid-search-001
-              prior_refund_receipt_refs: []
-            linked_receipts:
-              original_receipt_ref: receipt:charge:mock:paid-search-001
-              prior_refund_receipt_refs: []
-            posture:
-              action: respond_with_evidence
-            open_questions: []
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-          reason_code: dispute_response_closed
+  role: canonical
 runners:
   respond:
     default: true

@@ -4,9 +4,8 @@ version: "0.1.1"
 catalog:
   kind: graph
   audience: builder
-  visibility: private
-
-
+  visibility: internal
+  role: context
 harness:
   cases:
     - name: design-skill-produces-structured-skill-packet

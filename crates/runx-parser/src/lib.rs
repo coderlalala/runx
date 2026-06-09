@@ -22,13 +22,14 @@ pub use runner::{
     RawRunnerManifestIr, SkillRunnerManifest, parse_runner_manifest_yaml, validate_runner_manifest,
 };
 pub use skill::{
-    CatalogAudience, CatalogKind, CatalogMetadata, CatalogVisibility, HarnessCallerFixture,
-    HarnessExpectation, InputMode, RawSkillIr, ReceiptExpectation, RunnerHarnessCase,
-    RunnerHarnessManifest, SkillArtifactContract, SkillHttpSource, SkillIdempotencyPolicy,
-    SkillInput, SkillMcpServer, SkillQualityProfile, SkillRetryPolicy, SkillRunnerDefinition,
-    SkillSandbox, SkillSource, SourceKind, ValidateSkillMode, ValidateSkillOptions, ValidatedSkill,
-    extract_skill_quality_profile, parse_skill_markdown, validate_skill,
-    validate_skill_artifact_contract, validate_skill_source, validate_skill_with_options,
+    CatalogAudience, CatalogKind, CatalogMetadata, CatalogRole, CatalogVisibility,
+    HarnessCallerFixture, HarnessExpectation, InputMode, RawSkillIr, ReceiptExpectation,
+    RunnerHarnessCase, RunnerHarnessManifest, SkillArtifactContract, SkillHttpSource,
+    SkillIdempotencyPolicy, SkillInput, SkillMcpServer, SkillQualityProfile, SkillRetryPolicy,
+    SkillRunnerDefinition, SkillSandbox, SkillSource, SourceKind, ValidateSkillMode,
+    ValidateSkillOptions, ValidatedSkill, extract_skill_quality_profile, parse_skill_markdown,
+    validate_skill, validate_skill_artifact_contract, validate_skill_source,
+    validate_skill_with_options,
 };
 pub use tool::{
     RawToolManifestIr, ValidatedTool, parse_tool_manifest_json, parse_tool_manifest_yaml,

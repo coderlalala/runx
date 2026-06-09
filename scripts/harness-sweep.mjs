@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -15,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 const schema = "runx.inline_harness_sweep.v1";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const defaultExpectedSkillCount = 56;
+const defaultExpectedSkillCount = 54;
 
 try {
   const options = parseArgs(process.argv.slice(2));
@@ -115,6 +116,10 @@ function runSkillHarness(skill, runxBin, tempRoot, workspaceDir, allowed) {
   if (!existsSync(path.join(skillDir, "X.yaml"))) {
     return failedSkill(skill.name, started, "missing X.yaml");
   }
+  const fixtureFiles = standaloneFixtureFiles(skillDir);
+  if (fixtureFiles.length > 0) {
+    return runStandaloneFixtureHarness(skill, fixtureFiles, runxBin, tempRoot, receiptDir, started, workspaceDir, allowed);
+  }
 
   const result = spawnSync(
     runxBin,
@@ -148,6 +153,65 @@ function runSkillHarness(skill, runxBin, tempRoot, workspaceDir, allowed) {
     receipt_count: Array.isArray(report.receipt_ids) ? report.receipt_ids.length : 0,
     error: passed ? undefined : error,
   };
+}
+
+function runStandaloneFixtureHarness(skill, fixtureFiles, runxBin, tempRoot, receiptDir, started, workspaceDir, allowed) {
+  const assertionErrors = [];
+  const caseNames = [];
+  let receiptCount = 0;
+  let exitStatus = 0;
+  for (const fixturePath of fixtureFiles) {
+    const caseName = path.basename(fixturePath).replace(/\.ya?ml$/u, "");
+    caseNames.push(caseName);
+    const result = spawnSync(
+      runxBin,
+      ["harness", fixturePath, "--json", "--receipt-dir", receiptDir],
+      {
+        cwd: workspaceDir,
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+        env: harnessEnv(runxBin, tempRoot, workspaceDir),
+      },
+    );
+    if (result.status !== 0 && exitStatus === 0) {
+      exitStatus = result.status ?? 1;
+    }
+    const output = parseHarnessReport(result.stdout);
+    if (result.status === 0 && output.schema === "runx.receipt.v1") {
+      receiptCount += 1;
+      continue;
+    }
+    assertionErrors.push(
+      `${caseName}: ${output.parse_error ?? nonEmpty(result.stderr) ?? `runx exited ${result.status ?? "with signal"}`}`,
+    );
+  }
+  const elapsedMs = Math.round(performance.now() - started);
+  const passed = assertionErrors.length === 0;
+  const allowedFailure = !passed && allowed.has(skill.name);
+  return {
+    skill: skill.name,
+    status: passed ? "passed" : allowedFailure ? "allowed_failure" : "failed",
+    elapsed_ms: elapsedMs,
+    exit_status: passed ? 0 : exitStatus,
+    case_count: fixtureFiles.length,
+    graph_case_count: 0,
+    assertion_error_count: assertionErrors.length,
+    assertion_errors: assertionErrors,
+    case_names: caseNames,
+    receipt_count: receiptCount,
+    error: passed ? undefined : assertionErrors.join("; "),
+  };
+}
+
+function standaloneFixtureFiles(skillDir) {
+  const fixturesDir = path.join(skillDir, "fixtures");
+  if (!existsSync(fixturesDir)) {
+    return [];
+  }
+  return readdirSync(fixturesDir)
+    .filter((entry) => entry.endsWith(".yaml") || entry.endsWith(".yml"))
+    .sort()
+    .map((entry) => path.join(fixturesDir, entry));
 }
 
 function failedSkill(skill, started, error) {

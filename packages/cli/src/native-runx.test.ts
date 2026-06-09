@@ -19,15 +19,20 @@ describe("resolveNativeRunxBinary", () => {
     const previousCwd = process.cwd();
     try {
       process.chdir(tempDir);
-      const resolved = resolveNativeRunxBinary({});
-      expect(resolved).not.toBe(fakeRunx);
+      withUnsupportedNativePlatform(() => {
+        expect(() => resolveNativeRunxBinary({})).toThrow("runx native package could not be verified");
+      });
     } finally {
       process.chdir(previousCwd);
     }
   });
 
-  it("does not use RUNX_RUST_CLI_BIN as a packaged binary override", () => {
-    expect(resolveNativeRunxBinary({ RUNX_RUST_CLI_BIN: "/missing/runx" })).not.toBe("/missing/runx");
+  it("fails closed instead of using RUNX_RUST_CLI_BIN as a packaged binary override", () => {
+    withUnsupportedNativePlatform(() => {
+      expect(() => resolveNativeRunxBinary({ RUNX_RUST_CLI_BIN: "/missing/runx" })).toThrow(
+        "runx native package could not be verified",
+      );
+    });
   });
 
   it("fails when RUNX_DEV_RUST_CLI_BIN points at a missing binary", () => {
@@ -42,6 +47,23 @@ describe("resolveNativeRunxBinary", () => {
     );
   });
 });
+
+function withUnsupportedNativePlatform(callback: () => void): void {
+  const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+  const archDescriptor = Object.getOwnPropertyDescriptor(process, "arch");
+  try {
+    Object.defineProperty(process, "platform", { configurable: true, value: "unsupported" });
+    Object.defineProperty(process, "arch", { configurable: true, value: "unsupported" });
+    callback();
+  } finally {
+    if (platformDescriptor) {
+      Object.defineProperty(process, "platform", platformDescriptor);
+    }
+    if (archDescriptor) {
+      Object.defineProperty(process, "arch", archDescriptor);
+    }
+  }
+}
 
 describe("spawnNativeRunx", () => {
   it("rejects when stdout exceeds the configured byte limit", async () => {

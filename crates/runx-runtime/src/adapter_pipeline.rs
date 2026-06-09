@@ -29,6 +29,7 @@ impl AdapterInvocationPlan {
         }
     }
 
+    #[cfg(any(feature = "cli-tool", feature = "external-adapter"))]
     pub(crate) fn adapter_type(&self) -> &'static str {
         self.adapter_type
     }
@@ -89,12 +90,7 @@ impl AdapterProjection {
         Self { duration_ms }
     }
 
-    #[cfg(any(
-        feature = "a2a",
-        feature = "agent",
-        feature = "catalog",
-        feature = "mcp"
-    ))]
+    #[cfg(any(feature = "a2a", feature = "agent", feature = "catalog"))]
     pub(crate) fn from_started(started: Instant) -> Self {
         Self::from_duration_ms(duration_ms(started))
     }

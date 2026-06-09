@@ -1,7 +1,7 @@
 // rust-style-allow: large-file because the client-side transport keeps stdio
 // framing, response buffering, and bounded read/write helpers adjacent to the
 // transport implementations they coordinate.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -175,15 +175,20 @@ type RmcpClientService = rmcp::service::RunningService<rmcp::RoleClient, rmcp::m
 struct McpSession {
     child: tokio::process::Child,
     service: RmcpClientService,
+    _stderr_drain: Option<McpStderrDrain>,
 }
 
 impl McpSession {
     async fn start(plan: &SandboxPlan, spawn_count: &AtomicU64) -> Result<Self, McpTransportError> {
         let mut child = spawn_tokio_mcp_server(plan, spawn_count)?;
-        drain_tokio_stderr(child.stderr.take());
+        let stderr_drain = drain_tokio_stderr(child.stderr.take());
         let error_state = RmcpTransportErrorState::default();
         let service = serve_rmcp_client(&mut child, error_state).await?;
-        Ok(Self { child, service })
+        Ok(Self {
+            child,
+            service,
+            _stderr_drain: stderr_drain,
+        })
     }
 
     async fn call_tool(
@@ -323,7 +328,7 @@ async fn list_tools_with_rmcp_async(
     spawn_count: Arc<AtomicU64>,
 ) -> Result<Vec<McpToolDescriptor>, McpTransportError> {
     let mut child = spawn_tokio_mcp_server(&request.sandbox, &spawn_count)?;
-    drain_tokio_stderr(child.stderr.take());
+    let _stderr_drain = drain_tokio_stderr(child.stderr.take());
     let result = tokio::time::timeout(request.timeout, async {
         let error_state = RmcpTransportErrorState::default();
         let mut service = serve_rmcp_client(&mut child, error_state.clone()).await?;
@@ -410,7 +415,7 @@ async fn call_tool_with_one_shot_rmcp_session(
     spawn_count: Arc<AtomicU64>,
 ) -> Result<JsonValue, McpTransportError> {
     let mut child = spawn_tokio_mcp_server(&request.sandbox, &spawn_count)?;
-    drain_tokio_stderr(child.stderr.take());
+    let _stderr_drain = drain_tokio_stderr(child.stderr.take());
     let error_state = RmcpTransportErrorState::default();
     let mut service = serve_rmcp_client(&mut child, error_state.clone()).await?;
     let arguments = rmcp_json_object(request.arguments)?;
@@ -550,18 +555,95 @@ fn signal_tokio_process_group(child: &mut tokio::process::Child, signal: Process
     let _sent = signal_process_group_id(pid, signal);
 }
 
-fn drain_tokio_stderr(stderr: Option<tokio::process::ChildStderr>) {
-    if let Some(mut stderr) = stderr {
-        tokio::spawn(async move {
-            let mut sink = [0_u8; 8192];
-            let mut read_total = 0_usize;
-            while read_total < MAX_CLIENT_RESPONSE_BYTES {
-                match tokio::io::AsyncReadExt::read(&mut stderr, &mut sink).await {
-                    Ok(0) | Err(_) => return,
-                    Ok(read) => read_total = read_total.saturating_add(read),
+fn drain_tokio_stderr(stderr: Option<tokio::process::ChildStderr>) -> Option<McpStderrDrain> {
+    stderr.map(spawn_stderr_drain)
+}
+
+struct McpStderrDrain {
+    _state: Arc<Mutex<McpStderrDiagnostic>>,
+    _task: tokio::task::JoinHandle<()>,
+}
+
+impl McpStderrDrain {
+    #[cfg(all(test, feature = "mcp"))]
+    async fn finish(self) -> Option<McpStderrDiagnosticSnapshot> {
+        let Self {
+            _state: state,
+            _task: task,
+        } = self;
+        let _ = task.await;
+        state.lock().ok().map(|diagnostic| diagnostic.snapshot())
+    }
+}
+
+#[derive(Default)]
+struct McpStderrDiagnostic {
+    read_total: u64,
+    tail: VecDeque<u8>,
+}
+
+impl McpStderrDiagnostic {
+    fn push(&mut self, chunk: &[u8]) {
+        self.read_total = self
+            .read_total
+            .saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
+        if chunk.len() >= MAX_CLIENT_RESPONSE_BYTES {
+            self.tail.clear();
+            self.tail.extend(
+                chunk[chunk.len() - MAX_CLIENT_RESPONSE_BYTES..]
+                    .iter()
+                    .copied(),
+            );
+            return;
+        }
+        let excess = self
+            .tail
+            .len()
+            .saturating_add(chunk.len())
+            .saturating_sub(MAX_CLIENT_RESPONSE_BYTES);
+        for _ in 0..excess {
+            let _ = self.tail.pop_front();
+        }
+        self.tail.extend(chunk.iter().copied());
+    }
+
+    #[cfg(all(test, feature = "mcp"))]
+    fn snapshot(&self) -> McpStderrDiagnosticSnapshot {
+        McpStderrDiagnosticSnapshot {
+            read_total: self.read_total,
+            retained_bytes: self.tail.len(),
+        }
+    }
+}
+
+#[cfg(all(test, feature = "mcp"))]
+struct McpStderrDiagnosticSnapshot {
+    read_total: u64,
+    retained_bytes: usize,
+}
+
+fn spawn_stderr_drain<R>(mut stderr: R) -> McpStderrDrain
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    let state = Arc::new(Mutex::new(McpStderrDiagnostic::default()));
+    let drain_state = Arc::clone(&state);
+    let task = tokio::spawn(async move {
+        let mut sink = [0_u8; 8192];
+        loop {
+            match tokio::io::AsyncReadExt::read(&mut stderr, &mut sink).await {
+                Ok(0) | Err(_) => return,
+                Ok(read) => {
+                    if let Ok(mut diagnostic) = drain_state.lock() {
+                        diagnostic.push(&sink[..read]);
+                    }
                 }
             }
-        });
+        }
+    });
+    McpStderrDrain {
+        _state: state,
+        _task: task,
     }
 }
 
@@ -627,12 +709,14 @@ fn rmcp_initialization_error(
 
 #[cfg(all(test, feature = "mcp"))]
 mod rmcp_transport_tests {
+    use std::time::Duration;
+
     use rmcp::transport::Transport;
     use tokio::io::AsyncWriteExt;
 
     use super::{
         MAX_CLIENT_RESPONSE_BYTES, RmcpContentLengthTransport, RmcpTransportErrorState,
-        serve_rmcp_transport,
+        serve_rmcp_transport, spawn_stderr_drain,
     };
 
     // rust-style-allow: long-function because these adjacent transport
@@ -667,6 +751,8 @@ mod rmcp_transport_tests {
     }
 
     #[test]
+    // rust-style-allow: long-function -- the style scanner counts the literal
+    // "{" in this malformed-frame fixture as an opening brace.
     fn rmcp_initialize_surfaces_recorded_transport_error() {
         let message = initialize_error_message(b"Content-Length: 1\r\n\r\n{");
 
@@ -676,6 +762,53 @@ mod rmcp_transport_tests {
                 .is_some_and(|message| message.contains("EOF while parsing an object")),
             "{message:?}"
         );
+    }
+
+    #[test]
+    // rust-style-allow: long-function -- the stderr-drain test drives a bounded
+    // async pipe end-to-end to prove bytes are drained beyond the retained tail.
+    fn mcp_stderr_drain_continues_after_retained_tail_limit() -> Result<(), String> {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .map_err(|error| format!("tokio runtime is available: {error}"))?
+            .block_on(async move {
+                let (mut writer, reader) = tokio::io::duplex(4096);
+                let drain = spawn_stderr_drain(reader);
+                let total_bytes = MAX_CLIENT_RESPONSE_BYTES + (64 * 1024);
+                let chunk = vec![b'x'; 8192];
+                let snapshot = tokio::time::timeout(Duration::from_secs(2), async move {
+                    let mut remaining = total_bytes;
+                    while remaining > 0 {
+                        let write_len = remaining.min(chunk.len());
+                        writer
+                            .write_all(&chunk[..write_len])
+                            .await
+                            .map_err(|error| {
+                                format!("stderr writer accepts drained bytes: {error}")
+                            })?;
+                        remaining -= write_len;
+                    }
+                    drop(writer);
+                    drain
+                        .finish()
+                        .await
+                        .ok_or_else(|| "stderr diagnostic snapshot is available".to_owned())
+                })
+                .await
+                .map_err(|_| {
+                    "stderr drain kept consuming after the retained tail filled".to_owned()
+                })??;
+
+                assert_eq!(
+                    snapshot.read_total,
+                    u64::try_from(total_bytes)
+                        .map_err(|error| format!("test byte count fits in u64: {error}"))?
+                );
+                assert_eq!(snapshot.retained_bytes, MAX_CLIENT_RESPONSE_BYTES);
+                Ok(())
+            })
     }
 
     fn initialize_error_message(bytes: &'static [u8]) -> Option<String> {

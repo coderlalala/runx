@@ -511,7 +511,7 @@ async function validateGraphContextReferences(
 async function loadStepOutputDeclarations(
   root: string,
   skillDir: string,
-  step: { readonly tool?: string; readonly skill?: string; readonly run?: Readonly<Record<string, unknown>>; readonly runner?: string; readonly artifacts?: Readonly<Record<string, unknown>> },
+  step: { readonly tool?: string; readonly skill?: string; readonly stage?: string; readonly run?: Readonly<Record<string, unknown>>; readonly runner?: string; readonly artifacts?: Readonly<Record<string, unknown>> },
 ): Promise<Readonly<Record<string, StepOutputDeclaration>>> {
   if (step.tool) {
     const toolDir = resolveToolDirFromRef(root, step.tool);
@@ -548,12 +548,14 @@ async function loadStepOutputDeclarations(
     if (!profilePath) {
       return {};
     }
-    const manifest = validateRunnerManifest(parseRunnerManifestYaml(await readFile(profilePath, "utf8")));
-    const runner = step.runner ? manifest.runners[step.runner] : Object.values(manifest.runners).find((candidate) => candidate.default) ?? Object.values(manifest.runners)[0];
-    if (!runner) {
+    return loadRunnerOutputDeclarations(profilePath, step.runner);
+  }
+  if (step.stage) {
+    const profilePath = resolveStageProfilePath(skillDir, step.stage);
+    if (!profilePath) {
       return {};
     }
-    return outputDeclarationsFromArtifacts(runner.artifacts, runner.raw);
+    return loadRunnerOutputDeclarations(profilePath, step.runner);
   }
   return outputDeclarationsFromArtifacts(
     step.artifacts ? {
@@ -562,6 +564,17 @@ async function loadStepOutputDeclarations(
     } : undefined,
     { ...(step.run ?? {}), artifacts: step.artifacts },
   );
+}
+
+async function loadRunnerOutputDeclarations(
+  profilePath: string,
+  runnerName: string | undefined,
+): Promise<Readonly<Record<string, StepOutputDeclaration>>> {
+  const manifest = validateRunnerManifest(parseRunnerManifestYaml(await readFile(profilePath, "utf8")));
+  const runner = runnerName
+    ? manifest.runners[runnerName]
+    : Object.values(manifest.runners).find((candidate) => candidate.default) ?? Object.values(manifest.runners)[0];
+  return runner ? outputDeclarationsFromArtifacts(runner.artifacts, runner.raw) : {};
 }
 
 function outputDeclarationsFromArtifacts(
@@ -620,6 +633,14 @@ function resolveNestedSkillProfilePath(skillDir: string, ref: string): string | 
   const resolved = path.resolve(skillDir, ref);
   const directory = path.basename(resolved).toLowerCase() === "skill.md" ? path.dirname(resolved) : resolved;
   const profilePath = path.join(directory, "X.yaml");
+  return existsSync(profilePath) ? profilePath : undefined;
+}
+
+function resolveStageProfilePath(skillDir: string, ref: string): string | undefined {
+  if (path.isAbsolute(ref) || ref.split(/[\\/]/).includes("..")) {
+    return undefined;
+  }
+  const profilePath = path.join(skillDir, "graph", ref, "X.yaml");
   return existsSync(profilePath) ? profilePath : undefined;
 }
 

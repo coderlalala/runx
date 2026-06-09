@@ -5,6 +5,7 @@ catalog:
   kind: skill
   audience: public
   visibility: public
+  role: canonical
 
 harness:
   cases:

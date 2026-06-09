@@ -1,0 +1,46 @@
+skill: brand-voice
+version: 0.1.0
+catalog:
+  kind: skill
+  audience: public
+  visibility: public
+  role: context
+runners:
+  voice:
+    default: true
+    type: agent-task
+    agent: editor
+    task: brand-voice
+    outputs:
+      decision: string
+      brand: string
+      applicability: object
+      brand_voice: object
+      evidence: object
+      redactions: array
+      stop_conditions: array
+      receipt_notes: object
+    artifacts:
+      wrap_as: brand_voice_packet
+      packet: runx.context.brand_voice.v1
+    inputs:
+      brand:
+        type: string
+        required: true
+        description: Brand, product, campaign, or surface being modeled.
+      source_material:
+        type: json
+        required: true
+        description: Approved examples, drafts, rejected examples, operator notes, or caller-summarized links.
+      channel:
+        type: string
+        required: false
+        description: Downstream channel where this voice packet will be used.
+      audience:
+        type: string
+        required: false
+        description: Intended audience for downstream content.
+      constraints:
+        type: json
+        required: false
+        description: Legal, compliance, accessibility, product, or editorial limits.

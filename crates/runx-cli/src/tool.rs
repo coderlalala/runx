@@ -110,6 +110,7 @@ fn run_inspect(
         tool_roots,
         fixture_catalog_enabled: env_value(env, "RUNX_ENABLE_FIXTURE_TOOL_CATALOG")
             .is_some_and(|value| value == "1"),
+        allow_explicit_manifest_path: true,
     })?;
     let stdout = if plan.json {
         json_line(&report)?

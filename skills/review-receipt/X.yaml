@@ -4,9 +4,8 @@ version: "0.1.2"
 catalog:
   kind: skill
   audience: builder
-  visibility: private
-
-
+  visibility: internal
+  role: context
 harness:
   cases:
     - name: review-receipt-diagnoses-context-flattening

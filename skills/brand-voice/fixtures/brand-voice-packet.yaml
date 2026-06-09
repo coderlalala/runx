@@ -1,0 +1,67 @@
+name: brand-voice-packet
+kind: skill
+target: ..
+runner: voice
+inputs:
+  brand: runx
+  channel: homepage
+  audience: advanced software builders
+  source_material:
+    - one governed core, many fronts
+    - receipts prove what authority was used
+    - rejected: vague AI automation claims
+caller:
+  answers:
+    agent_task.brand-voice.output:
+      decision: ready
+      brand: runx
+      applicability:
+        channels:
+          - homepage
+        audience: advanced software builders
+        boundaries:
+          - Do not claim hosted production readiness without the cloud sealing bridge.
+      brand_voice:
+        voice_principles:
+          - Lead with governed action and proof.
+          - Prefer concrete surfaces over abstract trust language.
+        vocabulary:
+          use:
+            - governed
+            - receipt
+            - authority
+            - sealed
+          avoid:
+            - magic
+            - autonomous everything
+        cadence:
+          - concise engineering sentences
+          - concrete nouns before value claims
+        claim_rules:
+          safe:
+            - runx seals receipts for governed runs
+          requires_proof:
+            - hosted production trust claims
+          forbidden:
+            - fully autonomous production mutation without gates
+        channel_adjustments:
+          - Homepage copy can be sharper, but claims still need receipts.
+      evidence:
+        approved_sources:
+          - caller.source_material
+        inferred_from:
+          - rejected vague automation claims
+      redactions: []
+      stop_conditions:
+        - Use a publish gate before external copy ships.
+      receipt_notes:
+        authority: context-only
+        mutation: false
+expect:
+  status: sealed
+  receipt:
+    schema: runx.receipt.v1
+metadata:
+  public_skill: brand-voice
+  source_case: brand-voice-packet
+  source: skills-fixture

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use runx_contracts::JsonObject;
+use runx_contracts::{JsonObject, JsonValue};
 use runx_core::state_machine::{RetryPolicy, SequentialGraphStepDefinition};
 use runx_parser::{
     ExecutionGraph, GraphStep, SkillRunnerDefinition, SkillRunnerManifest, SkillSource,
@@ -46,6 +46,70 @@ pub(crate) fn load_graph(graph_path: &Path) -> Result<ExecutionGraph, RuntimeErr
         .map_err(|source| RuntimeError::io("reading graph file", source))?;
     let raw = parse_graph_yaml(&source)?;
     validate_graph(raw).map_err(RuntimeError::from)
+}
+
+pub(crate) fn materialize_graph_inputs(
+    mut graph: ExecutionGraph,
+    graph_inputs: &JsonObject,
+) -> ExecutionGraph {
+    for step in &mut graph.steps {
+        let mut inputs = graph_inputs.clone();
+        for (key, value) in &step.inputs {
+            if let Some(value) = materialize_graph_input_value(value, graph_inputs) {
+                inputs.insert(key.clone(), value);
+            } else {
+                inputs.remove(key);
+            }
+        }
+        step.inputs = inputs;
+    }
+    graph
+}
+
+fn materialize_graph_input_value(
+    value: &JsonValue,
+    graph_inputs: &JsonObject,
+) -> Option<JsonValue> {
+    match value {
+        JsonValue::String(value) => {
+            if let Some(path) = value.strip_prefix("$input.") {
+                return resolve_graph_input_path(graph_inputs, path).cloned();
+            }
+            if value.starts_with("{{") && value.ends_with("}}") {
+                let path = value.trim_start_matches('{').trim_end_matches('}').trim();
+                return resolve_graph_input_path(graph_inputs, path).cloned();
+            }
+            Some(JsonValue::String(value.clone()))
+        }
+        JsonValue::Array(values) => Some(JsonValue::Array(
+            values
+                .iter()
+                .filter_map(|value| materialize_graph_input_value(value, graph_inputs))
+                .collect(),
+        )),
+        JsonValue::Object(object) => Some(JsonValue::Object(
+            object
+                .iter()
+                .filter_map(|(key, value)| {
+                    materialize_graph_input_value(value, graph_inputs)
+                        .map(|value| (key.clone(), value))
+                })
+                .collect(),
+        )),
+        JsonValue::Null | JsonValue::Bool(_) | JsonValue::Number(_) => Some(value.clone()),
+    }
+}
+
+fn resolve_graph_input_path<'a>(value: &'a JsonObject, path: &str) -> Option<&'a JsonValue> {
+    let mut current: Option<&JsonValue> = None;
+    for segment in path.split('.') {
+        current = match current {
+            None => value.get(segment),
+            Some(JsonValue::Object(object)) => object.get(segment),
+            Some(_) => return None,
+        };
+    }
+    current
 }
 
 pub(crate) fn load_skill(skill_dir: &Path) -> Result<ValidatedSkill, RuntimeError> {
@@ -163,12 +227,38 @@ pub(crate) fn find_step<'a>(
 }
 
 pub(crate) fn skill_dir(graph_dir: &Path, step: &GraphStep) -> Result<PathBuf, RuntimeError> {
-    let Some(skill) = &step.skill else {
-        return Err(RuntimeError::StepMissingSkill {
+    if let Some(skill) = &step.skill {
+        return Ok(graph_dir.join(skill));
+    }
+    if let Some(stage) = &step.stage {
+        return stage_dir(graph_dir, step, stage);
+    }
+    Err(RuntimeError::StepMissingSkill {
+        step_id: step.id.clone(),
+    })
+}
+
+fn stage_dir(graph_dir: &Path, step: &GraphStep, stage: &str) -> Result<PathBuf, RuntimeError> {
+    let stage_path = Path::new(stage);
+    if stage_path.is_absolute()
+        || stage_path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return Err(RuntimeError::InvalidRunStep {
             step_id: step.id.clone(),
+            reason: format!("stage reference {stage:?} must be relative below graph"),
+        });
+    }
+    let root = graph_dir.join("graph");
+    if !root.is_dir() {
+        return Err(RuntimeError::InvalidRunStep {
+            step_id: step.id.clone(),
+            reason: "stage reference requires a graph directory in the current skill package"
+                .to_owned(),
         });
     };
-    Ok(graph_dir.join(skill))
+    Ok(root.join(stage_path))
 }
 
 pub(crate) fn resolve_inputs(

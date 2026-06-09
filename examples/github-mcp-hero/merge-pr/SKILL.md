@@ -6,7 +6,7 @@ source:
   server:
     command: node
     args:
-      - fixtures/runtime/adapters/mcp/github-stdio-server.mjs
+      - ../../../fixtures/runtime/adapters/mcp/github-stdio-server.mjs
   tool: github_pr_merge
   arguments:
     repository: "{{repository}}"
@@ -14,7 +14,7 @@ source:
   timeout_seconds: 15
   sandbox:
     profile: network
-    cwd_policy: workspace
+    cwd_policy: skill-directory
 inputs:
   repository:
     type: string

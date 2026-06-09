@@ -1,121 +1,10 @@
 skill: receipt-auditor
-version: "0.1.0"
-
+version: 0.1.0
 catalog:
   kind: skill
   audience: operator
   visibility: public
-
-
-harness:
-  cases:
-    - name: clean-run-within-grant
-      inputs:
-        receipt_id: rcpt_issue_triage_4471
-        receipt_summary: >-
-          Sealed run of issue-triage. Authority proof granted repo.read. Acts: one observation that
-          read the issue thread. No mutating acts. Material referenced by hash (material_ref_hash present,
-          no raw token). No denied requests.
-        granted_scopes: '["repo.read"]'
-        objective: Confirm the triage run stayed within its read-only grant.
-      caller:
-        answers:
-          agent_task.receipt-auditor.output:
-            receipt_audit:
-              decision: ready
-              run_ref: rcpt_issue_triage_4471
-              granted_scopes:
-                - repo.read
-              exercised_scopes:
-                - repo.read
-              refusals: []
-              findings:
-                - id: receipt.clean
-                  severity: info
-                  message: Exercised authority (repo.read) is within the grant; no mutation to gate; material referenced by hash.
-              verdict: clean
-              rationale: The only exercised scope, repo.read, is covered by the proof. The single act is an observation, so there is no mutation requiring a gate, and material appears only as a hash reference. The run honored its bound.
-              recommendations: []
-              success_checkpoint:
-                milestone: audit_clean
-                description: A sealed read-only run audited as within its granted authority.
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-
-    - name: over-reach-flagged
-      inputs:
-        receipt_id: rcpt_doc_bot_5582
-        receipt_summary: >-
-          Sealed run of a docs bot. Authority proof granted repo.read only. Acts: one observation that
-          read files, and one act that exercised repo.write to push a commit. No approval gate recorded
-          for the write. Material referenced by hash.
-        granted_scopes: '["repo.read"]'
-        objective: Audit whether the run exceeded its grant.
-      caller:
-        answers:
-          agent_task.receipt-auditor.output:
-            receipt_audit:
-              decision: ready
-              run_ref: rcpt_doc_bot_5582
-              granted_scopes:
-                - repo.read
-              exercised_scopes:
-                - repo.read
-                - repo.write
-              refusals: []
-              findings:
-                - id: receipt.authority.over_reach
-                  severity: error
-                  message: "The run exercised repo.write, which the authority proof did not grant (granted: repo.read)."
-                - id: receipt.mutation.ungated
-                  severity: error
-                  message: The repo.write mutation ran with no approval gate recorded in the receipt.
-              verdict: anomaly
-              rationale: The receipt shows repo.write exercised against a proof that granted only repo.read, and the mutation has no approval gate. Both are governance violations recorded in the run's own evidence.
-              recommendations:
-                - Revoke this run's grant and investigate how repo.write was exercised against a repo.read proof.
-                - Require an approval gate on any mutating act before re-enabling the skill.
-              success_checkpoint:
-                milestone: audit_anomaly
-                description: A sealed run flagged for over-reach and ungated mutation, with remediation named.
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-
-    - name: missing-receipt-needs-evidence
-      inputs:
-        objective: Audit the last run.
-      caller:
-        answers:
-          agent_task.receipt-auditor.output:
-            receipt_audit:
-              decision: needs_more_evidence
-              run_ref: ""
-              granted_scopes: []
-              exercised_scopes: []
-              refusals: []
-              findings: []
-              verdict: needs_more_evidence
-              rationale: No receipt id or summary was provided, so there is no evidence to audit. Declaring the run clean without a receipt would be the exact failure this skill exists to prevent.
-              recommendations:
-                - Provide a receipt_id or a sanitized receipt_summary for the run to audit.
-              success_checkpoint:
-                milestone: awaiting_receipt
-                description: The audit stops for evidence rather than declaring an unaudited run clean.
-      expect:
-        status: sealed
-        receipt:
-          schema: runx.receipt.v1
-          state: sealed
-          disposition: closed
-
+  role: canonical
 runners:
   audit:
     default: true
@@ -131,16 +20,16 @@ runners:
       receipt_id:
         type: string
         required: false
-        description: "The receipt id to audit."
+        description: The receipt id to audit.
       receipt_summary:
         type: string
         required: false
-        description: "Sanitized receipt or its proof/acts summary when the full receipt is unavailable."
+        description: Sanitized receipt or its proof/acts summary when the full receipt is unavailable.
       granted_scopes:
         type: json
         required: false
-        description: "The authority the run was granted, when not derivable from the receipt alone."
+        description: The authority the run was granted, when not derivable from the receipt alone.
       objective:
         type: string
         required: false
-        description: "Operator intent that focuses the audit."
+        description: Operator intent that focuses the audit.

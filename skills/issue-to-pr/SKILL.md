@@ -123,7 +123,7 @@ Validation commands must run against the current workspace state after the fix
 bundle is written. Do not depend on git history ranges such as `HEAD~1` or
 merge-base comparisons. Validation commands, when present, must be direct
 repo-local checks such as test, lint, build, or file-content commands. Never use
-runx runtime internals or `skills/scafld/run.mjs` as a validation command;
+runx runtime internals or `graph/scafld/run.mjs` as a validation command;
 scafld is already the lifecycle runner around the task.
 
 For any code change, the approved spec must declare at least one targeted

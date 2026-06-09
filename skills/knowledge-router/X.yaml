@@ -4,8 +4,8 @@ version: "0.1.0"
 catalog:
   kind: skill
   audience: operator
-  visibility: public
-
+  visibility: internal
+  role: context
 harness:
   cases:
     - name: knowledge-router-source-plan

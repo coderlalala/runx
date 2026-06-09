@@ -8,6 +8,7 @@
 //! See .scafld/specs/active/test-surface-build-consolidation.md.
 
 mod doctor;
+mod export;
 mod kernel;
 mod launcher;
 mod local_credential;

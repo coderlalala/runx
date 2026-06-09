@@ -98,6 +98,7 @@ pub(crate) struct LocalToolRequest<'a> {
     pub skill_directory: &'a Path,
     pub credential_delivery: &'a CredentialDelivery,
     pub skill_name: &'a str,
+    pub allow_explicit_manifest_path: bool,
 }
 
 fn invoke_local_tool(
@@ -114,6 +115,7 @@ fn invoke_local_tool(
             skill_directory: &request.skill_directory,
             credential_delivery: &request.credential_delivery,
             skill_name: &request.skill_name,
+            allow_explicit_manifest_path: true,
         },
         started,
     )
@@ -134,6 +136,7 @@ pub(crate) fn resolve_and_invoke_local_tool(
         search_from_directory: request.skill_directory.to_path_buf(),
         tool_roots: configured_tool_roots(request.env),
         fixture_catalog_enabled: false,
+        allow_explicit_manifest_path: request.allow_explicit_manifest_path,
     }) {
         Ok(resolution) => resolution,
         Err(error) if local_lookup_miss(&error) => return Ok(None),

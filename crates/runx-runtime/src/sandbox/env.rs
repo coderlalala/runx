@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use runx_contracts::JsonObject;
-use runx_core::policy::SandboxProfile;
+use runx_core::policy::{SandboxProfile, is_reserved_runx_sandbox_env_name};
 use runx_parser::SkillSandbox;
 
 use crate::RuntimeError;
@@ -65,7 +65,7 @@ pub(super) fn child_base_env(
     sandbox: Option<&SkillSandbox>,
     base_env: &BTreeMap<String, String>,
 ) -> Result<BTreeMap<String, String>, RuntimeError> {
-    let mut env = allowed_base_env(sandbox, base_env);
+    let mut env = allowed_base_env(sandbox, base_env)?;
     env.insert(
         RUNX_CWD_ENV.to_owned(),
         workspace_root(base_env)?.to_string_lossy().into_owned(),
@@ -110,7 +110,7 @@ fn write_inputs_file(
 fn allowed_base_env(
     sandbox: Option<&SkillSandbox>,
     base_env: &BTreeMap<String, String>,
-) -> BTreeMap<String, String> {
+) -> Result<BTreeMap<String, String>, RuntimeError> {
     let mut allowed = DEFAULT_ENV_ALLOWLIST
         .iter()
         .filter_map(|key| {
@@ -122,12 +122,18 @@ fn allowed_base_env(
         .collect::<BTreeMap<_, _>>();
     if let Some(env_allowlist) = sandbox.and_then(|sandbox| sandbox.env_allowlist.as_ref()) {
         for key in env_allowlist {
+            if is_reserved_runx_sandbox_env_name(key) {
+                return Err(sandbox_violation(format!(
+                    "sandbox env_allowlist cannot include reserved runx environment variable {key}"
+                )));
+            }
             if let Some(value) = base_env.get(key) {
                 allowed.insert(key.clone(), value.clone());
             }
         }
     }
-    allowed
+    allowed.retain(|key, _| !is_reserved_runx_sandbox_env_name(key));
+    Ok(allowed)
 }
 
 pub(super) fn prepare_sandbox_tmp_env(

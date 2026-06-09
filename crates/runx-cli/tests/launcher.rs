@@ -1,4 +1,5 @@
 use runx_cli::config::{ConfigAction, ConfigPlan};
+use runx_cli::export::{ExportPlan, Target};
 use runx_cli::kernel::{KernelInputSource, KernelPlan};
 use runx_cli::launcher::{
     DevPlan, DoctorPlan, FilterMode, HarnessPlan, HistoryPlan, InitPlan, LauncherAction, ListKind,
@@ -31,6 +32,10 @@ fn top_level_help_and_version_are_native() {
     assert_help_line(
         &help,
         "runx harness <fixture.yaml...|skill-dir|SKILL.md> [--receipt-dir dir] [--json]",
+    );
+    assert_help_line(
+        &help,
+        "runx export <claude|codex> [skill-ref...] [--project] [--json]",
     );
     assert!(
         !help.contains("runx connect"),
@@ -70,6 +75,37 @@ fn routes_mcp_serve_to_native_plan() {
             receipt_dir: Some(PathBuf::from("receipts")),
             runner: Some("default".to_owned()),
             http_listen: None,
+            http_allow_non_loopback: false,
+        })
+    );
+}
+
+#[test]
+fn mcp_http_listen_defaults_to_loopback_and_requires_explicit_non_loopback_opt_in() {
+    assert_eq!(
+        plan(&["mcp", "serve", "fixtures/skills/echo", "--http-listen"]),
+        LauncherAction::RunMcp(McpPlan {
+            refs: vec![PathBuf::from("fixtures/skills/echo")],
+            receipt_dir: None,
+            runner: None,
+            http_listen: Some("127.0.0.1:8080".to_owned()),
+            http_allow_non_loopback: false,
+        })
+    );
+    assert_eq!(
+        plan(&[
+            "mcp",
+            "serve",
+            "fixtures/skills/echo",
+            "--http-listen=0.0.0.0:8080",
+            "--http-allow-non-loopback",
+        ]),
+        LauncherAction::RunMcp(McpPlan {
+            refs: vec![PathBuf::from("fixtures/skills/echo")],
+            receipt_dir: None,
+            runner: None,
+            http_listen: Some("0.0.0.0:8080".to_owned()),
+            http_allow_non_loopback: true,
         })
     );
 }
@@ -180,6 +216,40 @@ fn connect_surface_is_removed_from_oss_launcher() {
     assert_eq!(
         plan(&["connect", "--json"]),
         LauncherAction::Error("unknown command connect".to_owned())
+    );
+}
+
+#[test]
+fn routes_export_to_native_plan() {
+    assert_eq!(
+        plan(&["export", "claude", "brand-voice", "--project", "--json"]),
+        LauncherAction::RunExport(ExportPlan {
+            target: Target::Claude,
+            refs: vec!["brand-voice".to_owned()],
+            project: true,
+            json: true,
+        })
+    );
+    assert_eq!(
+        plan(&["export", "codex"]),
+        LauncherAction::RunExport(ExportPlan {
+            target: Target::Codex,
+            refs: Vec::new(),
+            project: false,
+            json: false,
+        })
+    );
+}
+
+#[test]
+fn export_rejects_unknown_target_and_flags() {
+    assert_eq!(
+        plan(&["export", "vscode"]),
+        LauncherAction::Error("runx export target must be claude or codex, got vscode".to_owned())
+    );
+    assert_eq!(
+        plan(&["export", "claude", "--project=true"]),
+        LauncherAction::Error("--project does not take a value".to_owned())
     );
 }
 

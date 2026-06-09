@@ -251,11 +251,11 @@ impl ResolvedCredentialMaterial {
 pub struct SecretString(String);
 
 impl SecretString {
-    fn new(value: impl Into<String>) -> Self {
+    pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
-    fn expose(&self) -> &str {
+    pub(crate) fn expose(&self) -> &str {
         &self.0
     }
 }

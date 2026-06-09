@@ -21,6 +21,7 @@ pub struct ToolInspectOptions {
     pub search_from_directory: PathBuf,
     pub tool_roots: Vec<PathBuf>,
     pub fixture_catalog_enabled: bool,
+    pub allow_explicit_manifest_path: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -201,7 +202,10 @@ fn imported_runx(tool: &FixtureTool) -> ToolInspectRunx {
 }
 
 fn resolve_local_manifest(options: &ToolInspectOptions) -> Result<PathBuf, ToolCatalogError> {
-    if let Some(path) = explicit_manifest_path(&options.tool_ref, &options.search_from_directory) {
+    if options.allow_explicit_manifest_path
+        && let Some(path) =
+            explicit_manifest_path(&options.tool_ref, &options.search_from_directory)
+    {
         return Ok(path);
     }
 

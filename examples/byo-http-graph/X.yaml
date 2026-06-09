@@ -5,6 +5,7 @@ catalog:
   kind: graph
   audience: operator
   visibility: public
+  role: canonical
 
 runners:
   main:

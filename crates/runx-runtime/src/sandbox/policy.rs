@@ -187,17 +187,17 @@ pub(super) fn resolved_writable_paths(
     })
 }
 
-pub(super) fn validate_writable_paths(
+pub(super) fn validated_writable_paths(
     sandbox: Option<&SkillSandbox>,
     writable_paths: &[String],
     cwd: &Path,
     workspace_cwd: Option<&Path>,
-) -> Result<(), RuntimeError> {
+) -> Result<Vec<PathBuf>, RuntimeError> {
     let Some(sandbox) = sandbox else {
-        return Ok(());
+        return Ok(Vec::new());
     };
     if sandbox.profile != SandboxProfile::WorkspaceWrite {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let workspace_root = match workspace_cwd {
         Some(workspace_cwd) => {
@@ -210,27 +210,29 @@ pub(super) fn validate_writable_paths(
             "resolving sandbox writable workspace",
         )?,
     };
-    let escaped = writable_paths
+    let resolved = writable_paths
         .iter()
         .map(|path| validate_writable_path_literal(path).map(|()| path))
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
         .map(|path| containment_path(&resolve_path(cwd, path), "resolving sandbox writable path"))
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    let escaped = resolved
+        .iter()
         .filter(|path| !is_within_path(path, &workspace_root))
+        .cloned()
         .collect::<Vec<_>>();
-    if escaped.is_empty() {
-        return Ok(());
+    if !escaped.is_empty() {
+        return Err(sandbox_violation(format!(
+            "workspace-write sandbox has writable path(s) outside workspace: {}",
+            escaped
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
     }
-    Err(sandbox_violation(format!(
-        "workspace-write sandbox has writable path(s) outside workspace: {}",
-        escaped
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    )))
+    Ok(resolved)
 }
 
 fn validate_writable_path_literal(path: &str) -> Result<(), RuntimeError> {

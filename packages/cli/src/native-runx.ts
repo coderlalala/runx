@@ -93,7 +93,13 @@ export function resolveNativeRunxBinary(env: NodeJS.ProcessEnv): string {
     }
     throw new Error(`RUNX_DEV_RUST_CLI_BIN does not exist: ${override}`);
   }
-  return resolveVerifiedPlatformNativeRunxBinary() ?? "runx";
+  const verifiedBinary = resolveVerifiedPlatformNativeRunxBinary();
+  if (verifiedBinary) {
+    return verifiedBinary;
+  }
+  throw new Error(
+    `runx native package could not be verified for ${process.platform}-${process.arch}; set RUNX_DEV_RUST_CLI_BIN to an absolute development binary path.`,
+  );
 }
 
 interface SpawnNativeRunxOptions {

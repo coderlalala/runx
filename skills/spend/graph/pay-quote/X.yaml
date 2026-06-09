@@ -1,0 +1,136 @@
+skill: pay-quote
+version: 0.1.0
+catalog:
+  kind: skill
+  audience: operator
+  visibility: internal
+  role: graph-stage
+  part_of:
+    - runx/spend
+harness:
+  cases:
+    - name: pay-quote-normalizes-challenge
+      runner: quote
+      inputs:
+        payment_signal:
+          signal_type: effect_required
+          challenge_id: ch_mock_001
+          amount_minor: 125
+          currency: USD
+          rail: mock
+          counterparty: merchant:demo
+          operation: search.paid
+        realm: test
+        idempotency_seed: demo-search-001
+      caller:
+        answers:
+          agent_task.pay-quote.output:
+            payment_quote:
+              quote_id: quote_demo_001
+              amount_minor: 125
+              currency: USD
+              rails:
+                - mock
+              counterparty: merchant:demo
+              operation: search.paid
+              expires_at: 2026-05-20T01:00:00Z
+            requested_payment_authority:
+              term_id: authority-term:payment:quote-demo-001
+              principal_ref:
+                type: host
+                uri: principal:operator:test
+              resource_ref:
+                type: surface
+                uri: merchant:demo
+              resource_family: effect
+              verbs:
+                - prepare
+                - commit
+              bounds:
+                effect_limits:
+                  - family: payment
+                    unit: USD
+                    max_per_call_units: 125
+                    channels:
+                      - mock
+                    realm: test
+                    peer: merchant:demo
+                    operation: search.paid
+                    idempotency_required: true
+                    recovery_required: true
+                    receipt_before_success: true
+              conditions: []
+              approvals: []
+              capabilities: []
+              issued_by_ref:
+                type: host
+                uri: authority:payment:test
+            challenge_evidence:
+              source_refs:
+                - signal:ch_mock_001
+              redactions: []
+            risk_notes: []
+            open_questions: []
+      expect:
+        status: sealed
+        receipt:
+          schema: runx.receipt.v1
+          state: sealed
+          disposition: closed
+          reason_code: payment_quote_closed
+runners:
+  quote:
+    default: true
+    type: agent-task
+    agent: operator
+    task: pay-quote
+    outputs:
+      payment_quote: object
+      requested_payment_authority: object
+      challenge_evidence: object
+      risk_notes: array
+      open_questions: array
+    artifacts:
+      wrap_as: payment_quote_packet
+      packet: runx.payment.quote.v1
+    runx:
+      payment_authority:
+        phase: quote
+        resource_family: effect
+        verbs:
+          - estimate
+        mutates_rail: false
+        receives_funding_material: false
+    inputs:
+      payment_signal:
+        type: object
+        required: true
+        description: Payment-required signal, MCP challenge, invoice, checkout request, or operator intent.
+      realm:
+        type: string
+        required: false
+        description: Authority realm such as local, test, or prod.
+      rail_preferences:
+        type: json
+        required: false
+        description: Ordered list of preferred payment rails.
+      max_per_call_units:
+        type: number
+        required: false
+        description: Caller cap in minor currency units.
+      currency:
+        type: string
+        required: false
+        description: Caller-expected ISO 4217 currency.
+      operation:
+        type: string
+        required: false
+        description: Stable operation name for the paid action.
+      counterparty:
+        type: string
+        required: false
+        description: Expected merchant or payee reference.
+      idempotency_seed:
+        type: string
+        required: false
+        description: Stable caller-provided idempotency material.

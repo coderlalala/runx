@@ -1,7 +1,11 @@
 // rust-style-allow: large-file because the runtime HTTP transport keeps request
 // modeling, header validation, status parsing, and security-focused unit tests
 // in one review unit.
+#[cfg(feature = "async-http")]
+use std::error::Error as StdError;
 use std::fmt;
+#[cfg(feature = "async-http")]
+use std::net::SocketAddr;
 #[cfg(any(feature = "async-http", test))]
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 #[cfg(feature = "async-http")]
@@ -115,30 +119,42 @@ pub struct ReqwestHttpTransport {
 }
 
 #[cfg(feature = "async-http")]
+const MAX_HTTP_RESPONSE_BYTES: usize = 1024 * 1024;
+
+#[cfg(feature = "async-http")]
 impl ReqwestHttpTransport {
     pub fn new() -> Result<Self, RuntimeHttpError> {
-        Self::with_timeouts(Duration::from_secs(30), Duration::from_secs(10))
+        Self::with_timeouts_and_private_networks(
+            Duration::from_secs(30),
+            Duration::from_secs(10),
+            false,
+        )
     }
 
-    fn with_timeouts(
+    fn with_timeouts_and_private_networks(
         request_timeout: Duration,
         connect_timeout: Duration,
+        allow_private_networks: bool,
     ) -> Result<Self, RuntimeHttpError> {
         // reqwest is built with `rustls-no-provider`, so the process needs a
         // default crypto provider before a TLS client can be constructed.
         // Install ring once; an Err means another transport already set it.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(request_timeout)
-            .connect_timeout(connect_timeout)
+            .connect_timeout(connect_timeout);
+        if !allow_private_networks {
+            builder = builder.dns_resolver(GuardedDnsResolver::new(TokioDnsResolver));
+        }
+        let client = builder
             .build()
             .map_err(|error| RuntimeHttpError::Transport {
                 message: error.to_string(),
             })?;
         Ok(Self {
             client,
-            allow_private_networks: false,
+            allow_private_networks,
         })
     }
 
@@ -147,9 +163,11 @@ impl ReqwestHttpTransport {
     /// must require an operator-declared opt-in (e.g. an `http` source's
     /// `allowPrivateNetwork`) before choosing it, never as a default.
     pub fn with_private_network_access() -> Result<Self, RuntimeHttpError> {
-        let mut transport = Self::with_timeouts(Duration::from_secs(30), Duration::from_secs(10))?;
-        transport.allow_private_networks = true;
-        Ok(transport)
+        Self::with_timeouts_and_private_networks(
+            Duration::from_secs(30),
+            Duration::from_secs(10),
+            true,
+        )
     }
 
     #[cfg(test)]
@@ -162,9 +180,7 @@ impl ReqwestHttpTransport {
         request_timeout: Duration,
         connect_timeout: Duration,
     ) -> Result<Self, RuntimeHttpError> {
-        let mut transport = Self::with_timeouts(request_timeout, connect_timeout)?;
-        transport.allow_private_networks = true;
-        Ok(transport)
+        Self::with_timeouts_and_private_networks(request_timeout, connect_timeout, true)
     }
 }
 
@@ -202,17 +218,108 @@ impl RuntimeHttpTransport for ReqwestHttpTransport {
                     message: error.to_string(),
                 })?;
             let status = response.status().as_u16();
-            let body =
-                response
-                    .text()
-                    .await
-                    .map_err(|error| RuntimeHttpError::TransportDecode {
-                        message: error.to_string(),
-                    })?;
+            let body = read_limited_response_body(response, MAX_HTTP_RESPONSE_BYTES).await?;
             Ok(RuntimeHttpResponse { status, body })
         })
     }
 }
+
+#[cfg(feature = "async-http")]
+#[derive(Clone, Debug)]
+struct GuardedDnsResolver<R> {
+    inner: R,
+}
+
+#[cfg(feature = "async-http")]
+impl<R> GuardedDnsResolver<R> {
+    fn new(inner: R) -> Self {
+        Self { inner }
+    }
+}
+
+#[cfg(feature = "async-http")]
+impl<R> reqwest::dns::Resolve for GuardedDnsResolver<R>
+where
+    R: reqwest::dns::Resolve + Clone + Send + Sync + 'static,
+{
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_owned();
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let addrs = inner.resolve(name).await?;
+            let mut public_addrs = Vec::new();
+            for addr in addrs {
+                if is_private_network_ip(addr.ip()) {
+                    return Err(PrivateDnsResolutionError { host, addr }.into());
+                }
+                public_addrs.push(addr);
+            }
+            if public_addrs.is_empty() {
+                return Err(EmptyDnsResolutionError { host }.into());
+            }
+            Ok(Box::new(public_addrs.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+#[cfg(feature = "async-http")]
+#[derive(Clone, Copy, Debug, Default)]
+struct TokioDnsResolver;
+
+#[cfg(feature = "async-http")]
+impl reqwest::dns::Resolve for TokioDnsResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let addrs = tokio::net::lookup_host((host.as_str(), 0))
+                .await
+                .map_err(|error| Box::new(error) as Box<dyn StdError + Send + Sync>)?;
+            let addrs = addrs.collect::<Vec<_>>();
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+#[cfg(feature = "async-http")]
+#[derive(Debug)]
+struct PrivateDnsResolutionError {
+    host: String,
+    addr: SocketAddr,
+}
+
+#[cfg(feature = "async-http")]
+impl fmt::Display for PrivateDnsResolutionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "runtime HTTP DNS resolved '{}' to non-public address {}",
+            self.host, self.addr
+        )
+    }
+}
+
+#[cfg(feature = "async-http")]
+impl StdError for PrivateDnsResolutionError {}
+
+#[cfg(feature = "async-http")]
+#[derive(Debug)]
+struct EmptyDnsResolutionError {
+    host: String,
+}
+
+#[cfg(feature = "async-http")]
+impl fmt::Display for EmptyDnsResolutionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "runtime HTTP DNS returned no addresses for '{}'",
+            self.host
+        )
+    }
+}
+
+#[cfg(feature = "async-http")]
+impl StdError for EmptyDnsResolutionError {}
 
 #[derive(Clone, Debug)]
 #[cfg(any(feature = "async-http", test))]
@@ -277,6 +384,8 @@ pub enum RuntimeHttpError {
     AsyncRuntimeUnavailable { message: String },
     #[error("runtime HTTP transport returned invalid output: {message}")]
     TransportDecode { message: String },
+    #[error("runtime HTTP response body exceeds {limit} byte limit")]
+    ResponseBodyTooLarge { limit: usize },
     #[error("unsupported runtime HTTP url scheme '{scheme}': only http and https are allowed")]
     UnsupportedUrlScheme { scheme: String },
     #[error("runtime HTTP url host '{host}' is not publicly routable")]
@@ -373,6 +482,7 @@ fn is_private_network_ip(ip: IpAddr) -> bool {
 
 #[cfg(any(feature = "async-http", test))]
 fn is_private_network_ipv4(ip: Ipv4Addr) -> bool {
+    let octets = ip.octets();
     ip.is_private()
         || ip.is_loopback()
         || ip.is_link_local()
@@ -380,7 +490,12 @@ fn is_private_network_ipv4(ip: Ipv4Addr) -> bool {
         || ip.is_documentation()
         || ip.is_unspecified()
         || ip.is_multicast()
-        || ip.octets() == [169, 254, 169, 254]
+        || octets[0] == 0
+        || (octets[0] == 100 && (octets[1] & 0xc0) == 0x40)
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+        || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
+        || octets[0] >= 240
+        || octets == [169, 254, 169, 254]
 }
 
 #[cfg(any(feature = "async-http", test))]
@@ -392,6 +507,8 @@ fn is_private_network_ipv6(ip: Ipv6Addr) -> bool {
         || is_unique_local_ipv6(ip)
         || is_unicast_link_local_ipv6(ip)
         || is_documentation_ipv6(ip)
+        || nat64_embedded_ipv4(ip).is_some_and(is_private_network_ipv4)
+        || six_to_four_embedded_ipv4(ip).is_some_and(is_private_network_ipv4)
 }
 
 #[cfg(any(feature = "async-http", test))]
@@ -407,6 +524,77 @@ fn is_unicast_link_local_ipv6(ip: Ipv6Addr) -> bool {
 #[cfg(any(feature = "async-http", test))]
 fn is_documentation_ipv6(ip: Ipv6Addr) -> bool {
     ip.segments()[0] == 0x2001 && ip.segments()[1] == 0x0db8
+}
+
+#[cfg(any(feature = "async-http", test))]
+fn nat64_embedded_ipv4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
+    let segments = ip.segments();
+    if segments[..6] != [0x0064, 0xff9b, 0, 0, 0, 0] {
+        return None;
+    }
+    Some(Ipv4Addr::new(
+        (segments[6] >> 8) as u8,
+        segments[6] as u8,
+        (segments[7] >> 8) as u8,
+        segments[7] as u8,
+    ))
+}
+
+#[cfg(any(feature = "async-http", test))]
+fn six_to_four_embedded_ipv4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
+    let segments = ip.segments();
+    if segments[0] != 0x2002 {
+        return None;
+    }
+    Some(Ipv4Addr::new(
+        (segments[1] >> 8) as u8,
+        segments[1] as u8,
+        (segments[2] >> 8) as u8,
+        segments[2] as u8,
+    ))
+}
+
+#[cfg(feature = "async-http")]
+async fn read_limited_response_body(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<String, RuntimeHttpError> {
+    if declared_response_length(&response)?.is_some_and(|length| length > limit as u64) {
+        return Err(RuntimeHttpError::ResponseBodyTooLarge { limit });
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) =
+        response
+            .chunk()
+            .await
+            .map_err(|error| RuntimeHttpError::TransportDecode {
+                message: error.to_string(),
+            })?
+    {
+        if body.len().saturating_add(chunk.len()) > limit {
+            return Err(RuntimeHttpError::ResponseBodyTooLarge { limit });
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
+#[cfg(feature = "async-http")]
+fn declared_response_length(response: &reqwest::Response) -> Result<Option<u64>, RuntimeHttpError> {
+    let Some(value) = response.headers().get(reqwest::header::CONTENT_LENGTH) else {
+        return Ok(response.content_length());
+    };
+    let value = value
+        .to_str()
+        .map_err(|error| RuntimeHttpError::TransportDecode {
+            message: format!("invalid Content-Length header: {error}"),
+        })?;
+    value
+        .parse::<u64>()
+        .map(Some)
+        .map_err(|error| RuntimeHttpError::TransportDecode {
+            message: format!("invalid Content-Length header: {error}"),
+        })
 }
 
 #[cfg(feature = "async-http")]
@@ -468,14 +656,18 @@ mod tests {
     #[cfg(feature = "async-http")]
     use std::net::TcpListener;
     #[cfg(feature = "async-http")]
+    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+    #[cfg(feature = "async-http")]
     use std::time::Duration;
 
     #[cfg(feature = "async-http")]
-    use super::ReqwestHttpTransport;
+    use super::{GuardedDnsResolver, MAX_HTTP_RESPONSE_BYTES, ReqwestHttpTransport, block_on_http};
     use super::{
         HttpMethod, RuntimeHttpClient, RuntimeHttpError, RuntimeHttpHeader, RuntimeHttpRequest,
         RuntimeHttpResponse, RuntimeHttpTransport,
     };
+    #[cfg(feature = "async-http")]
+    use reqwest::dns::Resolve as _;
 
     #[derive(Default)]
     struct MockTransport {
@@ -492,6 +684,20 @@ mod tests {
                 status: 204,
                 body: String::new(),
             })
+        }
+    }
+
+    #[cfg(feature = "async-http")]
+    #[derive(Clone, Debug)]
+    struct StaticDnsResolver {
+        addrs: Vec<SocketAddr>,
+    }
+
+    #[cfg(feature = "async-http")]
+    impl reqwest::dns::Resolve for StaticDnsResolver {
+        fn resolve(&self, _name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+            let addrs = self.addrs.clone();
+            Box::pin(async move { Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs) })
         }
     }
 
@@ -567,8 +773,16 @@ mod tests {
             "http://172.16.0.1",
             "http://192.168.0.1",
             "http://169.254.169.254",
+            "http://100.64.0.1",
+            "http://100.127.255.255",
+            "http://192.0.0.1",
+            "http://198.18.0.1",
+            "http://240.0.0.1",
+            "http://0.1.2.3",
             "http://[::1]",
             "http://[::ffff:127.0.0.1]",
+            "http://[64:ff9b::7f00:1]",
+            "http://[2002:7f00:1::]",
             "http://[fc00::1]",
             "http://[fe80::1]",
             "http://metadata.google.internal",
@@ -587,6 +801,39 @@ mod tests {
     fn public_base_urls_are_allowed() -> Result<(), RuntimeHttpTestError> {
         RuntimeHttpClient::with_transport("https://api.example", &MockTransport::default())?;
         RuntimeHttpClient::with_transport("http://8.8.8.8", &MockTransport::default())?;
+        RuntimeHttpClient::with_transport("http://[64:ff9b::808:808]", &MockTransport::default())?;
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "async-http")]
+    fn guarded_dns_resolver_rejects_private_resolved_addresses() -> Result<(), RuntimeHttpTestError>
+    {
+        let resolver = GuardedDnsResolver::new(StaticDnsResolver {
+            addrs: vec![SocketAddr::V4(SocketAddrV4::new(
+                Ipv4Addr::new(127, 0, 0, 1),
+                0,
+            ))],
+        });
+        let name = "public.example"
+            .parse()
+            .map_err(|error| RuntimeHttpError::Transport {
+                message: format!("test DNS name should parse: {error}"),
+            })?;
+        let error =
+            block_on_http(async {
+                resolver.resolve(name).await.map(|_| ()).map_err(|error| {
+                    RuntimeHttpError::Transport {
+                        message: error.to_string(),
+                    }
+                })
+            })
+            .err();
+
+        assert!(
+            matches!(error, Some(RuntimeHttpError::Transport { ref message }) if message.contains("non-public address")),
+            "expected private DNS resolution to fail closed, got: {error:?}"
+        );
         Ok(())
     }
 
@@ -657,6 +904,79 @@ mod tests {
         assert!(matches!(
             error,
             Some(RuntimeHttpError::UnsupportedUrlScheme { .. })
+        ));
+        Ok(())
+    }
+
+    #[cfg(feature = "async-http")]
+    #[test]
+    fn reqwest_transport_rejects_oversized_content_length() -> Result<(), RuntimeHttpTestError> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let address = listener.local_addr()?;
+        let server = std::thread::spawn(move || -> Result<(), std::io::Error> {
+            let (mut stream, _) = listener.accept()?;
+            let mut buffer = [0_u8; 1024];
+            let _ = stream.read(&mut buffer)?;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                MAX_HTTP_RESPONSE_BYTES + 1
+            );
+            stream.write_all(response.as_bytes())?;
+            Ok(())
+        });
+
+        let transport = ReqwestHttpTransport::with_private_network_access_for_tests()?;
+        let error = transport
+            .send(RuntimeHttpRequest {
+                method: HttpMethod::Get,
+                url: format!("http://{address}/too-large"),
+                headers: Vec::new(),
+                body: None,
+            })
+            .err();
+        server
+            .join()
+            .map_err(|_| RuntimeHttpTestError::ServerThread)??;
+
+        assert!(matches!(
+            error,
+            Some(RuntimeHttpError::ResponseBodyTooLarge { limit })
+                if limit == MAX_HTTP_RESPONSE_BYTES
+        ));
+        Ok(())
+    }
+
+    #[cfg(feature = "async-http")]
+    #[test]
+    fn reqwest_transport_caps_streamed_response_body() -> Result<(), RuntimeHttpTestError> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let address = listener.local_addr()?;
+        let server = std::thread::spawn(move || -> Result<(), std::io::Error> {
+            let (mut stream, _) = listener.accept()?;
+            let mut buffer = [0_u8; 1024];
+            let _ = stream.read(&mut buffer)?;
+            stream.write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n")?;
+            let _ = stream.write_all(&vec![b'a'; MAX_HTTP_RESPONSE_BYTES + 1]);
+            Ok(())
+        });
+
+        let transport = ReqwestHttpTransport::with_private_network_access_for_tests()?;
+        let error = transport
+            .send(RuntimeHttpRequest {
+                method: HttpMethod::Get,
+                url: format!("http://{address}/stream-too-large"),
+                headers: Vec::new(),
+                body: None,
+            })
+            .err();
+        server
+            .join()
+            .map_err(|_| RuntimeHttpTestError::ServerThread)??;
+
+        assert!(matches!(
+            error,
+            Some(RuntimeHttpError::ResponseBodyTooLarge { limit })
+                if limit == MAX_HTTP_RESPONSE_BYTES
         ));
         Ok(())
     }

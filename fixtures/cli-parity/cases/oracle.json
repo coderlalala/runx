@@ -223,6 +223,15 @@
       ]
     },
     {
+      "id": "export.validate",
+      "commandId": "export",
+      "mode": "validate",
+      "proves": [
+        "skill-export",
+        "cli-presentation"
+      ]
+    },
+    {
       "id": "mcp.serve.validate",
       "commandId": "mcp.serve",
       "mode": "validate",
