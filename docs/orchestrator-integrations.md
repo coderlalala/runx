@@ -212,6 +212,11 @@ Proposed action:
 - Operation: run a governed skill in CI and upload/print receipt metadata
 - Backlink target: `https://runx.ai/integrations/github-actions`
 
+Status: public repository and `v0.1.0` release exist at
+`https://github.com/runxhq/runx-action`. Final Marketplace publication still
+requires the GitHub release UI checkbox and any required Marketplace Developer
+Agreement acceptance.
+
 This can start as a CLI wrapper before hosted APIs are complete, but the public
 copy must be explicit that cloud orchestrator use is still hosted-API gated.
 
