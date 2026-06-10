@@ -69,11 +69,20 @@ provider-permission steps.
 
 Spend-class payment authority must carry an aggregate cap (`max_per_run_units`
 or `max_per_period_units`) in addition to any per-call cap. Both aggregate caps
-are enforced by the runtime spend ledger: each run's reserved spend is bounded
-by the smaller of the two declared caps, because a run never spans more than
-one period. A durable cross-run period ledger is planned follow-up work; until
-it lands, `max_per_period_units` bounds every individual run rather than being
-parsed and ignored.
+are enforced by the runtime spend ledger.
+
+Per-run: each run's reserved spend is bounded by the smaller of the two
+declared caps, because a run never spans more than one period.
+
+Per-period: when the authority also declares a `period` of `daily`, `weekly`,
+or `monthly`, every spend is additionally reserved against a durable
+calendar-window ledger in the effect state file (`RUNX_EFFECT_STATE_PATH` or
+`<receipt dir>/effect-state.json`), so the cap holds across runs inside one
+UTC window. An unrecognized `period` value fails closed at admission instead
+of becoming an unenforced annotation. A period cap declared without a `period`
+is enforced only as the run-level clamp, and the period ledger only exists
+when an effect state path is configured — operators who want cross-run spend
+bounds must configure a stable state path.
 
 Payment supervisor proofs bind the original settlement evidence through
 `evidence_digest`. Rebinding a stored proof to a re-sealed receipt first

@@ -25,9 +25,10 @@ use crate::authority::{
 use crate::packets::{PaymentRailProof, read_effect_evidence_packet};
 use crate::state::{
     EffectIdempotencyEntry, EffectIdempotencyKey, EffectMutation, EffectMutationStatus,
-    EffectRecoveryState, EffectRunSpendReservation, EffectStateError, EffectStepStateInput,
-    consumed_spend_capability_recorded, escalate_effect_mutation, lookup_effect_idempotency_entry,
-    lookup_effect_mutation, persist_effect_step_state, record_effect_finality_intent,
+    EffectPeriodSpendReservation, EffectRecoveryState, EffectRunSpendReservation, EffectStateError,
+    EffectStepStateInput, consumed_spend_capability_recorded, escalate_effect_mutation,
+    lookup_effect_idempotency_entry, lookup_effect_mutation, period_window_start,
+    persist_effect_step_state, record_effect_finality_intent,
 };
 use crate::supervisor::{
     PAYMENT_RAIL_SUPERVISOR_EVIDENCE_METADATA, PaymentSupervisorProof, PaymentSupervisorProofMatch,
@@ -408,6 +409,7 @@ impl RuntimeEffect for PaymentRuntimeEffect {
                     currency: payment.currency.clone(),
                     act_id: format!("act_{}", request.step.id),
                     run_spend: payment.run_spend.clone(),
+                    period_spend: payment.period_spend.clone(),
                 },
             )
             .map_err(finality_intent_error)?;
@@ -537,6 +539,7 @@ impl RuntimeEffect for PaymentRuntimeEffect {
                 currency: payment.currency.clone(),
                 act_id: format!("act_{}", request.step.id),
                 run_spend: payment.run_spend.clone(),
+                period_spend: payment.period_spend.clone(),
             },
             request.claim,
             request.receipt,
@@ -756,6 +759,7 @@ fn payment_context(
         return Ok(None);
     };
     let run_spend = run_spend_reservation(input, inputs, env)?;
+    let period_spend = period_spend_reservation(input)?;
     Ok(Some(StepPaymentAuthorityContext {
         idempotency_key: EffectIdempotencyKey::new(
             binding.rail.clone(),
@@ -768,6 +772,7 @@ fn payment_context(
         amount_minor: binding.amount_minor,
         currency: binding.currency.clone(),
         run_spend,
+        period_spend,
     }))
 }
 
@@ -800,6 +805,39 @@ fn run_spend_reservation(
         run_id,
         authority_ref: input.child_authority.resource_ref.uri.clone().into_string(),
         max_per_run_units,
+    }))
+}
+
+/// Durable cross-run enforcement for `max_per_period_units`: when the
+/// authority declares a recognized `period`, the spend is reserved against a
+/// calendar-window ledger in the effect state file in addition to the
+/// run-level clamp above. A declared period the runtime cannot interpret
+/// fails closed rather than becoming an unenforced annotation.
+fn period_spend_reservation(
+    input: &OwnedStepAuthoritySubmission,
+) -> Result<Option<EffectPeriodSpendReservation>, RuntimeEffectError> {
+    let Some(payment) = payment_effect_limit(&input.child_authority) else {
+        return Ok(None);
+    };
+    let Some(max_per_period_units) = payment.max_per_period_units else {
+        return Ok(None);
+    };
+    let Some(period) = payment.period.as_ref() else {
+        // Period cap without a declared window: the run-level clamp is the
+        // enforceable meaning, so there is no durable window to reserve.
+        return Ok(None);
+    };
+    let unix_seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|source| failed("reading wall clock for period window", source))?
+        .as_secs();
+    let window_start = period_window_start(period.as_str(), unix_seconds)
+        .map_err(|source| denied(source.to_string()))?;
+    Ok(Some(EffectPeriodSpendReservation {
+        authority_ref: input.child_authority.resource_ref.uri.clone().into_string(),
+        max_per_period_units,
+        period: period.as_str().to_owned(),
+        window_start,
     }))
 }
 
@@ -1131,6 +1169,7 @@ struct StepPaymentAuthorityContext {
     amount_minor: u64,
     currency: String,
     run_spend: Option<EffectRunSpendReservation>,
+    period_spend: Option<EffectPeriodSpendReservation>,
 }
 
 #[derive(Clone, Debug)]

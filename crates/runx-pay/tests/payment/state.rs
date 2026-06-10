@@ -10,10 +10,11 @@ use runx_pay::PAYMENT_EFFECT_FAMILY;
 use runx_pay::state::{
     EffectCapabilityConsumption, EffectFinalityEventRecord, EffectFinalityIntent,
     EffectFinalityIntentStatus, EffectFinalityRecord, EffectIdempotencyEntry, EffectIdempotencyKey,
-    EffectMutation, EffectMutationStatus, EffectRecoveryState, EffectRunSpendReservation,
-    EffectStepStateInput, FileBackedEffectStateStore, RUNX_EFFECT_STATE_PATH_ENV,
-    consumed_spend_capability_recorded, escalate_effect_mutation, lookup_effect_idempotency_entry,
-    lookup_effect_mutation, persist_effect_step_state, record_effect_finality_intent,
+    EffectMutation, EffectMutationStatus, EffectPeriodSpendReservation, EffectRecoveryState,
+    EffectRunSpendReservation, EffectStepStateInput, FileBackedEffectStateStore,
+    RUNX_EFFECT_STATE_PATH_ENV, consumed_spend_capability_recorded, escalate_effect_mutation,
+    lookup_effect_idempotency_entry, lookup_effect_mutation, period_window_start,
+    persist_effect_step_state, record_effect_finality_intent,
 };
 use runx_pay::supervisor::{PAYMENT_RAIL_SUPERVISOR_VERIFIER_ID, PaymentSupervisorProof};
 use runx_runtime::RUNX_RECEIPT_DIR_ENV;
@@ -103,6 +104,125 @@ fn run_spend_reservation_is_idempotent_for_same_key() -> Result<(), Box<dyn std:
 
     let state = std::fs::read_to_string(state_path)?;
     assert!(state.contains("\"reserved_minor\": 125"));
+
+    Ok(())
+}
+
+#[test]
+fn reserves_period_spend_across_runs_and_refuses_over_period_cap()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let state_path = temp.path().join("effect-state.json");
+    let env = BTreeMap::from([(
+        RUNX_EFFECT_STATE_PATH_ENV.to_owned(),
+        state_path.display().to_string(),
+    )]);
+
+    // Each call opens a fresh store from disk and the period ledger key has no
+    // run component, so these three reservations model three separate runs
+    // landing in the same calendar window.
+    let first = period_spend_input("payment:period-cap-001", 125, 250, "2026-06-10");
+    let second = period_spend_input("payment:period-cap-002", 125, 250, "2026-06-10");
+    let third = period_spend_input("payment:period-cap-003", 1, 250, "2026-06-10");
+
+    record_effect_finality_intent(&env, temp.path(), &first)?;
+    record_effect_finality_intent(&env, temp.path(), &second)?;
+    let error = record_effect_finality_intent(&env, temp.path(), &third)
+        .expect_err("third spend must be refused at the period cap");
+
+    assert!(
+        error
+            .to_string()
+            .contains("would exceed max_per_period_units"),
+        "unexpected error: {error}"
+    );
+    let state = std::fs::read_to_string(&state_path)?;
+    assert!(!state.contains("payment:period-cap-003"));
+
+    Ok(())
+}
+
+#[test]
+fn period_spend_new_window_resets_budget() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let state_path = temp.path().join("effect-state.json");
+    let env = BTreeMap::from([(
+        RUNX_EFFECT_STATE_PATH_ENV.to_owned(),
+        state_path.display().to_string(),
+    )]);
+
+    let exhausts_today = period_spend_input("payment:period-win-001", 250, 250, "2026-06-10");
+    let tomorrow = period_spend_input("payment:period-win-002", 250, 250, "2026-06-11");
+
+    record_effect_finality_intent(&env, temp.path(), &exhausts_today)?;
+    record_effect_finality_intent(&env, temp.path(), &tomorrow)?;
+
+    let state = std::fs::read_to_string(&state_path)?;
+    assert!(state.contains("2026-06-10"));
+    assert!(state.contains("2026-06-11"));
+
+    Ok(())
+}
+
+#[test]
+fn period_spend_reservation_is_idempotent_for_same_key() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let state_path = temp.path().join("effect-state.json");
+    let env = BTreeMap::from([(
+        RUNX_EFFECT_STATE_PATH_ENV.to_owned(),
+        state_path.display().to_string(),
+    )]);
+    let input = period_spend_input("payment:period-replay", 125, 125, "2026-06-10");
+
+    record_effect_finality_intent(&env, temp.path(), &input)?;
+    record_effect_finality_intent(&env, temp.path(), &input)?;
+
+    let state = std::fs::read_to_string(&state_path)?;
+    assert!(state.contains("\"reserved_minor\": 125"));
+
+    Ok(())
+}
+
+#[test]
+fn period_window_start_computes_calendar_windows() {
+    // 2026-06-10T15:30:00Z, a Wednesday.
+    let now = 1_781_105_400;
+    assert_eq!(period_window_start("daily", now).unwrap(), "2026-06-10");
+    assert_eq!(period_window_start("weekly", now).unwrap(), "2026-06-08");
+    assert_eq!(period_window_start("monthly", now).unwrap(), "2026-06-01");
+    let error =
+        period_window_start("fortnightly", now).expect_err("unrecognized periods must fail closed");
+    assert!(error.to_string().contains("not supported"));
+}
+
+#[test]
+fn state_files_written_before_period_ledger_still_load() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let state_path = temp.path().join("effect-state.json");
+    std::fs::write(
+        &state_path,
+        serde_json::to_string_pretty(&json!({
+            "schema_version": "runx.effect_state.v1",
+            "families": {
+                "payment": {
+                    "finality_intents": {},
+                    "finality_records": {},
+                    "finality_events": {},
+                    "run_spend_ledger": {},
+                    "idempotency_entries": {},
+                    "consumed_spend_capabilities": {},
+                    "rail_mutations": {}
+                }
+            }
+        }))?,
+    )?;
+
+    let env = BTreeMap::from([(
+        RUNX_EFFECT_STATE_PATH_ENV.to_owned(),
+        state_path.display().to_string(),
+    )]);
+    let input = period_spend_input("payment:period-legacy", 100, 250, "2026-06-10");
+    record_effect_finality_intent(&env, temp.path(), &input)?;
 
     Ok(())
 }
@@ -722,6 +842,26 @@ fn payment_step_input() -> EffectStepStateInput {
         currency: "USD".to_owned(),
         act_id: "act_fulfill".to_owned(),
         run_spend: None,
+        period_spend: None,
+    }
+}
+
+fn period_spend_input(
+    idempotency_key: &str,
+    amount_minor: u64,
+    max_per_period_units: u64,
+    window_start: &str,
+) -> EffectStepStateInput {
+    EffectStepStateInput {
+        idempotency_key: EffectIdempotencyKey::new("mock", "merchant:paid-echo", idempotency_key),
+        amount_minor,
+        period_spend: Some(EffectPeriodSpendReservation {
+            authority_ref: "runx:payment-grant:paid-echo".to_owned(),
+            max_per_period_units,
+            period: "daily".to_owned(),
+            window_start: window_start.to_owned(),
+        }),
+        ..payment_step_input()
     }
 }
 

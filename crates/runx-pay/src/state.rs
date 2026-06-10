@@ -185,6 +185,27 @@ pub struct EffectRunSpendReservation {
     pub max_per_run_units: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectPeriodSpendLedgerEntry {
+    pub authority_ref: String,
+    pub currency: String,
+    pub max_per_period_units: u64,
+    pub period: String,
+    pub window_start: String,
+    pub reserved_minor: u64,
+    pub sealed_minor: u64,
+    pub entries: BTreeMap<String, EffectRunSpendLedgerItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EffectPeriodSpendReservation {
+    pub authority_ref: String,
+    pub max_per_period_units: u64,
+    pub period: String,
+    pub window_start: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EffectStepStateInput {
     pub family: &'static str,
@@ -196,6 +217,7 @@ pub struct EffectStepStateInput {
     pub currency: String,
     pub act_id: String,
     pub run_spend: Option<EffectRunSpendReservation>,
+    pub period_spend: Option<EffectPeriodSpendReservation>,
 }
 
 #[derive(Debug)]
@@ -224,6 +246,9 @@ struct EffectFamilyState {
     finality_records: BTreeMap<String, EffectFinalityRecord>,
     finality_events: BTreeMap<String, EffectFinalityEventRecord>,
     run_spend_ledger: BTreeMap<String, EffectRunSpendLedgerEntry>,
+    // Defaulted so state files written before period ledgers existed still load.
+    #[serde(default)]
+    period_spend_ledger: BTreeMap<String, EffectPeriodSpendLedgerEntry>,
     idempotency_entries: BTreeMap<String, EffectIdempotencyEntry>,
     consumed_spend_capabilities: BTreeMap<String, EffectCapabilityConsumption>,
     rail_mutations: BTreeMap<String, EffectMutation>,
@@ -306,6 +331,23 @@ pub enum EffectStateError {
     },
     #[error("run spend ledger key {ledger_key} conflicts with existing run spend state")]
     RunSpendLedgerConflict { ledger_key: String },
+    #[error(
+        "period window {window_start} ({period}) would exceed max_per_period_units for {authority_ref}/{currency}: attempted {attempted_minor}, max {max_per_period_units}"
+    )]
+    PeriodSpendCapExceeded {
+        period: String,
+        window_start: String,
+        authority_ref: String,
+        currency: String,
+        attempted_minor: u64,
+        max_per_period_units: u64,
+    },
+    #[error("period spend ledger key {ledger_key} conflicts with existing period spend state")]
+    PeriodSpendLedgerConflict { ledger_key: String },
+    #[error(
+        "payment authority period {period} is not supported; expected daily, weekly, or monthly"
+    )]
+    UnsupportedSpendPeriod { period: String },
     #[error("finality record for {money_movement_id} conflicts with existing finality state")]
     FinalityRecordConflict { money_movement_id: String },
     #[error("finality event {event_key} conflicts with existing event state")]
@@ -516,6 +558,7 @@ impl FileBackedEffectStateStore {
         family: &'static str,
         intent: EffectFinalityIntent,
         run_spend: Option<&EffectRunSpendReservation>,
+        period_spend: Option<&EffectPeriodSpendReservation>,
     ) -> Result<(), EffectStateError> {
         let index_key = intent.idempotency_key.index_key();
         if let Some(existing) = self
@@ -541,6 +584,7 @@ impl FileBackedEffectStateStore {
                 });
             }
             reserve_run_spend(state, family, &intent, run_spend)?;
+            reserve_period_spend(state, family, &intent, period_spend)?;
             state.finality_intents.insert(index_key, intent);
             Ok(())
         })
@@ -561,6 +605,37 @@ impl FileBackedEffectStateStore {
             let Some(ledger) = state
                 .family_mut(family)
                 .run_spend_ledger
+                .get_mut(&ledger_key)
+            else {
+                return Ok(());
+            };
+            let Some(item) = ledger.entries.get_mut(&entry_key) else {
+                return Ok(());
+            };
+            if item.status != EffectRunSpendStatus::Sealed {
+                ledger.sealed_minor = ledger.sealed_minor.saturating_add(item.amount_minor);
+            }
+            item.status = EffectRunSpendStatus::Sealed;
+            item.receipt_ref = Some(receipt_ref.to_owned());
+            Ok(())
+        })
+    }
+
+    pub fn seal_period_spend(
+        &mut self,
+        family: &'static str,
+        input: &EffectStepStateInput,
+        receipt_ref: &str,
+    ) -> Result<(), EffectStateError> {
+        let Some(period_spend) = input.period_spend.as_ref() else {
+            return Ok(());
+        };
+        let ledger_key = period_spend_ledger_key(family, period_spend, &input.currency);
+        let entry_key = input.idempotency_key.index_key();
+        self.with_locked_state(|state| {
+            let Some(ledger) = state
+                .family_mut(family)
+                .period_spend_ledger
                 .get_mut(&ledger_key)
             else {
                 return Ok(());
@@ -782,6 +857,128 @@ fn run_spend_ledger_key(
     )
 }
 
+// rust-style-allow: long-function because period spend reservation enforces the
+// per-period cap through a single sequence of cap, ledger, and tally checks
+// that must remain linear so the spend invariant stays verifiable in one place.
+fn reserve_period_spend(
+    state: &mut EffectFamilyState,
+    family: &'static str,
+    intent: &EffectFinalityIntent,
+    reservation: Option<&EffectPeriodSpendReservation>,
+) -> Result<(), EffectStateError> {
+    let Some(reservation) = reservation else {
+        return Ok(());
+    };
+    let ledger_key = period_spend_ledger_key(family, reservation, &intent.currency);
+    let entry_key = intent.idempotency_key.index_key();
+    let ledger = state
+        .period_spend_ledger
+        .entry(ledger_key.clone())
+        .or_insert_with(|| EffectPeriodSpendLedgerEntry {
+            authority_ref: reservation.authority_ref.clone(),
+            currency: intent.currency.clone(),
+            max_per_period_units: reservation.max_per_period_units,
+            period: reservation.period.clone(),
+            window_start: reservation.window_start.clone(),
+            reserved_minor: 0,
+            sealed_minor: 0,
+            entries: BTreeMap::new(),
+        });
+
+    if ledger.authority_ref != reservation.authority_ref
+        || ledger.currency != intent.currency
+        || ledger.max_per_period_units != reservation.max_per_period_units
+        || ledger.period != reservation.period
+        || ledger.window_start != reservation.window_start
+    {
+        return Err(EffectStateError::PeriodSpendLedgerConflict { ledger_key });
+    }
+
+    if let Some(existing) = ledger.entries.get(&entry_key) {
+        if existing.amount_minor == intent.amount_minor {
+            return Ok(());
+        }
+        return Err(EffectStateError::PeriodSpendLedgerConflict { ledger_key });
+    }
+
+    let attempted_minor = ledger.reserved_minor.saturating_add(intent.amount_minor);
+    if attempted_minor > ledger.max_per_period_units {
+        return Err(EffectStateError::PeriodSpendCapExceeded {
+            period: ledger.period.clone(),
+            window_start: ledger.window_start.clone(),
+            authority_ref: ledger.authority_ref.clone(),
+            currency: ledger.currency.clone(),
+            attempted_minor,
+            max_per_period_units: ledger.max_per_period_units,
+        });
+    }
+
+    ledger.reserved_minor = attempted_minor;
+    ledger.entries.insert(
+        entry_key,
+        EffectRunSpendLedgerItem {
+            idempotency_key: intent.idempotency_key.clone(),
+            amount_minor: intent.amount_minor,
+            status: EffectRunSpendStatus::Reserved,
+            receipt_ref: None,
+        },
+    );
+    Ok(())
+}
+
+fn period_spend_ledger_key(
+    family: &'static str,
+    reservation: &EffectPeriodSpendReservation,
+    currency: &str,
+) -> String {
+    format!(
+        "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+        family, reservation.authority_ref, currency, reservation.period, reservation.window_start
+    )
+}
+
+/// Compute the UTC calendar window a spend falls into for a declared period.
+/// Periods are deliberately a closed vocabulary; an unrecognized period fails
+/// closed instead of being treated as an unenforced annotation.
+pub fn period_window_start(period: &str, unix_seconds: u64) -> Result<String, EffectStateError> {
+    let days = (unix_seconds / 86_400) as i64;
+    match period {
+        "daily" => Ok(civil_date_string(days)),
+        "weekly" => {
+            // 1970-01-01 was a Thursday; weeks are Monday-aligned.
+            let days_from_monday = (days + 3).rem_euclid(7);
+            Ok(civil_date_string(days - days_from_monday))
+        }
+        "monthly" => {
+            let (year, month, _day) = civil_from_days(days);
+            Ok(format!("{year:04}-{month:02}-01"))
+        }
+        other => Err(EffectStateError::UnsupportedSpendPeriod {
+            period: other.to_owned(),
+        }),
+    }
+}
+
+fn civil_date_string(days: i64) -> String {
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+// Days-from-epoch to proleptic Gregorian civil date (Howard Hinnant's
+// `civil_from_days` algorithm), so the window math needs no time crate.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if month <= 2 { year + 1 } else { year }, month, day)
+}
+
 fn load_effect_state(path: &Path) -> Result<EffectStateDocument, EffectStateError> {
     match fs::read_to_string(path) {
         Ok(contents) => serde_json::from_str(&contents)
@@ -893,6 +1090,7 @@ pub fn record_effect_finality_intent(
             status: EffectFinalityIntentStatus::Open,
         },
         input.run_spend.as_ref(),
+        input.period_spend.as_ref(),
     )
 }
 
@@ -987,6 +1185,7 @@ pub fn persist_effect_step_state(
             },
         )?;
         store.seal_run_spend(input.family, input, &receipt.id)?;
+        store.seal_period_spend(input.family, input, &receipt.id)?;
     }
 
     if rail_touched
