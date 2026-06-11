@@ -26,6 +26,7 @@ const disallowedPatterns = [
     // serde_json::Value and convert to/from the runx JsonValue only at the
     // domain boundary (the documented convention; see agent_anthropic.rs).
     allowlist: [
+      "crates/runx-cli/src/verify.rs",
       "crates/runx-runtime/src/adapters/agent_anthropic.rs",
       "crates/runx-runtime/src/adapters/http.rs",
     ],

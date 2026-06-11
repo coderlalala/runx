@@ -3,6 +3,7 @@
 pub mod error;
 pub mod graph;
 pub mod install;
+mod json_fields;
 pub mod runner;
 pub mod skill;
 pub mod tool;

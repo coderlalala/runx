@@ -48,6 +48,7 @@ use crate::services::{ReceiptServices, WorkspaceEnv};
 
 const SKILL_RUN_SCHEMA: &str = "runx.skill_run.v1";
 const GRAPH_SKILL_STATE_SCHEMA: &str = "runx.graph_skill_state.v1";
+const RUNX_HOSTED_CREDENTIAL_HANDLES_JSON_ENV: &str = "RUNX_HOSTED_CREDENTIAL_HANDLES_JSON";
 
 #[derive(Debug, Error)]
 pub enum SkillRunError {
@@ -502,7 +503,8 @@ fn execute_graph_skill_run(
     let skill_dir = resolve_skill_dir(&request.skill_path)?;
     let mut env = workspace.graph_env_for_skill(&skill_dir);
     env.insert(RUNX_RUN_ID_ENV.to_owned(), run_id.clone());
-    let credential_delivery = credential_delivery_from_local(request.local_credential.as_ref())?;
+    let credential_delivery =
+        credential_delivery_from_invocation(workspace.env(), request.local_credential.as_ref())?;
     let runtime = Runtime::new(
         SkillRunGraphAdapter::default(),
         RuntimeOptions {
@@ -1146,7 +1148,7 @@ fn runner_invocation(
             runner.source.source_type
         )));
     }
-    let credential_delivery = credential_delivery_from_local(local_credential)?;
+    let credential_delivery = credential_delivery_from_invocation(env, local_credential)?;
     Ok(SkillInvocation {
         skill_name: runner.name.clone(),
         source: runner.source.clone(),
@@ -1159,9 +1161,28 @@ fn runner_invocation(
     })
 }
 
-fn credential_delivery_from_local(
+fn credential_delivery_from_invocation(
+    env: &BTreeMap<String, String>,
     local_credential: Option<&crate::execution::orchestrator::LocalCredentialDescriptor>,
 ) -> Result<crate::credentials::CredentialDelivery, SkillRunError> {
+    let hosted_handles = env
+        .get(RUNX_HOSTED_CREDENTIAL_HANDLES_JSON_ENV)
+        .map(String::as_str)
+        .filter(|value| !value.trim().is_empty());
+    if hosted_handles.is_some() && local_credential.is_some() {
+        return Err(invalid(format!(
+            "{RUNX_HOSTED_CREDENTIAL_HANDLES_JSON_ENV} cannot be combined with local credential provision"
+        )));
+    }
+    if let Some(raw) = hosted_handles {
+        return crate::credentials::CredentialDelivery::from_hosted_handles_json(raw).map_err(
+            |error| {
+                invalid(format!(
+                    "hosted credential handle admission failed: {error}"
+                ))
+            },
+        );
+    }
     Ok(match local_credential {
         Some(descriptor) => crate::credentials::CredentialDelivery::from_local_descriptor(
             descriptor.provider.clone(),

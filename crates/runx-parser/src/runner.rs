@@ -7,7 +7,12 @@ use crate::skill::{
     CatalogMetadata, RunnerHarnessManifest, SkillRunnerDefinition, validate_catalog_metadata,
     validate_harness_manifest, validate_runner_definition,
 };
-use crate::{ParseError, ValidationError, assert_yaml_parity_subset};
+use crate::{
+    ParseError, ValidationError, assert_yaml_parity_subset,
+    json_fields::{self, JsonFieldReader},
+};
+
+const FIELDS: JsonFieldReader = JsonFieldReader::new("runner_manifest");
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RawRunnerManifestIr {
@@ -49,13 +54,11 @@ pub fn parse_runner_manifest_yaml(yaml: &str) -> Result<RawRunnerManifestIr, Par
 pub fn validate_runner_manifest(
     raw: RawRunnerManifestIr,
 ) -> Result<SkillRunnerManifest, ValidationError> {
-    let runners_record = required_object(raw.document.get("runners"), "runners")?;
+    let runners_record = FIELDS.required_object(raw.document.get("runners"), "runners")?;
     let mut runners = BTreeMap::new();
     for (name, value) in runners_record {
         let JsonValue::Object(runner) = value else {
-            return Err(validation_error(format!(
-                "runners.{name} must be an object."
-            )));
+            return Err(FIELDS.validation_error(format!("runners.{name} must be an object.")));
         };
         runners.insert(
             name.clone(),
@@ -64,15 +67,15 @@ pub fn validate_runner_manifest(
     }
 
     let harness = validate_harness_manifest(
-        optional_object(raw.document.get("harness"), "harness")?,
+        FIELDS.optional_object(raw.document.get("harness"), "harness")?,
         "harness",
     )?;
     validate_harness_runners(&harness, &runners)?;
 
     Ok(SkillRunnerManifest {
-        skill: optional_string(raw.document.get("skill"), "skill")?,
+        skill: FIELDS.optional_string(raw.document.get("skill"), "skill")?,
         catalog: validate_catalog_metadata(
-            optional_object(raw.document.get("catalog"), "catalog")?,
+            FIELDS.optional_object(raw.document.get("catalog"), "catalog")?,
             "catalog",
         )?,
         runners,
@@ -85,16 +88,20 @@ pub fn resolve_post_run_reflect_policy(
     runx: Option<&JsonObject>,
     field: &str,
 ) -> Result<String, ValidationError> {
-    let post_run = optional_object(field_value(runx, "post_run"), &format!("{field}.post_run"))?;
-    let reflect = optional_string(
-        field_value(post_run.as_ref(), "reflect"),
-        &format!("{field}.post_run.reflect"),
-    )?
-    .unwrap_or_else(|| "never".to_owned());
+    let post_run = FIELDS.optional_object(
+        json_fields::field_value(runx, "post_run"),
+        &format!("{field}.post_run"),
+    )?;
+    let reflect = FIELDS
+        .optional_string(
+            json_fields::field_value(post_run.as_ref(), "reflect"),
+            &format!("{field}.post_run.reflect"),
+        )?
+        .unwrap_or_else(|| "never".to_owned());
     if matches!(reflect.as_str(), "auto" | "always" | "never") {
         return Ok(reflect);
     }
-    Err(validation_error(format!(
+    Err(FIELDS.validation_error(format!(
         "{field}.post_run.reflect must be auto, always, or never."
     )))
 }
@@ -106,55 +113,11 @@ fn validate_harness_runners(
     for entry in harness.iter().flat_map(|harness| harness.cases.iter()) {
         if let Some(runner) = &entry.runner {
             if !runners.contains_key(runner) {
-                return Err(validation_error(format!(
+                return Err(FIELDS.validation_error(format!(
                     "harness.cases runner {runner} is not declared in runners."
                 )));
             }
         }
     }
     Ok(())
-}
-
-fn validation_error(message: impl Into<String>) -> ValidationError {
-    ValidationError::InvalidField {
-        field: "runner_manifest".to_owned(),
-        message: message.into(),
-    }
-}
-
-fn required_object<'a>(
-    value: Option<&'a JsonValue>,
-    field: &str,
-) -> Result<&'a JsonObject, ValidationError> {
-    match value {
-        Some(JsonValue::Object(value)) => Ok(value),
-        None | Some(JsonValue::Null) => Err(validation_error(format!("{field} is required."))),
-        Some(_) => Err(validation_error(format!("{field} must be an object."))),
-    }
-}
-
-fn optional_object(
-    value: Option<&JsonValue>,
-    field: &str,
-) -> Result<Option<JsonObject>, ValidationError> {
-    match value {
-        None | Some(JsonValue::Null) => Ok(None),
-        Some(JsonValue::Object(value)) => Ok(Some(value.clone())),
-        Some(_) => Err(validation_error(format!("{field} must be an object."))),
-    }
-}
-
-fn optional_string(
-    value: Option<&JsonValue>,
-    field: &str,
-) -> Result<Option<String>, ValidationError> {
-    match value {
-        None | Some(JsonValue::Null) => Ok(None),
-        Some(JsonValue::String(value)) => Ok(Some(value.clone())),
-        Some(_) => Err(validation_error(format!("{field} must be a string."))),
-    }
-}
-
-fn field_value<'a>(object: Option<&'a JsonObject>, field: &str) -> Option<&'a JsonValue> {
-    object.and_then(|object| object.get(field))
 }

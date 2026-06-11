@@ -14,6 +14,16 @@ inputs:
   parent_payment_authority:
     authority_ref: authority:payment:test
   rail_profile_ref: rail-profile:stripe-spt:test
+  payment_admission:
+    payment_admission_id: sha256:payment-admission-demo-001
+    money_movement_id: sha256:money-movement-demo-001
+    kernel_token_digest: sha256:payment-admission-demo-001
+    token_digest: sha256:payment-admission-demo-001
+    token:
+      rail: stripe-spt
+      amount_minor: 125
+      currency: USD
+      counterparty: merchant:demo
   realm: test
   idempotency_seed: demo-search-001
 caller:

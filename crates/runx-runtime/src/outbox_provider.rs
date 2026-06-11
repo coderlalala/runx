@@ -15,6 +15,7 @@ use thiserror::Error;
 
 use crate::credentials::CredentialDelivery;
 use crate::process_signal::{ProcessSignal, configure_process_group, signal_process_group_id};
+use crate::redaction::trim_ascii_whitespace;
 
 const DEFAULT_TIMEOUT_MS: u64 = 5_000;
 const DEFAULT_OUTPUT_LIMIT_BYTES: usize = 1_048_576;
@@ -549,18 +550,6 @@ fn kill_process_group(
     child
         .kill()
         .map_err(|source| io_error("killing timed out thread outbox provider process", source))
-}
-
-fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
-    let start = bytes
-        .iter()
-        .position(|byte| !byte.is_ascii_whitespace())
-        .unwrap_or(bytes.len());
-    let end = bytes
-        .iter()
-        .rposition(|byte| !byte.is_ascii_whitespace())
-        .map_or(start, |index| index + 1);
-    &bytes[start..end]
 }
 
 fn duration_ms(started: Instant) -> u64 {

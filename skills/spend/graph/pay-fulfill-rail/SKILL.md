@@ -49,5 +49,7 @@ does not decide policy, approval, retry, or success.
 - `reserved_payment_authority` (required): child payment authority term.
 - `spend_capability_ref` (required): scoped single-use spend capability ref.
 - `rail_profile_ref` (required): configured rail profile reference.
+- `payment_admission` (optional): hosted payment admission token and settlement
+  identity. When present, it is bound into supervisor settlement evidence.
 - `idempotency` (required): reservation key and recovery fields.
 - `quote_packet` (optional): source quote packet for evidence continuity.

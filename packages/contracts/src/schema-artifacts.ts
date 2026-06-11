@@ -20498,6 +20498,13 @@ export const runxSchemaArtifacts = {
         "minLength": 1,
         "type": "string"
       },
+      "norm_refs": {
+        "items": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": "array"
+      },
       "original_receipt_ref": {
         "$id": "https://schemas.runx.dev/runx/reference/v1.json",
         "$schema": "https://json-schema.org/draft/2020-12/schema",

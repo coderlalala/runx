@@ -159,7 +159,7 @@ fn write_skill_failure(
 ) -> ExitCode {
     if json {
         let output = skill_json_failure_output(message, code, provenance);
-        return write_stdout(&output, exit_code);
+        return crate::cli_io::write_stdout_code(&output, exit_code);
     }
     let _ignored = writeln!(io::stderr(), "runx: {message}");
     ExitCode::from(exit_code)
@@ -181,13 +181,4 @@ fn skill_json_failure_output(message: &str, code: &str, provenance: Option<JsonO
     serde_json::to_string_pretty(&JsonValue::Object(output))
         .map(|json| format!("{json}\n"))
         .unwrap_or_else(|_| crate::launcher::json_failure_output(message, code))
-}
-
-fn write_stdout(message: &str, code: u8) -> ExitCode {
-    let mut stdout = io::stdout().lock();
-    if stdout.write_all(message.as_bytes()).is_ok() {
-        ExitCode::from(code)
-    } else {
-        ExitCode::from(1)
-    }
 }

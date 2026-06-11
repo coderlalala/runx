@@ -21,6 +21,11 @@ fn payment_rail_receipts_carry_supervisor_evidence_refs() -> Result<(), Box<dyn 
         amount_minor: 125,
         currency: "USD".to_owned(),
         idempotency_key: "payment:demo-search-001".to_owned(),
+        payment_admission_id: None,
+        money_movement_id: None,
+        kernel_token_digest: None,
+        proof_locator: None,
+        proof_status: None,
         settlement_status: Some("fulfilled".to_owned()),
         provider_event_ref: Some("provider:event:demo-search-001".to_owned()),
     };

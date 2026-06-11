@@ -22,6 +22,7 @@ export type EffectFinalityReceiptContract = DeepReadonly<{
   original_receipt_ref: ReferenceContract;
   criterion_id: string;
   evidence_refs?: readonly ReferenceContract[];
+  norm_refs?: readonly string[];
   proof_ref?: ReferenceContract;
   confirmation_depth?: number;
   payload?: UnknownRecord;

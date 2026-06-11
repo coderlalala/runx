@@ -324,8 +324,16 @@ pub struct GraphScopeAdmissionRequest {
     rename_all_fields = "camelCase"
 )]
 pub enum AdmissionDecision {
-    Allow { reasons: Vec<String> },
-    Deny { reasons: Vec<String> },
+    Allow {
+        reasons: Vec<String>,
+    },
+    AllowMarked {
+        reasons: Vec<String>,
+        norm_refs: Vec<String>,
+    },
+    Deny {
+        reasons: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -483,6 +491,24 @@ mod tests {
         assert_eq!(
             json,
             r#"{"status":"deny","reasons":["source type 'custom' is not allowed for local execution"]}"#,
+        );
+        assert_eq!(decoded, decision);
+        Ok(())
+    }
+
+    #[test]
+    fn admission_decision_round_trips_allow_marked() -> Result<(), serde_json::Error> {
+        let decision = AdmissionDecision::AllowMarked {
+            reasons: vec!["allowed with visible norm mark".to_owned()],
+            norm_refs: vec!["frantic:norm:reply-before-escalation".to_owned()],
+        };
+
+        let json = serde_json::to_string(&decision)?;
+        let decoded: AdmissionDecision = serde_json::from_str(&json)?;
+
+        assert_eq!(
+            json,
+            r#"{"status":"allow-marked","reasons":["allowed with visible norm mark"],"normRefs":["frantic:norm:reply-before-escalation"]}"#,
         );
         assert_eq!(decoded, decision);
         Ok(())

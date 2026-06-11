@@ -69,6 +69,8 @@ pub struct EffectFinalityReceipt {
     pub proof_ref: Option<Reference>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence_refs: Vec<Reference>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub norm_refs: Vec<NonEmptyString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confirmation_depth: Option<u64>,
     #[serde(default, skip_serializing_if = "JsonObject::is_empty")]

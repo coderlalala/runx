@@ -137,6 +137,7 @@ payment_reservation_packet:
   reserved_payment_authority: object
   spend_capability_ref: object
   idempotency: object
+payment_admission: object | null
 payment_approval:
   approved: boolean
   gate_id: string
@@ -176,6 +177,9 @@ does not silently re-quote and spend under the old approval.
 - `parent_payment_authority` (required): parent payment authority term or
   authority reference.
 - `rail_profile_ref` (required): configured runtime-path profile reference.
+- `payment_admission` (optional): hosted payment admission token and settlement
+  identity. When present, it must be passed unchanged to the rail fulfillment
+  stage so the sealed supervisor evidence can prove hosted settlement identity.
 - `realm` (optional): authority realm such as `local`, `test`, or `prod`.
 - `spend_policy` (optional): policy limits and approval thresholds.
 - `approval_context` (optional): prior approval evidence.

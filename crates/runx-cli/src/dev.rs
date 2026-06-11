@@ -1,5 +1,4 @@
 use std::env;
-use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -12,7 +11,8 @@ pub fn run_native_dev(plan: DevPlan) -> ExitCode {
     let current_dir = match env::current_dir() {
         Ok(path) => path,
         Err(error) => {
-            let _ignored = write_stderr(&format!("runx: failed to resolve cwd: {error}\n"));
+            let _ignored =
+                crate::cli_io::write_stderr(&format!("runx: failed to resolve cwd: {error}\n"));
             return ExitCode::from(1);
         }
     };
@@ -29,7 +29,7 @@ pub fn run_native_dev(plan: DevPlan) -> ExitCode {
     let report = match run_dev_once(&options) {
         Ok(report) => report,
         Err(error) => {
-            let _ignored = write_stderr(&format!("runx: dev failed: {error:?}\n"));
+            let _ignored = crate::cli_io::write_stderr(&format!("runx: dev failed: {error:?}\n"));
             return ExitCode::from(1);
         }
     };
@@ -44,13 +44,14 @@ pub fn run_native_dev(plan: DevPlan) -> ExitCode {
     let stdout = match render_dev_stdout(&report, plan.json) {
         Ok(stdout) => stdout,
         Err(error) => {
-            let _ignored =
-                write_stderr(&format!("runx: failed to serialize dev report: {error}\n"));
+            let _ignored = crate::cli_io::write_stderr(&format!(
+                "runx: failed to serialize dev report: {error}\n"
+            ));
             return ExitCode::from(1);
         }
     };
 
-    let _ignored = write_stdout(&stdout);
+    let _ignored = crate::cli_io::write_stdout(&stdout);
     ExitCode::from(exit_code)
 }
 
@@ -75,18 +76,6 @@ fn render_dev_stdout(report: &DevReport, json: bool) -> Result<String, serde_jso
     } else {
         Ok(render_dev_result(report))
     }
-}
-
-fn write_stdout(value: &str) -> io::Result<()> {
-    let stdout = io::stdout();
-    let mut handle = stdout.lock();
-    handle.write_all(value.as_bytes())
-}
-
-fn write_stderr(value: &str) -> io::Result<()> {
-    let stderr = io::stderr();
-    let mut handle = stderr.lock();
-    handle.write_all(value.as_bytes())
 }
 
 #[cfg(test)]

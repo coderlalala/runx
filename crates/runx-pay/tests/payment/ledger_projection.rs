@@ -534,6 +534,11 @@ fn paid_echo_supervisor_evidence() -> PaymentSupervisorSettlementEvidence {
         amount_minor: 125,
         currency: "USD".to_owned(),
         idempotency_key: "payment:paid-echo-001".to_owned(),
+        payment_admission_id: None,
+        money_movement_id: None,
+        kernel_token_digest: None,
+        proof_locator: None,
+        proof_status: None,
         settlement_status: Some("fulfilled".to_owned()),
         provider_event_ref: Some("provider:event:payment:paid-echo-001".to_owned()),
     }

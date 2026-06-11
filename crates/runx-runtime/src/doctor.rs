@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use runx_contracts::{
     DoctorDiagnostic, DoctorDiagnosticSeverity, DoctorLocation, DoctorRepair,
@@ -10,6 +10,7 @@ use runx_parser::{parse_runner_manifest_yaml, validate_runner_manifest};
 use serde::Deserialize;
 
 use crate::RuntimeError;
+use crate::path_util::{count_yaml_files, lexical_normalize, project_path};
 use crate::runtime_fs::{read_dir_sorted, read_to_string};
 use crate::tool_catalogs::build::hash_tool_source;
 
@@ -703,25 +704,6 @@ fn inline_harness_case_count(contents: &str) -> u64 {
     }
 }
 
-fn count_yaml_files(directory: &Path) -> Result<u64, RuntimeError> {
-    let mut count = 0;
-    for entry in read_dir_sorted(directory)? {
-        if entry.is_file && is_yaml_path(&entry.path) {
-            count += 1;
-        }
-    }
-    Ok(count)
-}
-
-fn is_yaml_path(path: &Path) -> bool {
-    path.extension()
-        .map(|extension| {
-            let extension = extension.to_string_lossy();
-            extension.eq_ignore_ascii_case("yaml") || extension.eq_ignore_ascii_case("yml")
-        })
-        .unwrap_or(false)
-}
-
 fn list_source_files(directory: &Path) -> Result<Vec<PathBuf>, RuntimeError> {
     let mut files = Vec::new();
     for entry in read_dir_sorted(directory)? {
@@ -799,38 +781,6 @@ fn project_segments(root: &Path, path: &Path) -> Vec<String> {
         .filter(|segment| !segment.is_empty())
         .map(ToOwned::to_owned)
         .collect()
-}
-
-fn project_path(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .components()
-        .filter_map(|component| match component {
-            Component::Normal(segment) => Some(segment.to_string_lossy().into_owned()),
-            Component::CurDir => Some(".".to_owned()),
-            Component::ParentDir => Some("..".to_owned()),
-            Component::Prefix(_) | Component::RootDir => None,
-        })
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
-fn lexical_normalize(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
-            Component::RootDir => normalized.push(component.as_os_str()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !normalized.pop() {
-                    normalized.push("..");
-                }
-            }
-            Component::Normal(segment) => normalized.push(segment),
-        }
-    }
-    normalized
 }
 
 fn object(entries: impl IntoIterator<Item = (&'static str, JsonValue)>) -> JsonObject {

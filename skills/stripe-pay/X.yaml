@@ -25,6 +25,10 @@ runners:
         type: string
         required: true
         description: Configured rail profile reference.
+      payment_admission:
+        type: object
+        required: false
+        description: Hosted payment admission token and settlement identity.
       realm:
         type: string
         required: false
@@ -51,6 +55,7 @@ runners:
             payment_signal: "{{payment_signal}}"
             parent_payment_authority: "{{parent_payment_authority}}"
             rail_profile_ref: "{{rail_profile_ref}}"
+            payment_admission: "{{payment_admission}}"
             realm: "{{realm}}"
             spend_policy: "{{spend_policy}}"
             approval_context: "{{approval_context}}"

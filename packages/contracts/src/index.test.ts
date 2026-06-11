@@ -214,6 +214,7 @@ describe("@runxhq/contracts", () => {
         uri: "receipt-proof:mock:effect-finality-001",
         proof_kind: "effect_finality",
       }],
+      norm_refs: ["frantic:norm:reply-before-escalation"],
       proof_ref: {
         type: "verification",
         uri: "receipt-proof:mock:effect-finality-001",
@@ -228,6 +229,7 @@ describe("@runxhq/contracts", () => {
       family: "payment",
       phase: "sealed",
       criterion_id: "payment.finality",
+      norm_refs: ["frantic:norm:reply-before-escalation"],
     });
     expect(() => validateEffectFinalityReceiptContract({
       schema: "runx.effect_finality_receipt.v1",

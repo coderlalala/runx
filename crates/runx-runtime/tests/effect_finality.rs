@@ -18,6 +18,7 @@ fn effect_finality_deferred_chain_reaches_sealed_at_threshold() {
         criterion_id: "criterion_effect_finality".to_owned(),
         proof_ref: None,
         evidence_refs: Vec::new(),
+        norm_refs: Vec::new(),
         confirmation_depth: None,
         payload: finality_payload(EFFECT_CONFIRMATION_CHANNEL, "submitted"),
     });
@@ -29,6 +30,7 @@ fn effect_finality_deferred_chain_reaches_sealed_at_threshold() {
         criterion_id: "criterion_effect_finality".to_owned(),
         proof_ref: Some(proof.clone()),
         evidence_refs: vec![Reference::runx(ReferenceType::Artifact, &provisional.id)],
+        norm_refs: Vec::new(),
         confirmation_depth: Some(1),
         payload: finality_payload(EFFECT_CONFIRMATION_CHANNEL, "confirming"),
     });
@@ -40,6 +42,7 @@ fn effect_finality_deferred_chain_reaches_sealed_at_threshold() {
         criterion_id: "criterion_effect_finality".to_owned(),
         proof_ref: Some(proof.clone()),
         evidence_refs: vec![Reference::runx(ReferenceType::Artifact, &in_flight_1.id)],
+        norm_refs: Vec::new(),
         confirmation_depth: Some(2),
         payload: finality_payload(EFFECT_CONFIRMATION_CHANNEL, "confirming"),
     });
@@ -51,6 +54,7 @@ fn effect_finality_deferred_chain_reaches_sealed_at_threshold() {
         criterion_id: "criterion_effect_finality".to_owned(),
         proof_ref: Some(proof.clone()),
         evidence_refs: vec![Reference::runx(ReferenceType::Artifact, &in_flight_2.id)],
+        norm_refs: vec!["frantic:norm:reply-before-escalation".into()],
         confirmation_depth: Some(3),
         payload: finality_payload(EFFECT_CONFIRMATION_CHANNEL, "sealed"),
     });
@@ -82,6 +86,15 @@ fn effect_finality_deferred_chain_reaches_sealed_at_threshold() {
         sealed.evidence_refs,
         vec![Reference::runx(ReferenceType::Artifact, &in_flight_2.id)]
     );
+    assert!(provisional.norm_refs.is_empty());
+    assert_eq!(
+        sealed
+            .norm_refs
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<_>>(),
+        vec!["frantic:norm:reply-before-escalation"],
+    );
     assert_ne!(provisional.id, in_flight_1.id);
     assert_ne!(in_flight_1.id, in_flight_2.id);
     assert_ne!(in_flight_2.id, sealed.id);
@@ -103,6 +116,7 @@ fn effect_finality_observer_event_seals_directly_without_confirmation_depth() {
         criterion_id: "criterion_effect_finality".to_owned(),
         proof_ref: Some(proof.clone()),
         evidence_refs: Vec::new(),
+        norm_refs: Vec::new(),
         confirmation_depth: None,
         payload: finality_payload(EFFECT_CONFIRMATION_CHANNEL, "observer_event_sealed"),
     });
@@ -128,6 +142,7 @@ struct EffectFinalityReceiptInput {
     criterion_id: String,
     proof_ref: Option<Reference>,
     evidence_refs: Vec<Reference>,
+    norm_refs: Vec<String>,
     confirmation_depth: Option<u64>,
     payload: JsonObject,
 }
@@ -143,6 +158,7 @@ fn effect_finality_receipt(input: EffectFinalityReceiptInput) -> EffectFinalityR
         criterion_id: input.criterion_id.into(),
         proof_ref: input.proof_ref,
         evidence_refs: input.evidence_refs,
+        norm_refs: input.norm_refs.into_iter().map(Into::into).collect(),
         confirmation_depth: input.confirmation_depth,
         payload: input.payload,
     }

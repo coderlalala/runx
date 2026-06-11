@@ -36,6 +36,7 @@ mod lifecycle;
 pub mod list;
 pub mod outbox_provider;
 pub mod parser_eval;
+mod path_util;
 #[cfg(any(feature = "cli-tool", feature = "external-adapter"))]
 mod process;
 mod process_signal;

@@ -230,8 +230,8 @@ pub(crate) const OFFICIAL_SKILLS: &[OfficialSkillLockEntry] = &[
     },
     OfficialSkillLockEntry {
         skill_id: "runx/spend",
-        version: "sha-111b37759777",
-        digest: "68b31de48ad928124a090c18361b9fb1d6f9c7490c8135c6acc5ce85e5de46e7",
+        version: "sha-1e6a2ec51fae",
+        digest: "4b9810ee99bbbc58e467547595e0cdb7d67ad117f8cbba422b6e6e5e2b065fc5",
     },
     OfficialSkillLockEntry {
         skill_id: "runx/sql-analyst",
@@ -245,7 +245,7 @@ pub(crate) const OFFICIAL_SKILLS: &[OfficialSkillLockEntry] = &[
     },
     OfficialSkillLockEntry {
         skill_id: "runx/stripe-pay",
-        version: "sha-fbc6930f9582",
+        version: "sha-e7f5702d5fe2",
         digest: "cd0f34e02d6d5e89df53acaf3bc20c85141a97c681f9d32a08b041818c8ff0ca",
     },
     OfficialSkillLockEntry {

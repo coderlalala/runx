@@ -1,3 +1,5 @@
+import { generateKeyPairSync, sign } from "node:crypto";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +13,8 @@ describe("CLI skill registry execution profile", () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "runx-cli-registry-x-"));
     const registryDir = path.join(tempDir, "registry");
     const skillsDir = path.join(tempDir, "skills");
+    const signingKey = testManifestSigningKey();
+    const trustEnv = registryTrustEnv("acme", signingKey);
 
     try {
       const publishOut = createMemoryStream();
@@ -19,14 +23,19 @@ describe("CLI skill registry execution profile", () => {
         runCli(
           ["skill", "publish", "skills/sourcey", "--owner", "acme", "--version", "1.0.0", "--registry", registryDir, "--json"],
           { stdin: process.stdin, stdout: publishOut, stderr: publishErr },
-          { ...process.env, RUNX_CWD: process.cwd() },
+          { ...process.env, RUNX_CWD: process.cwd(), ...trustEnv },
         ),
       ).resolves.toBe(0);
       expect(publishErr.contents()).toBe("");
-      expect(JSON.parse(publishOut.contents()).publish).toMatchObject({
+      signPublishedRegistryEntry(registryDir, signingKey);
+      expect(JSON.parse(publishOut.contents()).registry.publish).toMatchObject({
         skill_id: "acme/sourcey",
-        runner_names: ["agent", "sourcey"],
+        runner_names: ["sourcey"],
         profile_digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        harness: {
+          status: "not_declared",
+          case_count: 0,
+        },
       });
 
       const searchOut = createMemoryStream();
@@ -35,7 +44,7 @@ describe("CLI skill registry execution profile", () => {
         runCli(
           ["skill", "search", "sourcey", "--json"],
           { stdin: process.stdin, stdout: searchOut, stderr: searchErr },
-          { ...process.env, RUNX_CWD: process.cwd(), RUNX_REGISTRY_DIR: registryDir },
+          { ...process.env, RUNX_CWD: process.cwd(), RUNX_REGISTRY_DIR: registryDir, ...trustEnv },
         ),
       ).resolves.toBe(0);
       expect(searchErr.contents()).toBe("");
@@ -44,7 +53,7 @@ describe("CLI skill registry execution profile", () => {
           expect.objectContaining({
             skill_id: "acme/sourcey",
             profile_mode: "profiled",
-            runner_names: ["agent", "sourcey"],
+            runner_names: ["sourcey"],
             profile_digest: expect.stringMatching(/^[a-f0-9]{64}$/),
           }),
         ]),
@@ -56,20 +65,21 @@ describe("CLI skill registry execution profile", () => {
         runCli(
           ["add", "acme/sourcey@1.0.0", "--to", skillsDir, "--json"],
           { stdin: process.stdin, stdout: addOut, stderr: addErr },
-          { ...process.env, RUNX_CWD: process.cwd(), RUNX_REGISTRY_DIR: registryDir },
+          { ...process.env, RUNX_CWD: process.cwd(), RUNX_REGISTRY_DIR: registryDir, ...trustEnv },
         ),
       ).resolves.toBe(0);
       expect(addErr.contents()).toBe("");
-      expect(JSON.parse(addOut.contents()).install).toMatchObject({
-        destination: path.join(skillsDir, "acme", "sourcey", "SKILL.md"),
-        profileStatePath: path.join(skillsDir, "acme", "sourcey", ".runx", "profile.json"),
-        runnerNames: ["agent", "sourcey"],
+      const installedSkillDir = path.join(skillsDir, "acme", "sourcey", "1.0.0");
+      expect(JSON.parse(addOut.contents()).registry.install).toMatchObject({
+        destination: path.join(installedSkillDir, "SKILL.md"),
+        profile_state_path: path.join(installedSkillDir, ".runx", "profile.json"),
+        runner_names: ["sourcey"],
       });
-      await expect(readFile(path.join(skillsDir, "acme", "sourcey", ".runx", "profile.json"), "utf8")).resolves.toContain(
+      await expect(readFile(path.join(installedSkillDir, ".runx", "profile.json"), "utf8")).resolves.toContain(
         "tool: sourcey.build",
       );
       await expect(readRegistryVersion(registryDir, "acme/sourcey", "1.0.0")).resolves.toMatchObject({
-        runner_names: ["agent", "sourcey"],
+        runner_names: ["sourcey"],
       });
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -86,6 +96,94 @@ function createMemoryStream(): NodeJS.WriteStream & { contents: () => string } {
     },
     contents: () => buffer,
   } as NodeJS.WriteStream & { contents: () => string };
+}
+
+interface TestManifestSigningKey {
+  readonly keyId: string;
+  readonly signerId: string;
+  readonly publicKeyBase64: string;
+  readonly privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"];
+}
+
+let cachedManifestSigningKey: TestManifestSigningKey | undefined;
+
+function testManifestSigningKey(): TestManifestSigningKey {
+  if (cachedManifestSigningKey) {
+    return cachedManifestSigningKey;
+  }
+  const keyPair = generateKeyPairSync("ed25519");
+  const publicKeyDer = keyPair.publicKey.export({ format: "der", type: "spki" });
+  const publicKeyRaw = Buffer.from(publicKeyDer).subarray(-32);
+  cachedManifestSigningKey = {
+    keyId: "runx-test-registry-ed25519",
+    signerId: "runx-test-registry",
+    publicKeyBase64: publicKeyRaw.toString("base64"),
+    privateKey: keyPair.privateKey,
+  };
+  return cachedManifestSigningKey;
+}
+
+function registryTrustEnv(owner: string, signingKey: TestManifestSigningKey): NodeJS.ProcessEnv {
+  return {
+    RUNX_REGISTRY_MANIFEST_TRUST_KEY_ID: signingKey.keyId,
+    RUNX_REGISTRY_MANIFEST_TRUST_KEY_BASE64: signingKey.publicKeyBase64,
+    RUNX_REGISTRY_MANIFEST_TRUST_OWNER: owner,
+  };
+}
+
+function signPublishedRegistryEntry(registryDir: string, signingKey: TestManifestSigningKey): void {
+  const entryPath = findSingleRegistryEntry(registryDir);
+  const entry = JSON.parse(readFileSync(entryPath, "utf8")) as {
+    skill_id: string;
+    version: string;
+    digest: string;
+    profile_digest?: string;
+    signed_manifest?: unknown;
+  };
+  const payload =
+    "runx.registry.signed_manifest.v1\n" +
+    `skill_id=${entry.skill_id}\n` +
+    `version=${entry.version}\n` +
+    `digest=${entry.digest}\n` +
+    `profile_digest=${entry.profile_digest ?? ""}\n` +
+    `signer_id=${signingKey.signerId}\n` +
+    `key_id=${signingKey.keyId}\n`;
+  entry.signed_manifest = {
+    schema: "runx.registry.signed_manifest.v1",
+    skill_id: entry.skill_id,
+    version: entry.version,
+    digest: entry.digest,
+    ...(entry.profile_digest ? { profile_digest: entry.profile_digest } : {}),
+    signer: {
+      id: signingKey.signerId,
+      key_id: signingKey.keyId,
+    },
+    signature: {
+      alg: "ed25519",
+      value: `base64:${sign(null, Buffer.from(payload), signingKey.privateKey).toString("base64")}`,
+    },
+  };
+  writeFileSync(entryPath, `${JSON.stringify(entry, null, 2)}\n`, "utf8");
+}
+
+function findSingleRegistryEntry(root: string): string {
+  const matches: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const entryPath = path.join(dir, entry);
+      const stats = statSync(entryPath);
+      if (stats.isDirectory()) {
+        walk(entryPath);
+      } else if (entryPath.endsWith(".json")) {
+        matches.push(entryPath);
+      }
+    }
+  };
+  walk(root);
+  if (matches.length !== 1) {
+    throw new Error(`expected one registry fixture entry, found ${matches.length}`);
+  }
+  return matches[0];
 }
 
 async function readRegistryVersion(

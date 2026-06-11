@@ -70,6 +70,25 @@ fn approved_payment_approval_emits_approval_output_and_runs_fulfill()
 }
 
 #[test]
+fn payment_admission_identity_reaches_supervisor_request() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = GraphFixture::with_fulfill_options(
+        FulfillAdmission::ValidWithPaymentAdmission,
+        FulfillScope::PaymentSpend,
+    )?;
+    let runtime = Runtime::new(
+        RecordingAdapter::default(),
+        runtime_options_with_effects(vec![x402_approval_supervisor_evidence_with_identity()]),
+    );
+    let mut host = ApprovalHost::approved(true);
+
+    let run = runtime.run_graph_file_with_host(fixture.graph_path(), &mut host)?;
+
+    assert_eq!(run.state.status, GraphStatus::Succeeded);
+    Ok(())
+}
+
+#[test]
 fn denied_payment_approval_emits_denied_output_and_blocks_fulfill()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = GraphFixture::new()?;
@@ -1084,11 +1103,38 @@ impl PaymentFinalitySupervisor for ExpectedPaymentFinalitySupervisor {
             idempotency_key,
             &evidence.idempotency_key,
         )?;
+        expect_optional_supervisor_field(
+            &request,
+            "payment_admission_id",
+            evidence.payment_admission_id.as_deref(),
+        )?;
+        expect_optional_supervisor_field(
+            &request,
+            "money_movement_id",
+            evidence.money_movement_id.as_deref(),
+        )?;
+        expect_optional_supervisor_field(
+            &request,
+            "kernel_token_digest",
+            evidence.kernel_token_digest.as_deref(),
+        )?;
         Ok(PaymentFinalitySupervisorEvidence::new(
             request.family,
             payment_finality_supervisor_evidence_payload(&evidence),
         ))
     }
+}
+
+fn expect_optional_supervisor_field(
+    request: &PaymentFinalitySupervisorRequest<'_>,
+    field: &'static str,
+    expected: Option<&str>,
+) -> Result<(), PaymentFinalitySupervisorError> {
+    if let Some(expected) = expected {
+        let actual = supervisor_payload_string(request, field)?;
+        expect_supervisor_field(field, expected, actual)?;
+    }
+    Ok(())
 }
 
 fn supervisor_payload_string<'a>(
@@ -1163,6 +1209,16 @@ fn x402_approval_supervisor_evidence() -> PaymentSupervisorSettlementEvidence {
     )
 }
 
+fn x402_approval_supervisor_evidence_with_identity() -> PaymentSupervisorSettlementEvidence {
+    let mut evidence = x402_approval_supervisor_evidence();
+    evidence.payment_admission_id = Some("sha256:payment-admission-001".to_owned());
+    evidence.money_movement_id = Some("sha256:money-movement-001".to_owned());
+    evidence.kernel_token_digest = Some("sha256:kernel-token-001".to_owned());
+    evidence.proof_locator = Some(X402_APPROVAL_PROOF_REF.to_owned());
+    evidence.proof_status = Some("fulfilled".to_owned());
+    evidence
+}
+
 fn paid_echo_supervisor_evidence(idempotency_key: &str) -> PaymentSupervisorSettlementEvidence {
     payment_supervisor_evidence(
         "receipt-proof:mock:paid-echo-001",
@@ -1172,6 +1228,18 @@ fn paid_echo_supervisor_evidence(idempotency_key: &str) -> PaymentSupervisorSett
         "USD",
         idempotency_key,
     )
+}
+
+fn payment_admission_identity() -> Value {
+    json!({
+        "token": {
+            "money_movement_id": "sha256:money-movement-001"
+        },
+        "token_digest": "sha256:payment-admission-001",
+        "payment_admission_id": "sha256:payment-admission-001",
+        "money_movement_id": "sha256:money-movement-001",
+        "kernel_token_digest": "sha256:kernel-token-001"
+    })
 }
 
 fn payment_supervisor_evidence(
@@ -1190,6 +1258,11 @@ fn payment_supervisor_evidence(
         amount_minor,
         currency: currency.to_owned(),
         idempotency_key: idempotency_key.to_owned(),
+        payment_admission_id: None,
+        money_movement_id: None,
+        kernel_token_digest: None,
+        proof_locator: None,
+        proof_status: None,
         settlement_status: Some("fulfilled".to_owned()),
         provider_event_ref: Some(format!("provider:event:{idempotency_key}")),
     }
@@ -1687,6 +1760,7 @@ Payment fixture skill.
 #[derive(Clone, Copy)]
 enum FulfillAdmission {
     Valid,
+    ValidWithPaymentAdmission,
     MissingReservedPaymentAuthority,
     MissingSpendCapabilityRef,
     MissingIdempotencyKey,
@@ -1821,6 +1895,9 @@ fn paid_echo_graph_yaml() -> Result<String, serde_json::Error> {
 fn fulfill_inputs(admission: FulfillAdmission) -> Option<Value> {
     match admission {
         FulfillAdmission::Valid => Some(valid_payment_inputs(2_500, true)),
+        FulfillAdmission::ValidWithPaymentAdmission => {
+            Some(valid_payment_inputs_with_payment_admission(2_500, true))
+        }
         FulfillAdmission::MissingReservedPaymentAuthority => Some(json!({
             "spend_capability_ref": spend_capability_ref(),
             "idempotency": { "key": X402_APPROVAL_IDEMPOTENCY_KEY }
@@ -1846,6 +1923,17 @@ fn valid_payment_inputs(child_max_per_call_units: u64, include_subset_proof: boo
         "spend_capability_ref": spend_capability_ref(),
         "idempotency": { "key": X402_APPROVAL_IDEMPOTENCY_KEY }
     })
+}
+
+fn valid_payment_inputs_with_payment_admission(
+    child_max_per_call_units: u64,
+    include_subset_proof: bool,
+) -> Value {
+    let mut inputs = valid_payment_inputs(child_max_per_call_units, include_subset_proof);
+    if let Some(object) = inputs.as_object_mut() {
+        object.insert("payment_admission".to_owned(), payment_admission_identity());
+    }
+    inputs
 }
 
 fn reserved_payment_authority(child_max_per_call_units: u64, include_subset_proof: bool) -> Value {

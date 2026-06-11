@@ -6,10 +6,7 @@ use runx_core::policy::{
 
 use crate::ValidationError;
 
-use super::{
-    SkillSandbox, optional_bool, optional_string, optional_string_array, required_object,
-    required_string, validation_error,
-};
+use super::{FIELDS, SkillSandbox};
 
 pub(super) fn validate_sandbox(
     value: Option<&JsonValue>,
@@ -17,17 +14,17 @@ pub(super) fn validate_sandbox(
     let Some(record) = value else {
         return Ok(None);
     };
-    let record = required_object(Some(record), "sandbox")?;
+    let record = FIELDS.required_object(Some(record), "sandbox")?;
     let profile = required_sandbox_profile(record.get("profile"), "sandbox.profile")?;
     let cwd_policy = optional_cwd_policy(record.get("cwd_policy"))?;
     let env_allowlist =
-        optional_string_array(record.get("env_allowlist"), "sandbox.env_allowlist")?;
+        FIELDS.optional_string_array(record.get("env_allowlist"), "sandbox.env_allowlist")?;
     validate_env_allowlist(env_allowlist.as_deref())?;
-    let network = optional_bool(record.get("network"), "sandbox.network")?;
-    let writable_paths =
-        optional_string_array(record.get("writable_paths"), "sandbox.writable_paths")?
-            .unwrap_or_default();
-    let require_enforcement = optional_bool(
+    let network = FIELDS.optional_bool(record.get("network"), "sandbox.network")?;
+    let writable_paths = FIELDS
+        .optional_string_array(record.get("writable_paths"), "sandbox.writable_paths")?
+        .unwrap_or_default();
+    let require_enforcement = FIELDS.optional_bool(
         record.get("require_enforcement"),
         "sandbox.require_enforcement",
     )?;
@@ -59,7 +56,7 @@ fn validate_env_allowlist(env_allowlist: Option<&[String]>) -> Result<(), Valida
     };
     for name in env_allowlist {
         if is_reserved_runx_sandbox_env_name(name) {
-            return Err(validation_error(format!(
+            return Err(FIELDS.validation_error(format!(
                 "sandbox.env_allowlist cannot include reserved runx environment variable {name}."
             )));
         }
@@ -71,28 +68,27 @@ fn required_sandbox_profile(
     value: Option<&JsonValue>,
     field: &str,
 ) -> Result<String, ValidationError> {
-    let profile = required_string(value, field)?;
+    let profile = FIELDS.required_string(value, field)?;
     if matches!(
         profile.as_str(),
         "readonly" | "workspace-write" | "network" | "unrestricted-local-dev"
     ) {
         return Ok(profile);
     }
-    Err(validation_error(format!(
+    Err(FIELDS.validation_error(format!(
         "{field} must be readonly, workspace-write, network, or unrestricted-local-dev."
     )))
 }
 
 fn optional_cwd_policy(value: Option<&JsonValue>) -> Result<Option<String>, ValidationError> {
-    let Some(value) = optional_string(value, "sandbox.cwd_policy")? else {
+    let Some(value) = FIELDS.optional_string(value, "sandbox.cwd_policy")? else {
         return Ok(None);
     };
     if matches!(value.as_str(), "skill-directory" | "workspace" | "custom") {
         return Ok(Some(value));
     }
-    Err(validation_error(
-        "sandbox.cwd_policy must be skill-directory, workspace, or custom.",
-    ))
+    Err(FIELDS
+        .validation_error("sandbox.cwd_policy must be skill-directory, workspace, or custom."))
 }
 
 fn sandbox_declaration(
@@ -109,14 +105,14 @@ fn sandbox_declaration(
             "workspace-write" => SandboxProfile::WorkspaceWrite,
             "network" => SandboxProfile::Network,
             "unrestricted-local-dev" => SandboxProfile::UnrestrictedLocalDev,
-            _ => return Err(validation_error("sandbox.profile is invalid.")),
+            _ => return Err(FIELDS.validation_error("sandbox.profile is invalid.")),
         },
         cwd_policy: match cwd_policy {
             None => None,
             Some("skill-directory") => Some(CwdPolicy::SkillDirectory),
             Some("workspace") => Some(CwdPolicy::Workspace),
             Some("custom") => Some(CwdPolicy::Custom),
-            Some(_) => return Err(validation_error("sandbox.cwd_policy is invalid.")),
+            Some(_) => return Err(FIELDS.validation_error("sandbox.cwd_policy is invalid.")),
         },
         env_allowlist,
         network,

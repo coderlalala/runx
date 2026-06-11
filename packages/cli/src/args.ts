@@ -61,6 +61,7 @@ export interface ParsedArgs {
   readonly addInstallationId?: string;
   readonly publishOwner?: string;
   readonly publishVersion?: string;
+  readonly publishProfile?: string;
   readonly registryUrl?: string;
   readonly expectedDigest?: string;
   readonly configAction?: "set" | "get" | "list";
@@ -183,6 +184,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     : undefined;
   const publishOwner = isSkillPublish && typeof inputs.owner === "string" ? inputs.owner : undefined;
   const publishVersion = isSkillPublish && typeof inputs.version === "string" ? inputs.version : undefined;
+  const publishProfile = isSkillPublish && typeof inputs.profile === "string" ? inputs.profile : undefined;
   const registryUrl = (isSkillSearch || isTopLevelAdd || isSkillPublish || isSkillRun) && typeof inputs.registry === "string" ? inputs.registry : undefined;
   const expectedDigest = (isTopLevelAdd || isSkillRun) && typeof inputs.digest === "string" ? normalizeDigest(inputs.digest) : undefined;
   const newDirectory = isNew && typeof inputs.directory === "string"
@@ -203,7 +205,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       : isRetiredSkillAdd
         ? {}
         : isSkillPublish
-          ? omitInputs(inputs, ["version", "owner", "registry"])
+          ? omitInputs(inputs, ["version", "owner", "registry", "profile"])
           : isSkillRun
             ? omitInputs(inputs, ["registry", "digest"])
             : isConfig
@@ -296,6 +298,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     addInstallationId,
     publishOwner,
     publishVersion,
+    publishProfile,
     registryUrl,
     expectedDigest,
     configAction: isConfig ? configAction(positionals) : undefined,

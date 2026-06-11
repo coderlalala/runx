@@ -53,9 +53,9 @@ pub use trust_anchor::{
 pub use types::{
     AcquiredRegistrySkill, ProfileMode, PublishSkillMarkdownResult, PublishStatus,
     RegistryAttestation, RegistryLinkResolution, RegistryManifestSignature, RegistryManifestSigner,
-    RegistryPublisher, RegistrySearchResult, RegistrySignedManifest, RegistrySkill,
-    RegistrySkillDetail, RegistrySkillResolution, RegistrySkillVersion, RegistrySourceMetadata,
-    ResolvedRegistryRef, TrustSignal, TrustTier,
+    RegistryPublishHarnessReport, RegistryPublisher, RegistrySearchResult, RegistrySignedManifest,
+    RegistrySkill, RegistrySkillDetail, RegistrySkillResolution, RegistrySkillVersion,
+    RegistrySourceMetadata, ResolvedRegistryRef, TrustSignal, TrustTier,
 };
 
 #[derive(Clone, Copy, Debug)]

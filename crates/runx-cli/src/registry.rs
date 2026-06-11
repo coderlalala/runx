@@ -4,17 +4,18 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::process;
 use std::process::ExitCode;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use runx_runtime::registry::{
     AcquireOptions, FileRegistryStore, IngestSkillOptions, InstallCandidate,
     InstallLocalSkillOptions, InstallStatus, LocalRegistryClient, PublishSkillMarkdownOptions,
-    RegistryClient, RegistryManifestSourceAuthority, RegistryResolveOptions, RegistrySearchOptions,
-    RegistrySkillResolution, TrustTier, TrustedRegistryManifestKey, install_local_skill,
-    publish_skill_markdown, read_registry_skill, resolve_registry_skill,
-    search_registry_with_options,
+    RegistryClient, RegistryManifestSourceAuthority, RegistryPublishHarnessReport,
+    RegistryResolveOptions, RegistrySearchOptions, RegistrySkillResolution, TrustTier,
+    TrustedRegistryManifestKey, install_local_skill, publish_skill_markdown, read_registry_skill,
+    resolve_registry_skill, search_registry_with_options,
 };
 
 #[derive(Debug, Eq, PartialEq)]
@@ -47,15 +48,15 @@ pub struct RegistryPlan {
 pub fn run_native_registry(plan: RegistryPlan) -> ExitCode {
     let json = plan.json;
     match run_registry(plan) {
-        Ok(output) => write_stdout(&output.stdout, output.exit_code),
+        Ok(output) => crate::cli_io::write_stdout_code(&output.stdout, output.exit_code),
         Err(error) => {
             if json {
-                return write_stdout(
+                return crate::cli_io::write_stdout_code(
                     &crate::launcher::json_failure_output(&error.message, error.code()),
                     error.exit_code,
                 );
             }
-            let _ignored = write_stderr(&format!("\n  ✗  {}\n\n", error.message));
+            let _ignored = crate::cli_io::write_stderr(&format!("\n  ✗  {}\n\n", error.message));
             ExitCode::from(error.exit_code)
         }
     }
@@ -264,6 +265,11 @@ fn run_publish(
         ));
     };
     let package = read_skill_package(&plan.subject, plan.profile.as_deref(), env, cwd)?;
+    let harness = run_publish_harness(package.harness_path.as_deref());
+    if let Some(temp_dir) = package.harness_temp_dir.as_ref() {
+        let _ignored = fs::remove_dir_all(temp_dir);
+    }
+    let harness = harness?;
     let result = publish_skill_markdown(
         &LocalRegistryClient::new(FileRegistryStore::new(registry_path)),
         &package.markdown,
@@ -277,6 +283,7 @@ fn run_publish(
                 ..IngestSkillOptions::default()
             },
             registry_url,
+            harness,
         },
     )?;
     write_output(
@@ -602,21 +609,215 @@ fn read_skill_package(
             candidate.exists().then_some(candidate)
         });
     let profile_document = match profile_path {
-        Some(path) => Some(fs::read_to_string(&path).map_err(|error| RegistryCliError {
+        Some(ref path) => Some(fs::read_to_string(path).map_err(|error| RegistryCliError {
             message: format!("failed to read skill profile {}: {error}", path.display()),
             exit_code: 1,
         })?),
         None => None,
     };
+    let harness_package = publish_harness_package(
+        &markdown_path,
+        profile_path.as_deref(),
+        &markdown,
+        profile_document.as_deref(),
+    )?;
     Ok(SkillPackage {
         markdown,
         profile_document,
+        harness_path: harness_package.path,
+        harness_temp_dir: harness_package.temp_dir,
     })
 }
 
 struct SkillPackage {
     markdown: String,
     profile_document: Option<String>,
+    harness_path: Option<PathBuf>,
+    harness_temp_dir: Option<PathBuf>,
+}
+
+struct PublishHarnessPackage {
+    path: Option<PathBuf>,
+    temp_dir: Option<PathBuf>,
+}
+
+fn publish_harness_package(
+    markdown_path: &Path,
+    profile_path: Option<&Path>,
+    markdown: &str,
+    profile_document: Option<&str>,
+) -> Result<PublishHarnessPackage, RegistryCliError> {
+    let Some(profile_path) = profile_path else {
+        return Ok(PublishHarnessPackage {
+            path: None,
+            temp_dir: None,
+        });
+    };
+    if let Some(path) = colocated_package_harness_path(markdown_path, profile_path) {
+        return Ok(PublishHarnessPackage {
+            path: Some(path),
+            temp_dir: None,
+        });
+    }
+    let Some(profile_document) = profile_document else {
+        return Ok(PublishHarnessPackage {
+            path: None,
+            temp_dir: None,
+        });
+    };
+    let temp_dir = unique_temp_dir("runx-publish-profile-harness")?;
+    copy_publish_harness_sidecars(markdown_path, &temp_dir)?;
+    fs::write(temp_dir.join("SKILL.md"), markdown).map_err(|error| {
+        internal_error(format!(
+            "failed to write publish harness skill fixture {}: {error}",
+            temp_dir.join("SKILL.md").display()
+        ))
+    })?;
+    fs::write(temp_dir.join("X.yaml"), profile_document).map_err(|error| {
+        internal_error(format!(
+            "failed to write publish harness profile fixture {}: {error}",
+            temp_dir.join("X.yaml").display()
+        ))
+    })?;
+    Ok(PublishHarnessPackage {
+        path: Some(temp_dir.clone()),
+        temp_dir: Some(temp_dir),
+    })
+}
+
+fn copy_publish_harness_sidecars(
+    markdown_path: &Path,
+    temp_dir: &Path,
+) -> Result<(), RegistryCliError> {
+    if markdown_path.file_name().and_then(|name| name.to_str()) != Some("SKILL.md") {
+        return Ok(());
+    }
+    let Some(package_dir) = markdown_path.parent() else {
+        return Ok(());
+    };
+    copy_dir_contents(package_dir, temp_dir)
+}
+
+fn copy_dir_contents(source_dir: &Path, destination_dir: &Path) -> Result<(), RegistryCliError> {
+    for entry in fs::read_dir(source_dir).map_err(|error| {
+        internal_error(format!(
+            "failed to read publish harness package directory {}: {error}",
+            source_dir.display()
+        ))
+    })? {
+        let entry = entry.map_err(|error| {
+            internal_error(format!(
+                "failed to read publish harness package entry in {}: {error}",
+                source_dir.display()
+            ))
+        })?;
+        let entry_type = entry.file_type().map_err(|error| {
+            internal_error(format!(
+                "failed to inspect publish harness package entry {}: {error}",
+                entry.path().display()
+            ))
+        })?;
+        let destination = destination_dir.join(entry.file_name());
+        if entry_type.is_dir() {
+            fs::create_dir_all(&destination).map_err(|error| {
+                internal_error(format!(
+                    "failed to create publish harness package directory {}: {error}",
+                    destination.display()
+                ))
+            })?;
+            copy_dir_contents(&entry.path(), &destination)?;
+        } else if entry_type.is_file() {
+            fs::copy(entry.path(), &destination).map_err(|error| {
+                internal_error(format!(
+                    "failed to copy publish harness package entry {} to {}: {error}",
+                    entry.path().display(),
+                    destination.display()
+                ))
+            })?;
+        } else {
+            return Err(internal_error(format!(
+                "publish harness package entry {} is not a regular file or directory",
+                entry.path().display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn colocated_package_harness_path(markdown_path: &Path, profile_path: &Path) -> Option<PathBuf> {
+    let profile_file = profile_path.file_name()?.to_str()?;
+    if profile_file != "X.yaml" {
+        return None;
+    }
+    let markdown_dir = markdown_path.parent()?;
+    let profile_dir = profile_path.parent()?;
+    if markdown_dir != profile_dir {
+        return None;
+    }
+    Some(markdown_dir.to_path_buf())
+}
+
+fn run_publish_harness(
+    harness_path: Option<&Path>,
+) -> Result<RegistryPublishHarnessReport, RegistryCliError> {
+    let Some(harness_path) = harness_path else {
+        return Ok(RegistryPublishHarnessReport::not_declared());
+    };
+    let receipt_dir = publish_harness_receipt_dir()?;
+    let request = runx_runtime::InlineHarnessRequest {
+        skill_path: harness_path.to_path_buf(),
+        receipt_dir: Some(receipt_dir.clone()),
+    };
+    let report = crate::runtime::local_orchestrator().run_inline_harness(&request);
+    let _ignored = fs::remove_dir_all(&receipt_dir);
+    let report = report.map_err(|error| {
+        internal_error(format!(
+            "inline harness failed for {}: {error}",
+            harness_path.display()
+        ))
+    })?;
+    let report = publish_harness_report(report);
+    if report.failed() {
+        return Err(internal_error(format!(
+            "Harness failed for {}: {}",
+            harness_path.display(),
+            report.assertion_errors.join("; ")
+        )));
+    }
+    Ok(report)
+}
+
+fn publish_harness_receipt_dir() -> Result<PathBuf, RegistryCliError> {
+    unique_temp_dir("runx-publish-harness")
+}
+
+fn unique_temp_dir(prefix: &str) -> Result<PathBuf, RegistryCliError> {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| internal_error(error.to_string()))?
+        .as_nanos();
+    let path = env::temp_dir().join(format!("{prefix}-{}-{nanos}", process::id()));
+    fs::create_dir_all(&path).map_err(|error| {
+        internal_error(format!(
+            "failed to create temporary directory {}: {error}",
+            path.display()
+        ))
+    })?;
+    Ok(path)
+}
+
+fn publish_harness_report(
+    report: runx_runtime::InlineHarnessReport,
+) -> RegistryPublishHarnessReport {
+    RegistryPublishHarnessReport {
+        status: report.status.to_owned(),
+        case_count: report.case_count,
+        assertion_error_count: report.assertion_error_count,
+        assertion_errors: report.assertion_errors,
+        case_names: report.case_names,
+        receipt_ids: report.receipt_ids,
+        graph_case_count: report.graph_case_count,
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -895,18 +1096,7 @@ fn is_remote_registry_url(value: &str) -> bool {
 }
 
 pub(crate) fn env_map() -> BTreeMap<String, String> {
-    env::vars().collect()
-}
-
-fn write_stdout(value: &str, code: u8) -> ExitCode {
-    match io::stdout().write_all(value.as_bytes()) {
-        Ok(()) => ExitCode::from(code),
-        Err(_) => ExitCode::from(1),
-    }
-}
-
-fn write_stderr(value: &str) -> io::Result<()> {
-    io::stderr().write_all(value.as_bytes())
+    crate::cli_io::env_map()
 }
 
 pub(crate) struct RegistryCliError {

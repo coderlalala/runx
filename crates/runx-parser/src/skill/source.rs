@@ -4,9 +4,8 @@ use crate::ValidationError;
 use crate::graph::{RawGraphIr, validate_graph_document};
 
 use super::{
-    InputMode, SkillHttpSource, SkillMcpServer, SkillSource, SourceKind, field_value, first_value,
-    optional_bool, optional_object, optional_string, optional_string_array, optional_u64,
-    required_object, required_string, validate_sandbox, validation_error,
+    FIELDS, InputMode, SkillHttpSource, SkillMcpServer, SkillSource, SourceKind, field_value,
+    first_value, validate_sandbox,
 };
 
 pub fn validate_skill_source(
@@ -20,21 +19,24 @@ pub(super) fn validate_source(
     source: &JsonObject,
     runx: Option<&JsonObject>,
 ) -> Result<SkillSource, ValidationError> {
-    let source_type = required_string(source.get("type"), "source.type")?;
-    let args = optional_string_array(source.get("args"), "source.args")?.unwrap_or_default();
+    let source_type = FIELDS.required_string(source.get("type"), "source.type")?;
+    let args = FIELDS
+        .optional_string_array(source.get("args"), "source.args")?
+        .unwrap_or_default();
     let input_mode = optional_input_mode(source.get("input_mode"))?;
-    let timeout_seconds = optional_u64(source.get("timeout_seconds"), "source.timeout_seconds")?;
+    let timeout_seconds =
+        FIELDS.optional_u64(source.get("timeout_seconds"), "source.timeout_seconds")?;
 
     if source_type == "cli-tool" {
-        required_string(source.get("command"), "source.command")?;
+        FIELDS.required_string(source.get("command"), "source.command")?;
     }
     validate_agent_command_boundary(source, &source_type)?;
     let source_kind = parse_source_kind(&source_type, "source.type")?;
 
     Ok(SkillSource {
-        command: optional_string(source.get("command"), "source.command")?,
+        command: FIELDS.optional_string(source.get("command"), "source.command")?,
         args,
-        cwd: optional_string(source.get("cwd"), "source.cwd")?,
+        cwd: FIELDS.optional_string(source.get("cwd"), "source.cwd")?,
         timeout_seconds,
         input_mode,
         sandbox: validate_sandbox(first_value(
@@ -44,13 +46,14 @@ pub(super) fn validate_source(
         server: validate_mcp_server(source, &source_type)?,
         catalog_ref: validate_catalog_ref(source, &source_type)?,
         tool: validate_mcp_tool(source, &source_type)?,
-        arguments: optional_object(source.get("arguments"), "source.arguments")?,
+        arguments: FIELDS.optional_object(source.get("arguments"), "source.arguments")?,
         agent_card_url: validate_a2a_url(source, &source_type)?,
-        agent_identity: optional_string(source.get("agent_identity"), "source.agent_identity")?,
+        agent_identity: FIELDS
+            .optional_string(source.get("agent_identity"), "source.agent_identity")?,
         agent: validate_agent(source, &source_type)?,
         task: validate_task(source, &source_type)?,
         hook: validate_hook(source, &source_type)?,
-        outputs: optional_object(source.get("outputs"), "source.outputs")?,
+        outputs: FIELDS.optional_object(source.get("outputs"), "source.outputs")?,
         graph: validate_graph_source(source, &source_type)?,
         http: validate_http_source(source, &source_type)?,
         raw: source.clone(),
@@ -71,23 +74,21 @@ fn parse_source_kind(value: &str, field: &str) -> Result<SourceKind, ValidationE
         "http" => Ok(SourceKind::Http),
         "external-adapter" => Ok(SourceKind::ExternalAdapter),
         "thread-outbox-provider" => Ok(SourceKind::ThreadOutboxProvider),
-        other => Err(validation_error(format!(
-            "{field} {other} is not a supported source type."
-        ))),
+        other => {
+            Err(FIELDS.validation_error(format!("{field} {other} is not a supported source type.")))
+        }
     }
 }
 
 fn optional_input_mode(value: Option<&JsonValue>) -> Result<Option<InputMode>, ValidationError> {
-    let Some(value) = optional_string(value, "source.input_mode")? else {
+    let Some(value) = FIELDS.optional_string(value, "source.input_mode")? else {
         return Ok(None);
     };
     match value.as_str() {
         "args" => Ok(Some(InputMode::Args)),
         "stdin" => Ok(Some(InputMode::Stdin)),
         "none" => Ok(Some(InputMode::None)),
-        _ => Err(validation_error(
-            "source.input_mode must be args, stdin, or none.",
-        )),
+        _ => Err(FIELDS.validation_error("source.input_mode must be args, stdin, or none.")),
     }
 }
 
@@ -104,11 +105,13 @@ fn validate_mcp_server(
     if source_type != "mcp" {
         return Ok(None);
     }
-    let server = required_object(source.get("server"), "source.server")?;
+    let server = FIELDS.required_object(source.get("server"), "source.server")?;
     Ok(Some(SkillMcpServer {
-        command: required_string(server.get("command"), "source.server.command")?,
-        args: optional_string_array(server.get("args"), "source.server.args")?.unwrap_or_default(),
-        cwd: optional_string(server.get("cwd"), "source.server.cwd")?,
+        command: FIELDS.required_string(server.get("command"), "source.server.command")?,
+        args: FIELDS
+            .optional_string_array(server.get("args"), "source.server.args")?
+            .unwrap_or_default(),
+        cwd: FIELDS.optional_string(server.get("cwd"), "source.server.cwd")?,
     }))
 }
 
@@ -117,9 +120,11 @@ fn validate_mcp_tool(
     source_type: &str,
 ) -> Result<Option<String>, ValidationError> {
     if source_type == "mcp" {
-        return Ok(Some(required_string(source.get("tool"), "source.tool")?));
+        return Ok(Some(
+            FIELDS.required_string(source.get("tool"), "source.tool")?,
+        ));
     }
-    optional_string(source.get("tool"), "source.tool")
+    FIELDS.optional_string(source.get("tool"), "source.tool")
 }
 
 fn validate_catalog_ref(
@@ -127,12 +132,12 @@ fn validate_catalog_ref(
     source_type: &str,
 ) -> Result<Option<String>, ValidationError> {
     if source_type == "catalog" {
-        return Ok(Some(required_string(
+        return Ok(Some(FIELDS.required_string(
             source.get("catalog_ref"),
             "source.catalog_ref",
         )?));
     }
-    optional_string(source.get("catalog_ref"), "source.catalog_ref")
+    FIELDS.optional_string(source.get("catalog_ref"), "source.catalog_ref")
 }
 
 fn validate_a2a_url(
@@ -140,12 +145,12 @@ fn validate_a2a_url(
     source_type: &str,
 ) -> Result<Option<String>, ValidationError> {
     if source_type == "a2a" {
-        return Ok(Some(required_string(
+        return Ok(Some(FIELDS.required_string(
             source.get("agent_card_url"),
             "source.agent_card_url",
         )?));
     }
-    optional_string(source.get("agent_card_url"), "source.agent_card_url")
+    FIELDS.optional_string(source.get("agent_card_url"), "source.agent_card_url")
 }
 
 fn validate_agent(
@@ -153,9 +158,11 @@ fn validate_agent(
     source_type: &str,
 ) -> Result<Option<String>, ValidationError> {
     if source_type == "agent-task" {
-        return Ok(Some(required_string(source.get("agent"), "source.agent")?));
+        return Ok(Some(
+            FIELDS.required_string(source.get("agent"), "source.agent")?,
+        ));
     }
-    optional_string(source.get("agent"), "source.agent")
+    FIELDS.optional_string(source.get("agent"), "source.agent")
 }
 
 fn validate_task(
@@ -163,9 +170,11 @@ fn validate_task(
     source_type: &str,
 ) -> Result<Option<String>, ValidationError> {
     if matches!(source_type, "agent-task" | "a2a") {
-        return Ok(Some(required_string(source.get("task"), "source.task")?));
+        return Ok(Some(
+            FIELDS.required_string(source.get("task"), "source.task")?,
+        ));
     }
-    optional_string(source.get("task"), "source.task")
+    FIELDS.optional_string(source.get("task"), "source.task")
 }
 
 fn validate_hook(
@@ -173,9 +182,11 @@ fn validate_hook(
     source_type: &str,
 ) -> Result<Option<String>, ValidationError> {
     if source_type == "harness-hook" {
-        return Ok(Some(required_string(source.get("hook"), "source.hook")?));
+        return Ok(Some(
+            FIELDS.required_string(source.get("hook"), "source.hook")?,
+        ));
     }
-    optional_string(source.get("hook"), "source.hook")
+    FIELDS.optional_string(source.get("hook"), "source.hook")
 }
 
 fn validate_graph_source(
@@ -185,7 +196,9 @@ fn validate_graph_source(
     if source_type != "graph" {
         return Ok(None);
     }
-    let graph = required_object(source.get("graph"), "source.graph")?.clone();
+    let graph = FIELDS
+        .required_object(source.get("graph"), "source.graph")?
+        .clone();
     validate_graph_document(graph.clone(), Some(RawGraphIr { document: graph })).map(Some)
 }
 
@@ -196,14 +209,14 @@ fn validate_http_source(
     if source_type != "http" {
         return Ok(None);
     }
-    let url = required_string(source.get("url"), "source.url")?;
-    let method = match optional_string(source.get("method"), "source.method")? {
+    let url = FIELDS.required_string(source.get("url"), "source.url")?;
+    let method = match FIELDS.optional_string(source.get("method"), "source.method")? {
         Some(method) => {
             if !matches!(
                 method.to_ascii_uppercase().as_str(),
                 "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
             ) {
-                return Err(validation_error(format!(
+                return Err(FIELDS.validation_error(format!(
                     "source.method {method} is not supported; use GET, POST, PUT, PATCH, or DELETE."
                 )));
             }
@@ -215,7 +228,7 @@ fn validate_http_source(
         url,
         method,
         headers: validate_http_headers(source.get("headers"))?,
-        allow_private_network: optional_bool(
+        allow_private_network: FIELDS.optional_bool(
             source.get("allow_private_network"),
             "source.allow_private_network",
         )?,
@@ -229,13 +242,15 @@ fn validate_http_headers(
         return Ok(None);
     };
     let object = value.as_object().ok_or_else(|| {
-        validation_error("source.headers must be an object of header name to value.".to_owned())
+        FIELDS.validation_error(
+            "source.headers must be an object of header name to value.".to_owned(),
+        )
     })?;
     let mut headers = std::collections::BTreeMap::new();
     for (name, value) in object {
-        let value = value
-            .as_str()
-            .ok_or_else(|| validation_error(format!("source.headers.{name} must be a string.")))?;
+        let value = value.as_str().ok_or_else(|| {
+            FIELDS.validation_error(format!("source.headers.{name} must be a string."))
+        })?;
         headers.insert(name.clone(), value.to_owned());
     }
     Ok(Some(headers))
@@ -248,7 +263,7 @@ fn validate_agent_command_boundary(
     if matches!(source_type, "agent-task" | "harness-hook")
         && (source.contains_key("command") || source.contains_key("args"))
     {
-        return Err(validation_error(format!(
+        return Err(FIELDS.validation_error(format!(
             "{source_type} sources must not declare source.command or source.args."
         )));
     }

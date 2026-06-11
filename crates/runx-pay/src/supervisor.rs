@@ -8,6 +8,7 @@ use runx_contracts::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::json_util::json_value_kind;
 use crate::packets::{PaymentPacketError, PaymentRailResult, read_effect_evidence_packet};
 
 pub const PAYMENT_RAIL_SUPERVISOR_EVIDENCE_METADATA: &str = "payment_rail_supervisor_evidence";
@@ -24,6 +25,16 @@ pub struct PaymentSupervisorSettlementEvidence {
     pub amount_minor: u64,
     pub currency: String,
     pub idempotency_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payment_admission_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub money_movement_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kernel_token_digest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof_locator: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settlement_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -75,6 +86,8 @@ pub struct PaymentSupervisorProofMatch<'a> {
     pub receipt_digest: &'a str,
 }
 
+// rust-style-allow: long-function because finality supervisor evidence is one
+// flat wire payload assembled from a strongly typed settlement record.
 pub fn payment_finality_supervisor_evidence_payload(
     evidence: &PaymentSupervisorSettlementEvidence,
 ) -> JsonObject {
@@ -106,6 +119,27 @@ pub fn payment_finality_supervisor_evidence_payload(
     );
     insert_optional_payload_string(
         &mut payload,
+        "payment_admission_id",
+        evidence.payment_admission_id.clone(),
+    );
+    insert_optional_payload_string(
+        &mut payload,
+        "money_movement_id",
+        evidence.money_movement_id.clone(),
+    );
+    insert_optional_payload_string(
+        &mut payload,
+        "kernel_token_digest",
+        evidence.kernel_token_digest.clone(),
+    );
+    insert_optional_payload_string(
+        &mut payload,
+        "proof_locator",
+        evidence.proof_locator.clone(),
+    );
+    insert_optional_payload_string(&mut payload, "proof_status", evidence.proof_status.clone());
+    insert_optional_payload_string(
+        &mut payload,
         "settlement_status",
         evidence.settlement_status.clone(),
     );
@@ -128,6 +162,14 @@ pub fn payment_supervisor_evidence_from_payload(
         amount_minor: payload_u64(payload, "amount_minor")?,
         currency: payload_string(payload, "currency")?.to_owned(),
         idempotency_key: payload_string(payload, "idempotency_key")?.to_owned(),
+        payment_admission_id: payload_optional_string(payload, "payment_admission_id")?
+            .map(str::to_owned),
+        money_movement_id: payload_optional_string(payload, "money_movement_id")?
+            .map(str::to_owned),
+        kernel_token_digest: payload_optional_string(payload, "kernel_token_digest")?
+            .map(str::to_owned),
+        proof_locator: payload_optional_string(payload, "proof_locator")?.map(str::to_owned),
+        proof_status: payload_optional_string(payload, "proof_status")?.map(str::to_owned),
         settlement_status: payload_optional_string(payload, "settlement_status")?
             .map(str::to_owned),
         provider_event_ref: payload_optional_string(payload, "provider_event_ref")?
@@ -194,17 +236,6 @@ fn invalid_payload(
             "payment supervisor payload field {field} must be {expected}, got {}",
             json_value_kind(value)
         ),
-    }
-}
-
-fn json_value_kind(value: &JsonValue) -> &'static str {
-    match value {
-        JsonValue::Null => "null",
-        JsonValue::Bool(_) => "bool",
-        JsonValue::Number(_) => "number",
-        JsonValue::String(_) => "string",
-        JsonValue::Array(_) => "array",
-        JsonValue::Object(_) => "object",
     }
 }
 

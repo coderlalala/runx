@@ -1,0 +1,178 @@
+use runx_contracts::{JsonObject, JsonValue};
+
+use crate::ValidationError;
+
+#[derive(Clone, Copy)]
+pub(crate) struct JsonFieldReader {
+    owner: &'static str,
+}
+
+impl JsonFieldReader {
+    pub(crate) const fn new(owner: &'static str) -> Self {
+        Self { owner }
+    }
+
+    pub(crate) fn validation_error(&self, message: impl Into<String>) -> ValidationError {
+        ValidationError::InvalidField {
+            field: self.owner.to_owned(),
+            message: message.into(),
+        }
+    }
+
+    pub(crate) fn required_string(
+        &self,
+        value: Option<&JsonValue>,
+        field: &str,
+    ) -> Result<String, ValidationError> {
+        match self.optional_string(value, field)? {
+            Some(value) if !value.is_empty() => Ok(value),
+            _ => Err(ValidationError::MissingField {
+                field: field.to_owned(),
+            }),
+        }
+    }
+
+    pub(crate) fn optional_string(
+        &self,
+        value: Option<&JsonValue>,
+        field: &str,
+    ) -> Result<Option<String>, ValidationError> {
+        match value {
+            None | Some(JsonValue::Null) => Ok(None),
+            Some(JsonValue::String(value)) => Ok(Some(value.clone())),
+            Some(_) => Err(self.validation_error(format!("{field} must be a string."))),
+        }
+    }
+
+    pub(crate) fn optional_non_empty_string(
+        &self,
+        value: Option<&JsonValue>,
+        field: &str,
+    ) -> Result<Option<String>, ValidationError> {
+        let Some(value) = self.optional_string(value, field)? else {
+            return Ok(None);
+        };
+        if value.trim().is_empty() {
+            return Err(self.validation_error(format!("{field} must not be empty.")));
+        }
+        Ok(Some(value))
+    }
+
+    pub(crate) fn required_object<'a>(
+        &self,
+        value: Option<&'a JsonValue>,
+        field: &str,
+    ) -> Result<&'a JsonObject, ValidationError> {
+        match value {
+            Some(JsonValue::Object(value)) => Ok(value),
+            None | Some(JsonValue::Null) => {
+                Err(self.validation_error(format!("{field} is required.")))
+            }
+            Some(_) => Err(self.validation_error(format!("{field} must be an object."))),
+        }
+    }
+
+    pub(crate) fn optional_object(
+        &self,
+        value: Option<&JsonValue>,
+        field: &str,
+    ) -> Result<Option<JsonObject>, ValidationError> {
+        match value {
+            None | Some(JsonValue::Null) => Ok(None),
+            Some(JsonValue::Object(value)) => Ok(Some(value.clone())),
+            Some(_) => Err(self.validation_error(format!("{field} must be an object."))),
+        }
+    }
+
+    pub(crate) fn required_plain_array<'a>(
+        &self,
+        value: Option<&'a JsonValue>,
+        field: &str,
+    ) -> Result<&'a [JsonValue], ValidationError> {
+        match value {
+            Some(JsonValue::Array(values)) => Ok(values),
+            None | Some(JsonValue::Null) => {
+                Err(self.validation_error(format!("{field} is required.")))
+            }
+            Some(_) => Err(self.validation_error(format!("{field} must be an array."))),
+        }
+    }
+
+    pub(crate) fn optional_string_array(
+        &self,
+        value: Option<&JsonValue>,
+        field: &str,
+    ) -> Result<Option<Vec<String>>, ValidationError> {
+        match value {
+            None | Some(JsonValue::Null) => Ok(None),
+            Some(JsonValue::Array(values)) => values
+                .iter()
+                .map(|value| match value {
+                    JsonValue::String(value) => Ok(value.clone()),
+                    _ => {
+                        Err(self.validation_error(format!("{field} must be an array of strings.")))
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map(Some),
+            Some(_) => Err(self.validation_error(format!("{field} must be an array of strings."))),
+        }
+    }
+
+    pub(crate) fn optional_bool(
+        &self,
+        value: Option<&JsonValue>,
+        field: &str,
+    ) -> Result<Option<bool>, ValidationError> {
+        match value {
+            None | Some(JsonValue::Null) => Ok(None),
+            Some(JsonValue::Bool(value)) => Ok(Some(*value)),
+            Some(_) => Err(self.validation_error(format!("{field} must be a boolean."))),
+        }
+    }
+
+    pub(crate) fn optional_u64(
+        &self,
+        value: Option<&JsonValue>,
+        field: &str,
+    ) -> Result<Option<u64>, ValidationError> {
+        match value {
+            None | Some(JsonValue::Null) => Ok(None),
+            Some(JsonValue::Number(number)) => {
+                let Some(value) = number.as_f64() else {
+                    return Err(self.validation_error(format!("{field} must be a finite number.")));
+                };
+                if value.fract() == 0.0 && value >= 0.0 && value <= u64::MAX as f64 {
+                    Ok(Some(value as u64))
+                } else {
+                    Err(self.validation_error(format!("{field} must be a positive integer.")))
+                }
+            }
+            Some(_) => Err(self.validation_error(format!("{field} must be a finite number."))),
+        }
+    }
+}
+
+pub(crate) fn first_value<'a>(
+    left: Option<&'a JsonValue>,
+    right: Option<&'a JsonValue>,
+) -> Option<&'a JsonValue> {
+    match left {
+        None | Some(JsonValue::Null) => right,
+        Some(value) => Some(value),
+    }
+}
+
+pub(crate) fn field_value<'a>(
+    object: Option<&'a JsonObject>,
+    field: &str,
+) -> Option<&'a JsonValue> {
+    object.and_then(|object| object.get(field))
+}
+
+pub(crate) fn nested_value<'a>(value: Option<&'a JsonValue>, field: &str) -> Option<&'a JsonValue> {
+    match value {
+        Some(JsonValue::Object(object)) => object.get(field),
+        _ => None,
+    }
+}

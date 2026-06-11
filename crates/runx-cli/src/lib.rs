@@ -1,4 +1,5 @@
 pub mod cli_args;
+pub(crate) mod cli_io;
 pub mod config;
 pub mod dev;
 pub mod doctor;

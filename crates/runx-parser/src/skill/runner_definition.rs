@@ -3,29 +3,31 @@ use runx_contracts::{JsonObject, JsonValue};
 use crate::ValidationError;
 
 use super::{
-    SkillGovernance, SkillRunnerDefinition, field_value, first_value, nested_value, optional_bool,
-    optional_object, validate_allowed_tools, validate_artifact_contract,
-    validate_execution_semantics, validate_idempotency, validate_inputs, validate_mutating,
-    validate_retry, validate_source,
+    FIELDS, SkillGovernance, SkillRunnerDefinition, field_value, first_value, nested_value,
+    validate_allowed_tools, validate_artifact_contract, validate_execution_semantics,
+    validate_idempotency, validate_inputs, validate_mutating, validate_retry, validate_source,
 };
 
 pub(crate) fn validate_runner_definition(
     name: &str,
     runner: JsonObject,
 ) -> Result<SkillRunnerDefinition, ValidationError> {
-    let runx = optional_object(runner.get("runx"), &format!("runners.{name}.runx"))?;
+    let runx = FIELDS.optional_object(runner.get("runx"), &format!("runners.{name}.runx"))?;
     crate::runner::resolve_post_run_reflect_policy(runx.as_ref(), &format!("runners.{name}.runx"))?;
-    let source_record = optional_object(runner.get("source"), &format!("runners.{name}.source"))?
+    let source_record = FIELDS
+        .optional_object(runner.get("source"), &format!("runners.{name}.source"))?
         .unwrap_or_else(|| runner.clone());
     let risk = runner.get("risk").cloned();
     let governance = validate_runner_governance(name, &runner, runx.as_ref(), risk.as_ref())?;
     Ok(SkillRunnerDefinition {
         name: name.to_owned(),
-        default: optional_bool(runner.get("default"), &format!("runners.{name}.default"))?
+        default: FIELDS
+            .optional_bool(runner.get("default"), &format!("runners.{name}.default"))?
             .unwrap_or(false),
         source: validate_source(&source_record, runx.as_ref())?,
         inputs: validate_inputs(
-            optional_object(runner.get("inputs"), &format!("runners.{name}.inputs"))?
+            FIELDS
+                .optional_object(runner.get("inputs"), &format!("runners.{name}.inputs"))?
                 .unwrap_or_default(),
         )?,
         auth: runner.get("auth").cloned(),

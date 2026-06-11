@@ -22,6 +22,10 @@ runners:
         type: string
         required: true
         description: Configured rail profile reference.
+      payment_admission:
+        type: object
+        required: false
+        description: Hosted payment admission token and settlement identity.
       realm:
         type: string
         required: false
@@ -92,6 +96,7 @@ runners:
           inputs:
             payment_challenge: "{{payment_signal}}"
             rail_profile_ref: "{{rail_profile_ref}}"
+            payment_admission: "{{payment_admission}}"
           context:
             reserved_payment_authority: reserve.payment_reservation_packet.data.reserved_payment_authority
             spend_capability_ref: reserve.payment_reservation_packet.data.spend_capability_ref
@@ -121,6 +126,10 @@ runners:
         type: string
         required: true
         description: Configured rail profile reference.
+      payment_admission:
+        type: object
+        required: false
+        description: Hosted payment admission token and settlement identity.
       realm:
         type: string
         required: false
@@ -191,6 +200,7 @@ runners:
           inputs:
             payment_challenge: "{{payment_signal}}"
             rail_profile_ref: "{{rail_profile_ref}}"
+            payment_admission: "{{payment_admission}}"
           context:
             reserved_payment_authority: reserve.payment_reservation_packet.data.reserved_payment_authority
             spend_capability_ref: reserve.payment_reservation_packet.data.spend_capability_ref
@@ -220,6 +230,10 @@ runners:
         type: string
         required: true
         description: Configured rail profile reference.
+      payment_admission:
+        type: object
+        required: false
+        description: Hosted payment admission token and settlement identity.
       realm:
         type: string
         required: false
@@ -290,6 +304,7 @@ runners:
           inputs:
             payment_challenge: "{{payment_signal}}"
             rail_profile_ref: "{{rail_profile_ref}}"
+            payment_admission: "{{payment_admission}}"
           context:
             reserved_payment_authority: reserve.payment_reservation_packet.data.reserved_payment_authority
             spend_capability_ref: reserve.payment_reservation_packet.data.spend_capability_ref
@@ -319,6 +334,10 @@ runners:
         type: string
         required: true
         description: Configured rail profile reference.
+      payment_admission:
+        type: object
+        required: false
+        description: Hosted payment admission token and settlement identity.
       realm:
         type: string
         required: false
@@ -389,6 +408,7 @@ runners:
           inputs:
             payment_challenge: "{{payment_signal}}"
             rail_profile_ref: "{{rail_profile_ref}}"
+            payment_admission: "{{payment_admission}}"
           context:
             reserved_payment_authority: reserve.payment_reservation_packet.data.reserved_payment_authority
             spend_capability_ref: reserve.payment_reservation_packet.data.spend_capability_ref

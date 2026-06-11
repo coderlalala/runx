@@ -127,6 +127,10 @@ runners:
         type: string
         required: true
         description: Configured rail profile reference.
+      payment_admission:
+        type: object
+        required: false
+        description: Hosted payment admission token and settlement identity.
       idempotency:
         type: object
         required: true
@@ -186,9 +190,10 @@ runners:
         receipt_before_success: true
     inputs: *a4
   stripe-spt:
-    type: agent-task
-    agent: operator
-    task: pay-fulfill-rail-stripe-spt
+    source:
+      type: external-adapter
+      external_adapter:
+        manifest_path: stripe-spt-fulfill-adapter.manifest.json
     mutating: true
     retry:
       max_attempts: 1

@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::env;
 use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -136,7 +135,7 @@ fn non_empty_env<'a>(env: &'a BTreeMap<String, String>, key: &str) -> Option<&'a
 }
 
 pub fn env_map() -> BTreeMap<String, String> {
-    env::vars().collect()
+    crate::cli_io::env_map()
 }
 
 // rust-style-allow: long-function because this mirrors the public history CLI

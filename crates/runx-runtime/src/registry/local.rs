@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 use super::refs::parse_registry_ref;
 use super::types::{
     PublishSkillMarkdownResult, PublishStatus, RegistryAttestation, RegistryLinkResolution,
-    RegistryPublisher, RegistrySearchResult, RegistrySkill, RegistrySkillDetail,
-    RegistrySkillResolution, RegistrySkillVersion, RegistrySourceMetadata, TrustTier,
+    RegistryPublishHarnessReport, RegistryPublisher, RegistrySearchResult, RegistrySkill,
+    RegistrySkillDetail, RegistrySkillResolution, RegistrySkillVersion, RegistrySourceMetadata,
+    TrustTier,
 };
 
 #[derive(Clone, Debug)]
@@ -49,6 +50,7 @@ pub struct LocalRegistryClient {
 pub struct PublishSkillMarkdownOptions {
     pub ingest: IngestSkillOptions,
     pub registry_url: Option<String>,
+    pub harness: RegistryPublishHarnessReport,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -333,6 +335,7 @@ pub fn publish_skill_markdown(
         runner_names: result.record.runner_names.clone(),
         source_type: result.record.source_type.clone(),
         registry_url: options.registry_url,
+        harness: options.harness,
         link,
         record: result.record,
     })

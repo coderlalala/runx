@@ -78,7 +78,7 @@ describe("skill-search CLI", () => {
     }
   });
 
-  it("keeps fixture marketplace results externally attributed", async () => {
+  it("returns no results for retired fixture marketplace source filters", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "runx-skill-search-marketplace-"));
     const stdout = createMemoryStream();
     const stderr = createMemoryStream();
@@ -107,16 +107,7 @@ describe("skill-search CLI", () => {
           runner_names: string[];
         }[];
       };
-      expect(report.results).toEqual([
-        expect.objectContaining({
-          skill_id: "fixture/sourcey-docs",
-          source: "fixture-marketplace",
-          source_label: "Fixture Marketplace",
-          trust_tier: "community",
-          profile_mode: "profiled",
-          runner_names: ["sourcey-docs-cli"],
-        }),
-      ]);
+      expect(report.results).toEqual([]);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -169,7 +160,7 @@ process.stdout.write(JSON.stringify({
         {
           ...process.env,
           RUNX_CWD: process.cwd(),
-          RUNX_RUST_CLI_BIN: registryBin,
+          RUNX_DEV_RUST_CLI_BIN: registryBin,
           RUNX_REGISTRY_DIR: path.join(tempDir, "unused-registry"),
         },
       );
@@ -193,7 +184,7 @@ process.stdout.write(JSON.stringify({
     }
   });
 
-  it("does not route fixture marketplace search through native registry search", async () => {
+  it("does not route retired fixture marketplace search through native registry search", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "runx-skill-search-marketplace-rust-"));
     const registryBin = path.join(tempDir, "registry-search");
     const stdout = createMemoryStream();
@@ -216,7 +207,7 @@ process.exit(2);
           RUNX_CWD: process.cwd(),
           RUNX_REGISTRY_DIR: path.join(tempDir, "registry"),
           RUNX_ENABLE_FIXTURE_MARKETPLACE: "1",
-          RUNX_RUST_CLI_BIN: registryBin,
+          RUNX_DEV_RUST_CLI_BIN: registryBin,
         },
       );
 
@@ -228,12 +219,7 @@ process.exit(2);
           source: string;
         }[];
       };
-      expect(report.results).toEqual([
-        expect.objectContaining({
-          skill_id: "fixture/sourcey-docs",
-          source: "fixture-marketplace",
-        }),
-      ]);
+      expect(report.results).toEqual([]);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

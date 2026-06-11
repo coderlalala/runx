@@ -9,6 +9,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use serde_json::Value;
+
 const SECRET: &str = "ghs_cli_local_provision_secret_value";
 
 #[test]
@@ -36,15 +38,19 @@ fn cli_rejects_local_credential_for_cli_tool_before_spawn() -> Result<(), Box<dy
         !output.status.success(),
         "expected local credential delivery to fail closed"
     );
+    let message = json_failure_message(&output.stdout)?;
     let stdout = String::from_utf8(output.stdout)?;
     let stderr = String::from_utf8(output.stderr)?;
-    assert_eq!(stdout, "");
     assert!(
-        stderr.contains("local credential process-env delivery is not supported for cli-tool"),
-        "unexpected stderr: {stderr}",
+        message.contains("local credential process-env delivery is not supported for cli-tool"),
+        "unexpected failure message: {message}",
     );
     assert!(
-        !stderr.contains(SECRET),
+        stderr.is_empty(),
+        "json failures should keep stderr clean, got: {stderr}"
+    );
+    assert!(
+        !stdout.contains(SECRET) && !stderr.contains(SECRET),
         "raw secret leaked into the error output"
     );
     assert!(
@@ -74,13 +80,18 @@ fn cli_rejects_secret_env_without_credential() -> Result<(), Box<dyn std::error:
         !output.status.success(),
         "expected provisioning without --credential to fail"
     );
+    let message = json_failure_message(&output.stdout)?;
     let stderr = String::from_utf8(output.stderr)?;
     assert!(
-        stderr.contains("--credential"),
-        "expected an error pointing at --credential, got: {stderr}"
+        message.contains("--credential"),
+        "expected an error pointing at --credential, got: {message}"
     );
     assert!(
-        !stderr.contains(SECRET),
+        stderr.is_empty(),
+        "json failures should keep stderr clean, got: {stderr}"
+    );
+    assert!(
+        !String::from_utf8(output.stdout)?.contains(SECRET) && !stderr.contains(SECRET),
         "raw secret leaked into the error output"
     );
 
@@ -108,10 +119,10 @@ fn cli_rejects_empty_secret_value() -> Result<(), Box<dyn std::error::Error>> {
         !output.status.success(),
         "expected an empty --secret-env value to be rejected at parse time"
     );
-    let stderr = String::from_utf8(output.stderr)?;
+    let message = json_failure_message(&output.stdout)?;
     assert!(
-        stderr.contains("non-empty secret value"),
-        "expected an error about the empty secret value, got: {stderr}"
+        message.contains("non-empty secret value"),
+        "expected an error about the empty secret value, got: {message}"
     );
 
     Ok(())
@@ -137,13 +148,19 @@ fn cli_rejects_secret_env_value_on_argv() -> Result<(), Box<dyn std::error::Erro
         !output.status.success(),
         "expected argv secret material to be rejected"
     );
+    let message = json_failure_message(&output.stdout)?;
+    let stdout = String::from_utf8(output.stdout)?;
     let stderr = String::from_utf8(output.stderr)?;
     assert!(
-        stderr.contains("not an inline value"),
-        "expected an error about argv secret material, got: {stderr}"
+        message.contains("not an inline value"),
+        "expected an error about argv secret material, got: {message}"
     );
     assert!(
-        !stderr.contains(SECRET),
+        stderr.is_empty(),
+        "json failures should keep stderr clean, got: {stderr}"
+    );
+    assert!(
+        !stdout.contains(SECRET) && !stderr.contains(SECRET),
         "raw secret leaked into the error output"
     );
 
@@ -154,6 +171,15 @@ fn native_command() -> Result<Command, Box<dyn std::error::Error>> {
     Ok(crate::support::isolated_runx_command_with_inherited_cwd(
         "local-credential-test-key",
     ))
+}
+
+fn json_failure_message(stdout: &[u8]) -> Result<String, Box<dyn std::error::Error>> {
+    let value = serde_json::from_slice::<Value>(stdout)?;
+    assert_eq!(value["status"], "failure");
+    Ok(value["error"]["message"]
+        .as_str()
+        .ok_or("missing failure message")?
+        .to_owned())
 }
 
 /// A cli-tool skill that echoes the delivered `$GITHUB_TOKEN`. The command is a

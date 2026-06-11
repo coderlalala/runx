@@ -4,6 +4,18 @@ pub fn redact_sensitive_text(input: &str) -> String {
     )))
 }
 
+pub(crate) fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
+    let start = bytes
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .rposition(|byte| !byte.is_ascii_whitespace())
+        .map_or(start, |index| index + 1);
+    &bytes[start..end]
+}
+
 fn redact_prefixed_secret(input: &str, prefix: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut index = 0;

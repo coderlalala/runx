@@ -1,7 +1,6 @@
 import path from "node:path";
 
 import {
-  isRemoteRegistryUrl,
   resolvePathFromUserInput,
   resolveRunxGlobalHomeDir,
   resolveRunxKnowledgeDir,
@@ -285,14 +284,12 @@ export async function dispatchCli(
   }
 
   if (parsed.command === "skill" && parsed.skillAction === "publish" && parsed.publishPath) {
-    if (isRemoteRegistryUrl(parsed.registryUrl)) {
-      throw new Error("Remote registry publish is not supported from the OSS CLI. Use a local registry store or the hosted admin surface.");
-    }
     const resolvedPublishPath = resolvePathFromUserInput(parsed.publishPath, env);
     const args = ["registry", "publish", resolvedPublishPath, "--json"];
     pushOptionalFlag(args, "--registry", parsed.registryUrl);
     pushOptionalFlag(args, "--owner", parsed.publishOwner);
     pushOptionalFlag(args, "--version", parsed.publishVersion);
+    pushOptionalFlag(args, "--profile", parsed.publishProfile);
     return await streamNativeRunxToIo(io, args, env);
   }
 

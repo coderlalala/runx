@@ -29,6 +29,7 @@ use crate::adapter_pipeline::{AdapterCapture, AdapterInvocationPlan, AdapterProj
 use crate::credentials::CredentialDelivery;
 use crate::process::{ProcessOutcome, ProcessSpec, ProcessStdin, run_process};
 use crate::receipts::paths::RUNX_RECEIPT_DIR_ENV;
+use crate::redaction::trim_ascii_whitespace;
 use crate::sandbox::{SandboxPlan, prepare_process_sandbox};
 use crate::time::now_iso8601;
 
@@ -1115,18 +1116,6 @@ fn timeout_cancellation_frame(
         reason: format!("invocation timeout after {timeout_ms}ms").into(),
         requested_at: now_iso8601().into(),
     }
-}
-
-fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
-    let start = bytes
-        .iter()
-        .position(|byte| !byte.is_ascii_whitespace())
-        .unwrap_or(bytes.len());
-    let end = bytes
-        .iter()
-        .rposition(|byte| !byte.is_ascii_whitespace())
-        .map_or(start, |index| index + 1);
-    &bytes[start..end]
 }
 
 fn io_error(context: impl Into<String>, source: std::io::Error) -> ExternalAdapterSupervisorError {

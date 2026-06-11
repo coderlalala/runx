@@ -288,6 +288,7 @@ fn local_registry_publish_rejects_changed_duplicate() -> Result<(), Box<dyn std:
                 ..IngestSkillOptions::default()
             },
             registry_url: Some("https://runx.example.test".to_owned()),
+            ..PublishSkillMarkdownOptions::default()
         },
     )?;
     let second = publish_skill_markdown(
@@ -300,6 +301,7 @@ fn local_registry_publish_rejects_changed_duplicate() -> Result<(), Box<dyn std:
                 ..IngestSkillOptions::default()
             },
             registry_url: Some("https://runx.example.test".to_owned()),
+            ..PublishSkillMarkdownOptions::default()
         },
     )?;
 
@@ -330,6 +332,7 @@ fn local_registry_publish_rejects_changed_duplicate() -> Result<(), Box<dyn std:
                 ..IngestSkillOptions::default()
             },
             registry_url: None,
+            ..PublishSkillMarkdownOptions::default()
         },
     );
     assert!(conflict.is_err_and(|error| error.to_string().contains("different digest")));
@@ -362,6 +365,7 @@ fn file_registry_store_rejects_path_traversal_skill_ids() -> Result<(), Box<dyn 
                 ..IngestSkillOptions::default()
             },
             registry_url: None,
+            ..PublishSkillMarkdownOptions::default()
         },
     );
     assert!(result.is_err_and(|error| error.to_string().contains("path component")));

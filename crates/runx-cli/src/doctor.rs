@@ -1,7 +1,6 @@
 // rust-style-allow: large-file - doctor aggregates path, registry, and authority diagnostics until those surfaces split.
 use std::collections::BTreeMap;
 use std::env;
-use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -30,15 +29,17 @@ pub fn run_native_doctor(plan: DoctorPlan) -> ExitCode {
     let cwd = match env::current_dir() {
         Ok(cwd) => cwd,
         Err(error) => {
-            let _ignored = write_stderr(&format!("runx: failed to resolve cwd: {error}\n"));
+            let _ignored = crate::cli_io::write_stderr_code(&format!(
+                "runx: failed to resolve cwd: {error}\n"
+            ));
             return ExitCode::from(1);
         }
     };
 
     match run_doctor_command(&plan, &env, &cwd) {
-        Ok(output) => write_stdout(&output.stdout, output.exit_code),
+        Ok(output) => crate::cli_io::write_stdout_code(&output.stdout, output.exit_code),
         Err(error) => {
-            let _ignored = write_stderr(&format!("runx: {error}\n"));
+            let _ignored = crate::cli_io::write_stderr_code(&format!("runx: {error}\n"));
             ExitCode::from(1)
         }
     }
@@ -736,24 +737,6 @@ fn diagnostic_icon(severity: &DoctorDiagnosticSeverity) -> &'static str {
     match severity {
         DoctorDiagnosticSeverity::Error => "✗",
         DoctorDiagnosticSeverity::Warning | DoctorDiagnosticSeverity::Info => "·",
-    }
-}
-
-fn write_stdout(message: &str, exit_code: u8) -> ExitCode {
-    let mut stdout = io::stdout().lock();
-    if stdout.write_all(message.as_bytes()).is_ok() {
-        ExitCode::from(exit_code)
-    } else {
-        ExitCode::from(1)
-    }
-}
-
-fn write_stderr(message: &str) -> ExitCode {
-    let mut stderr = io::stderr().lock();
-    if stderr.write_all(message.as_bytes()).is_ok() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
     }
 }
 

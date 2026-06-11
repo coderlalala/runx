@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const flags = new Set(process.argv.slice(2));
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const ossRoot = path.resolve(scriptDir, "..");
 
 function apply(store, event) {
   const eventKey = `${event.rail}\u001f${event.providerEventId}`;
@@ -101,7 +104,7 @@ if (flags.has("--refund-race")) {
 console.log(JSON.stringify({ status: "passed", results }, null, 2));
 
 function runRefundRace() {
-  const fixtureDir = path.resolve("fixtures/effect-finality/refund-admission");
+  const fixtureDir = path.join(ossRoot, "fixtures/effect-finality/refund-admission");
   const fixtures = fs.readdirSync(fixtureDir)
     .filter((file) => file.endsWith(".json"))
     .sort()

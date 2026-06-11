@@ -1,5 +1,4 @@
 use std::env;
-use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -304,28 +303,13 @@ struct InitJsonResult<'a> {
 }
 
 fn write_stdout(message: &str) -> ExitCode {
-    let mut stdout = io::stdout().lock();
-    if stdout.write_all(message.as_bytes()).is_ok() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
-    }
+    crate::cli_io::write_stdout_code(message, 0)
 }
 
 fn write_stdout_line(message: &str) -> ExitCode {
-    let mut stdout = io::stdout().lock();
-    if writeln!(stdout, "{message}").is_ok() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
-    }
+    crate::cli_io::write_stdout_code(&format!("{message}\n"), 0)
 }
 
 fn write_stderr_line(message: &str) -> ExitCode {
-    let mut stderr = io::stderr().lock();
-    if writeln!(stderr, "{message}").is_ok() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
-    }
+    crate::cli_io::write_stderr_code(&format!("{message}\n"))
 }

@@ -22,6 +22,7 @@ use thiserror::Error;
 use crate::authority::{
     PaymentSpendCapabilityBinding, StepAuthorityAdmission, admit_step_authority,
 };
+use crate::json_util::json_value_kind;
 use crate::packets::{PaymentRailProof, read_effect_evidence_packet};
 use crate::state::{
     EffectIdempotencyEntry, EffectIdempotencyKey, EffectMutation, EffectMutationStatus,
@@ -108,6 +109,8 @@ impl PaymentRuntimeEffect {
 pub struct DeterministicPaymentFinalitySupervisor;
 
 impl PaymentFinalitySupervisor for DeterministicPaymentFinalitySupervisor {
+    // rust-style-allow: long-function because deterministic finality validates
+    // one complete rail settlement packet before evidence is admitted.
     fn supervise(
         &self,
         request: PaymentFinalitySupervisorRequest<'_>,
@@ -125,6 +128,12 @@ impl PaymentFinalitySupervisor for DeterministicPaymentFinalitySupervisor {
         let amount_minor = supervisor_payload_u64(&request.payload, "amount_minor")?;
         let currency = supervisor_payload_string(&request.payload, "currency")?;
         let idempotency_key = supervisor_payload_string(&request.payload, "idempotency_key")?;
+        let payment_admission_id =
+            supervisor_payload_optional_string(&request.payload, "payment_admission_id")?;
+        let money_movement_id =
+            supervisor_payload_optional_string(&request.payload, "money_movement_id")?;
+        let kernel_token_digest =
+            supervisor_payload_optional_string(&request.payload, "kernel_token_digest")?;
         let mut payload = JsonObject::new();
         payload.insert(
             "verifier_id".to_owned(),
@@ -151,6 +160,14 @@ impl PaymentFinalitySupervisor for DeterministicPaymentFinalitySupervisor {
             "idempotency_key".to_owned(),
             JsonValue::String(idempotency_key.to_owned()),
         );
+        insert_optional_string(&mut payload, "payment_admission_id", payment_admission_id);
+        insert_optional_string(&mut payload, "money_movement_id", money_movement_id);
+        insert_optional_string(&mut payload, "kernel_token_digest", kernel_token_digest);
+        payload.insert(
+            "proof_locator".to_owned(),
+            JsonValue::String(proof_ref.to_owned()),
+        );
+        insert_optional_string(&mut payload, "proof_status", status);
         if let Some(status) = status {
             payload.insert(
                 "settlement_status".to_owned(),
@@ -165,6 +182,12 @@ impl PaymentFinalitySupervisor for DeterministicPaymentFinalitySupervisor {
             request.family,
             payload,
         ))
+    }
+}
+
+fn insert_optional_string(payload: &mut JsonObject, field: &'static str, value: Option<&str>) {
+    if let Some(value) = value {
+        payload.insert(field.to_owned(), JsonValue::String(value.to_owned()));
     }
 }
 
@@ -219,17 +242,6 @@ fn invalid_supervisor_payload(
             "payment finality supervisor payload field {field} must be {expected}, got {}",
             json_value_kind(value)
         ),
-    }
-}
-
-fn json_value_kind(value: &JsonValue) -> &'static str {
-    match value {
-        JsonValue::Null => "null",
-        JsonValue::Bool(_) => "bool",
-        JsonValue::Number(_) => "number",
-        JsonValue::String(_) => "string",
-        JsonValue::Array(_) => "array",
-        JsonValue::Object(_) => "object",
     }
 }
 
@@ -700,6 +712,20 @@ fn supervisor_request<'a>(
         "proof_ref".to_owned(),
         JsonValue::String(claim.proof_ref.clone()),
     );
+    if let Some(identity) = payment.settlement_identity.as_ref() {
+        payload.insert(
+            "payment_admission_id".to_owned(),
+            JsonValue::String(identity.payment_admission_id.clone()),
+        );
+        payload.insert(
+            "money_movement_id".to_owned(),
+            JsonValue::String(identity.money_movement_id.clone()),
+        );
+        payload.insert(
+            "kernel_token_digest".to_owned(),
+            JsonValue::String(identity.kernel_token_digest.clone()),
+        );
+    }
     if let Some(status) = skill_settlement_status {
         payload.insert(
             "skill_settlement_status".to_owned(),
@@ -785,6 +811,7 @@ fn payment_context(
     };
     let run_spend = run_spend_reservation(input, inputs, env)?;
     let period_spend = period_spend_reservation(input)?;
+    let settlement_identity = settlement_identity_from_inputs(inputs)?;
     Ok(Some(StepPaymentAuthorityContext {
         idempotency_key: EffectIdempotencyKey::new(
             binding.rail.clone(),
@@ -799,7 +826,93 @@ fn payment_context(
         authority_ref: input.child_authority.resource_ref.clone(),
         run_spend,
         period_spend,
+        settlement_identity,
     }))
+}
+
+fn settlement_identity_from_inputs(
+    inputs: &JsonObject,
+) -> Result<Option<PaymentSettlementIdentity>, RuntimeEffectError> {
+    let Some(value) = inputs.get("payment_admission") else {
+        return Ok(None);
+    };
+    let JsonValue::Object(admission) = value else {
+        return Err(denied(
+            "payment_admission must be an object before payment rail execution".to_owned(),
+        ));
+    };
+    let payment_admission_id = required_settlement_identity_string(
+        admission,
+        &["payment_admission_id", "token_digest"],
+        "payment_admission.payment_admission_id",
+    )?;
+    let money_movement_id = optional_settlement_identity_string(
+        admission,
+        &["money_movement_id"],
+        "payment_admission.money_movement_id",
+    )?
+    .map(Ok)
+    .unwrap_or_else(|| {
+        let Some(JsonValue::Object(token)) = admission.get("token") else {
+            return Err(denied(
+                "payment_admission.money_movement_id is required before payment rail execution"
+                    .to_owned(),
+            ));
+        };
+        required_settlement_identity_string(
+            token,
+            &["money_movement_id"],
+            "payment_admission.token.money_movement_id",
+        )
+    })?;
+    let kernel_token_digest = required_settlement_identity_string(
+        admission,
+        &["kernel_token_digest", "token_digest"],
+        "payment_admission.kernel_token_digest",
+    )?;
+    Ok(Some(PaymentSettlementIdentity {
+        payment_admission_id,
+        money_movement_id,
+        kernel_token_digest,
+    }))
+}
+
+fn required_settlement_identity_string(
+    object: &JsonObject,
+    fields: &[&'static str],
+    field_path: &'static str,
+) -> Result<String, RuntimeEffectError> {
+    optional_settlement_identity_string(object, fields, field_path)?.ok_or_else(|| {
+        denied(format!(
+            "{field_path} is required before payment rail execution"
+        ))
+    })
+}
+
+fn optional_settlement_identity_string(
+    object: &JsonObject,
+    fields: &[&'static str],
+    field_path: &'static str,
+) -> Result<Option<String>, RuntimeEffectError> {
+    for field in fields {
+        match object.get(*field) {
+            Some(JsonValue::String(value)) if !value.trim().is_empty() => {
+                return Ok(Some(value.to_owned()));
+            }
+            Some(JsonValue::String(_)) => {
+                return Err(denied(format!(
+                    "{field_path} must not be empty before payment rail execution"
+                )));
+            }
+            Some(_) => {
+                return Err(denied(format!(
+                    "{field_path} must be a string before payment rail execution"
+                )));
+            }
+            None => {}
+        }
+    }
+    Ok(None)
 }
 
 fn run_spend_reservation(
@@ -1197,6 +1310,14 @@ struct StepPaymentAuthorityContext {
     currency: String,
     run_spend: Option<EffectRunSpendReservation>,
     period_spend: Option<EffectPeriodSpendReservation>,
+    settlement_identity: Option<PaymentSettlementIdentity>,
+}
+
+#[derive(Clone, Debug)]
+struct PaymentSettlementIdentity {
+    payment_admission_id: String,
+    money_movement_id: String,
+    kernel_token_digest: String,
 }
 
 #[derive(Clone, Debug)]

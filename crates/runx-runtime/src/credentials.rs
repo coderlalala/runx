@@ -10,6 +10,7 @@ use runx_contracts::{
     sha256_hex, sha256_prefixed,
 };
 use runx_core::policy::{CredentialBindingDecision, CredentialEnvelope};
+use serde::Deserialize;
 use thiserror::Error;
 
 const REDACTED_CREDENTIAL: &str = "[redacted-credential]";
@@ -356,6 +357,83 @@ impl CredentialDelivery {
         )
     }
 
+    pub fn from_hosted_handles_json(raw: &str) -> Result<Self, CredentialDeliveryError> {
+        let handles: Vec<HostedCredentialHandle> = serde_json::from_str(raw).map_err(|error| {
+            CredentialDeliveryError::HostedCredentialHandlesInvalid {
+                reason: error.to_string(),
+            }
+        })?;
+        Self::from_hosted_handles(&handles)
+    }
+
+    // rust-style-allow: long-function because hosted handle delivery validates
+    // one homogeneous credential batch before exposing any secret references.
+    fn from_hosted_handles(
+        handles: &[HostedCredentialHandle],
+    ) -> Result<Self, CredentialDeliveryError> {
+        let Some(first) = handles.first() else {
+            return Ok(Self::none());
+        };
+        let provider = first.provider.trim();
+        if provider.is_empty() {
+            return Err(CredentialDeliveryError::HostedCredentialHandlesInvalid {
+                reason: "provider is required".to_owned(),
+            });
+        }
+        for handle in handles {
+            if handle.credential_ref.reference_type != ReferenceType::Credential {
+                return Err(CredentialDeliveryError::HostedCredentialRefType {
+                    reference_type: handle.credential_ref.reference_type.as_str().to_owned(),
+                });
+            }
+            if handle.provider.trim() != provider || handle.purpose != first.purpose {
+                return Err(CredentialDeliveryError::HostedCredentialHandlesMixed);
+            }
+        }
+
+        let canonical = serde_json::to_vec(handles).map_err(|error| {
+            CredentialDeliveryError::HostedCredentialHandlesInvalid {
+                reason: error.to_string(),
+            }
+        })?;
+        let handles_id = sha256_hex(&canonical);
+        let mut refs = Vec::with_capacity(handles.len());
+        for handle in handles {
+            let mut credential_ref = handle.credential_ref.clone();
+            credential_ref.provider = Some(handle.provider.clone().into());
+            credential_ref.proof_kind = Some(ProofKind::CredentialResolution);
+            refs.push(credential_ref);
+        }
+
+        Ok(Self {
+            secret_env: SecretEnv::default(),
+            public_observation: Some(CredentialDeliveryObservation {
+                schema: runx_contracts::CredentialDeliveryObservationSchema::V1,
+                observation_id: format!("hosted-credential-delivery/{handles_id}").into(),
+                request_id: format!("hosted-credential-handles/{handles_id}").into(),
+                response_id: None,
+                status: CredentialDeliveryObservationStatus::Delivered,
+                harness_ref: Reference::with_uri(
+                    ReferenceType::Harness,
+                    "runx:harness:hosted-credential-handles",
+                ),
+                host_ref: Some(Reference::with_uri(
+                    ReferenceType::Host,
+                    "runx:host:hosted-runtime-service",
+                )),
+                profile_id: format!("{provider}-hosted-handles").into(),
+                provider: provider.to_owned().into(),
+                purpose: first.purpose.clone(),
+                delivery_mode: None,
+                credential_refs: refs,
+                material_ref_hash: None,
+                delivered_roles: Vec::new(),
+                redaction_refs: None,
+                observed_at: crate::time::now_iso8601().into(),
+            }),
+        })
+    }
+
     pub fn from_allowed_binding<R: MaterialResolver>(
         decision: &CredentialBindingDecision,
         credential: &CredentialEnvelope,
@@ -459,6 +537,20 @@ pub enum CredentialDeliveryError {
     UnsupportedDeliveryMode { mode: String },
     #[error("credential process-env delivery is not supported across the '{boundary}' boundary")]
     ProcessEnvBoundaryUnsupported { boundary: String },
+    #[error("invalid hosted credential handles: {reason}")]
+    HostedCredentialHandlesInvalid { reason: String },
+    #[error("hosted credential handles must share one provider and purpose")]
+    HostedCredentialHandlesMixed,
+    #[error("hosted credential handle reference must be type credential, got '{reference_type}'")]
+    HostedCredentialRefType { reference_type: String },
+}
+
+#[derive(Clone, Debug, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct HostedCredentialHandle {
+    credential_ref: Reference,
+    provider: String,
+    purpose: CredentialDeliveryPurpose,
 }
 
 /// Build the non-secret observation that records a local per-run credential
@@ -723,6 +815,71 @@ mod tests {
         let serialized = serde_json::to_string(observation).map_err(|error| error.to_string())?;
         assert!(!serialized.contains("ghp_secret_value"));
         Ok(())
+    }
+
+    #[test]
+    fn hosted_credential_handles_create_non_secret_observation() -> Result<(), String> {
+        let delivery = CredentialDelivery::from_hosted_handles_json(
+            r#"[
+              {
+                "credential_ref": {
+                  "type": "credential",
+                  "uri": "runx:credential:github-installation:123"
+                },
+                "provider": "github",
+                "purpose": "provider_api"
+              }
+            ]"#,
+        )
+        .map_err(|error| error.to_string())?;
+
+        assert!(delivery.secret_env().is_empty());
+        let observation = delivery
+            .public_observation()
+            .ok_or_else(|| "expected hosted credential observation".to_owned())?;
+        assert_eq!(observation.provider.as_str(), "github");
+        assert_eq!(observation.purpose, CredentialDeliveryPurpose::ProviderApi);
+        assert_eq!(observation.delivery_mode, None);
+        assert!(observation.delivered_roles.is_empty());
+        assert_eq!(observation.credential_refs.len(), 1);
+        assert_eq!(
+            observation.credential_refs[0].proof_kind,
+            Some(ProofKind::CredentialResolution)
+        );
+        assert_eq!(
+            observation.credential_refs[0].provider.as_deref(),
+            Some("github")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn hosted_credential_handles_fail_closed_on_mixed_authority() {
+        let result = CredentialDelivery::from_hosted_handles_json(
+            r#"[
+              {
+                "credential_ref": {
+                  "type": "credential",
+                  "uri": "runx:credential:github-installation:123"
+                },
+                "provider": "github",
+                "purpose": "provider_api"
+              },
+              {
+                "credential_ref": {
+                  "type": "credential",
+                  "uri": "runx:credential:slack:456"
+                },
+                "provider": "slack",
+                "purpose": "provider_api"
+              }
+            ]"#,
+        );
+
+        assert!(matches!(
+            result,
+            Err(CredentialDeliveryError::HostedCredentialHandlesMixed)
+        ));
     }
 
     #[test]

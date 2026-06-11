@@ -235,8 +235,47 @@ pub struct PublishSkillMarkdownResult {
     pub source_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub registry_url: Option<String>,
+    #[serde(default)]
+    pub harness: RegistryPublishHarnessReport,
     pub link: RegistryLinkResolution,
     pub record: RegistrySkillVersion,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryPublishHarnessReport {
+    pub status: String,
+    pub case_count: usize,
+    pub assertion_error_count: usize,
+    pub assertion_errors: Vec<String>,
+    pub case_names: Vec<String>,
+    pub receipt_ids: Vec<String>,
+    pub graph_case_count: usize,
+}
+
+impl RegistryPublishHarnessReport {
+    #[must_use]
+    pub fn not_declared() -> Self {
+        Self {
+            status: "not_declared".to_owned(),
+            case_count: 0,
+            assertion_error_count: 0,
+            assertion_errors: Vec::new(),
+            case_names: Vec::new(),
+            receipt_ids: Vec::new(),
+            graph_case_count: 0,
+        }
+    }
+
+    #[must_use]
+    pub fn failed(&self) -> bool {
+        self.status == "failed"
+    }
+}
+
+impl Default for RegistryPublishHarnessReport {
+    fn default() -> Self {
+        Self::not_declared()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

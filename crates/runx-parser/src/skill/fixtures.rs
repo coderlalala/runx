@@ -5,10 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ValidationError;
 
-use super::{
-    optional_non_empty_string, optional_object, optional_string, optional_string_array,
-    required_object, required_plain_array, required_string, validation_error,
-};
+use super::FIELDS;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HarnessCallerFixture {
@@ -67,12 +64,13 @@ pub(crate) fn validate_harness_manifest(
     let Some(value) = value else {
         return Ok(None);
     };
-    let cases = required_plain_array(value.get("cases"), &format!("{field}.cases"))?
+    let cases = FIELDS
+        .required_plain_array(value.get("cases"), &format!("{field}.cases"))?
         .iter()
         .enumerate()
         .map(|(index, entry)| {
             validate_harness_case(
-                required_object(Some(entry), &format!("{field}.cases[{index}]"))?,
+                FIELDS.required_object(Some(entry), &format!("{field}.cases[{index}]"))?,
                 &format!("{field}.cases[{index}]"),
             )
         })
@@ -85,20 +83,26 @@ fn validate_harness_case(
     field: &str,
 ) -> Result<RunnerHarnessCase, ValidationError> {
     Ok(RunnerHarnessCase {
-        name: required_string(value.get("name"), &format!("{field}.name"))?,
-        runner: optional_non_empty_string(value.get("runner"), &format!("{field}.runner"))?,
-        inputs: optional_object(value.get("inputs"), &format!("{field}.inputs"))?
+        name: FIELDS.required_string(value.get("name"), &format!("{field}.name"))?,
+        runner: FIELDS
+            .optional_non_empty_string(value.get("runner"), &format!("{field}.runner"))?,
+        inputs: FIELDS
+            .optional_object(value.get("inputs"), &format!("{field}.inputs"))?
             .unwrap_or_default(),
         env: validate_string_object(
-            optional_object(value.get("env"), &format!("{field}.env"))?.unwrap_or_default(),
+            FIELDS
+                .optional_object(value.get("env"), &format!("{field}.env"))?
+                .unwrap_or_default(),
             &format!("{field}.env"),
         )?,
         caller: validate_harness_caller(
-            optional_object(value.get("caller"), &format!("{field}.caller"))?.unwrap_or_default(),
+            FIELDS
+                .optional_object(value.get("caller"), &format!("{field}.caller"))?
+                .unwrap_or_default(),
             &format!("{field}.caller"),
         )?,
         expect: validate_harness_expectation(
-            required_object(value.get("expect"), &format!("{field}.expect"))?,
+            FIELDS.required_object(value.get("expect"), &format!("{field}.expect"))?,
             &format!("{field}.expect"),
         )?,
     })
@@ -112,7 +116,7 @@ fn validate_string_object(
         .into_iter()
         .map(|(key, value)| match value {
             JsonValue::String(value) => Ok((key, value)),
-            _ => Err(validation_error(format!("{field}.{key} must be a string."))),
+            _ => Err(FIELDS.validation_error(format!("{field}.{key} must be a string."))),
         })
         .collect()
 }
@@ -122,9 +126,10 @@ fn validate_harness_caller(
     field: &str,
 ) -> Result<HarnessCallerFixture, ValidationError> {
     Ok(HarnessCallerFixture {
-        answers: optional_object(value.get("answers"), &format!("{field}.answers"))?,
+        answers: FIELDS.optional_object(value.get("answers"), &format!("{field}.answers"))?,
         approvals: Some(validate_bool_object(
-            optional_object(value.get("approvals"), &format!("{field}.approvals"))?
+            FIELDS
+                .optional_object(value.get("approvals"), &format!("{field}.approvals"))?
                 .unwrap_or_default(),
             &format!("{field}.approvals"),
         )?),
@@ -139,9 +144,7 @@ fn validate_bool_object(
         .into_iter()
         .map(|(key, value)| match value {
             JsonValue::Bool(value) => Ok((key, value)),
-            _ => Err(validation_error(format!(
-                "{field}.{key} must be a boolean."
-            ))),
+            _ => Err(FIELDS.validation_error(format!("{field}.{key} must be a boolean."))),
         })
         .collect()
 }
@@ -153,10 +156,10 @@ fn validate_harness_expectation(
     Ok(HarnessExpectation {
         status: optional_harness_status(value.get("status"), &format!("{field}.status"))?,
         receipt: validate_receipt_expectation(
-            optional_object(value.get("receipt"), &format!("{field}.receipt"))?,
+            FIELDS.optional_object(value.get("receipt"), &format!("{field}.receipt"))?,
             &format!("{field}.receipt"),
         )?,
-        steps: optional_string_array(value.get("steps"), &format!("{field}.steps"))?,
+        steps: FIELDS.optional_string_array(value.get("steps"), &format!("{field}.steps"))?,
     })
 }
 
@@ -170,10 +173,13 @@ fn validate_receipt_expectation(
     Ok(Some(ReceiptExpectation {
         kind: optional_receipt_kind(value.get("kind"), &format!("{field}.kind"))?,
         status: optional_receipt_status(value.get("status"), &format!("{field}.status"))?,
-        skill_name: optional_string(value.get("skill_name"), &format!("{field}.skill_name"))?,
-        source_type: optional_string(value.get("source_type"), &format!("{field}.source_type"))?,
-        graph_name: optional_string(value.get("graph_name"), &format!("{field}.graph_name"))?,
-        owner: optional_string(value.get("owner"), &format!("{field}.owner"))?,
+        skill_name: FIELDS
+            .optional_string(value.get("skill_name"), &format!("{field}.skill_name"))?,
+        source_type: FIELDS
+            .optional_string(value.get("source_type"), &format!("{field}.source_type"))?,
+        graph_name: FIELDS
+            .optional_string(value.get("graph_name"), &format!("{field}.graph_name"))?,
+        owner: FIELDS.optional_string(value.get("owner"), &format!("{field}.owner"))?,
     }))
 }
 
@@ -213,14 +219,11 @@ fn validate_enum(
     field: &str,
     allowed: &[&str],
 ) -> Result<Option<String>, ValidationError> {
-    let Some(value) = optional_string(value, field)? else {
+    let Some(value) = FIELDS.optional_string(value, field)? else {
         return Ok(None);
     };
     if allowed.iter().any(|allowed| *allowed == value) {
         return Ok(Some(value));
     }
-    Err(validation_error(format!(
-        "{field} must be {}.",
-        allowed.join(", ")
-    )))
+    Err(FIELDS.validation_error(format!("{field} must be {}.", allowed.join(", "))))
 }

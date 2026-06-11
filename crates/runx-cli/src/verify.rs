@@ -6,7 +6,10 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use runx_contracts::{Receipt, Reference, ReferenceType};
+use base64::Engine;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use ring::signature::{ED25519, UnparsedPublicKey};
+use runx_contracts::{Receipt, Reference, ReferenceType, sha256_prefixed};
 use runx_receipts::{
     ReceiptProofContext, ReceiptVerifySignatureMode, ReceiptVerifyVerdict,
     SignatureVerificationFailure, SignatureVerifier, verify_receipt_document_verdict,
@@ -57,6 +60,8 @@ struct ParsedVerifyArgs {
     receipt_id: Option<String>,
     receipt_dir: Option<PathBuf>,
     receipt: Option<ReceiptInput>,
+    notary: Option<ReceiptInput>,
+    notary_keys: Vec<PathBuf>,
     json: bool,
 }
 
@@ -97,6 +102,22 @@ struct FileIssue {
     message: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct NotaryVerifyVerdict {
+    schema: &'static str,
+    valid: bool,
+    counter_seal: NotaryCounterSealReport,
+    findings: Vec<FindingReport>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct NotaryCounterSealReport {
+    schema: Option<String>,
+    digest_status: &'static str,
+    signature_status: &'static str,
+    trusted_key_count: usize,
+}
+
 pub fn run_verify_command(
     args: &[OsString],
     env: &BTreeMap<String, String>,
@@ -113,6 +134,9 @@ pub fn run_verify_command_with_stdin<R: Read>(
     stdin: R,
 ) -> Result<VerifyCliResult, VerifyCliError> {
     let parsed = parse_verify_args(args)?;
+    if let Some(input) = parsed.notary.as_ref() {
+        return run_notary_verify(input, &parsed.notary_keys, parsed.json, cwd, stdin);
+    }
     if let Some(input) = parsed.receipt.as_ref() {
         return run_single_receipt_verify(input, parsed.json, env, cwd, stdin);
     }
@@ -211,6 +235,8 @@ pub fn run_verify_command_with_stdin<R: Read>(
     })
 }
 
+// rust-style-allow: long-function - verify accepts legacy receipt-tree flags and
+// the single-receipt machine surface in one mutually-exclusive parser.
 fn parse_verify_args(args: &[OsString]) -> Result<ParsedVerifyArgs, VerifyCliError> {
     let mut parsed = ParsedVerifyArgs::default();
     let mut iter = args.iter().skip(1);
@@ -232,9 +258,34 @@ fn parse_verify_args(args: &[OsString]) -> Result<ParsedVerifyArgs, VerifyCliErr
                     .ok_or_else(|| invalid_args("--receipt requires a path or -"))?;
                 parsed.receipt = Some(parse_receipt_input(value)?);
             }
+            "--notary" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| invalid_args("--notary requires a path or -"))?;
+                parsed.notary = Some(parse_receipt_input(value)?);
+            }
+            "--notary-key" => {
+                let value = iter.next().ok_or_else(|| {
+                    invalid_args("--notary-key requires a trusted public key PEM path")
+                })?;
+                parsed.notary_keys.push(PathBuf::from(value));
+            }
             other if other.starts_with("--receipt=") => {
                 let value = other.trim_start_matches("--receipt=");
                 parsed.receipt = Some(parse_receipt_input_text(value)?);
+            }
+            other if other.starts_with("--notary=") => {
+                let value = other.trim_start_matches("--notary=");
+                parsed.notary = Some(parse_receipt_input_text(value)?);
+            }
+            other if other.starts_with("--notary-key=") => {
+                let value = other.trim_start_matches("--notary-key=");
+                if value.is_empty() {
+                    return Err(invalid_args(
+                        "--notary-key requires a trusted public key PEM path",
+                    ));
+                }
+                parsed.notary_keys.push(PathBuf::from(value));
             }
             other if other.starts_with("--") => {
                 return Err(invalid_args(format!("unknown verify flag {other}")));
@@ -250,6 +301,21 @@ fn parse_verify_args(args: &[OsString]) -> Result<ParsedVerifyArgs, VerifyCliErr
     if parsed.receipt.is_some() && (parsed.receipt_id.is_some() || parsed.receipt_dir.is_some()) {
         return Err(invalid_args(
             "--receipt cannot be combined with a receipt id or --receipt-dir",
+        ));
+    }
+    if parsed.notary.is_some()
+        && (parsed.receipt.is_some() || parsed.receipt_id.is_some() || parsed.receipt_dir.is_some())
+    {
+        return Err(invalid_args(
+            "--notary cannot be combined with --receipt, a receipt id, or --receipt-dir",
+        ));
+    }
+    if parsed.notary.is_none() && !parsed.notary_keys.is_empty() {
+        return Err(invalid_args("--notary-key requires --notary"));
+    }
+    if parsed.notary.is_some() && parsed.notary_keys.is_empty() {
+        return Err(invalid_args(
+            "--notary requires at least one external trusted public key via --notary-key",
         ));
     }
     Ok(parsed)
@@ -355,6 +421,450 @@ fn read_limited_stdin<R: Read>(stdin: R) -> Result<Vec<u8>, VerifyCliError> {
         return Err(single_receipt_too_large());
     }
     Ok(document)
+}
+
+fn run_notary_verify<R: Read>(
+    input: &ReceiptInput,
+    trusted_key_paths: &[PathBuf],
+    json: bool,
+    cwd: &Path,
+    stdin: R,
+) -> Result<VerifyCliResult, VerifyCliError> {
+    let document = read_single_receipt_input(input, cwd, stdin)?;
+    let trusted_keys = trusted_notary_keys_from_paths(trusted_key_paths, cwd)?;
+    let verdict = verify_notary_document(&document, &trusted_keys);
+    let output = if json {
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&verdict).map_err(VerifyCliError::Serialize)?
+        )
+    } else {
+        render_notary_verdict(&verdict)
+    };
+    Ok(VerifyCliResult {
+        output,
+        failed: !verdict.valid,
+    })
+}
+
+// rust-style-allow: long-function - hosted notary verification traverses one
+// public projection and accumulates all findings for operator diagnostics.
+fn verify_notary_document(document: &[u8], trusted_keys: &[Vec<u8>]) -> NotaryVerifyVerdict {
+    let mut findings = Vec::new();
+    let root = match serde_json::from_slice::<serde_json::Value>(document) {
+        Ok(value) => value,
+        Err(error) => {
+            findings.push(finding(
+                "notary_parse_error",
+                "$",
+                format!("notary verification document is not valid JSON: {error}"),
+            ));
+            return notary_verdict(None, "missing", "missing", 0, findings);
+        }
+    };
+    let Some(notary) = locate_notary_verification(&root) else {
+        findings.push(finding(
+            "notary_verification_missing",
+            "$",
+            "notary verification document must contain notary_verification or receipt.notary_verification",
+        ));
+        return notary_verdict(None, "missing", "missing", 0, findings);
+    };
+    let Some(counter_seal) = notary
+        .get("counter_seal")
+        .and_then(serde_json::Value::as_object)
+    else {
+        findings.push(finding(
+            "counter_seal_missing",
+            "notary_verification.counter_seal",
+            "notary verification is missing counter_seal",
+        ));
+        return notary_verdict(None, "missing", "missing", trusted_keys.len(), findings);
+    };
+    let schema = counter_seal
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .map(ToOwned::to_owned);
+    let Some(payload) = counter_seal.get("payload") else {
+        findings.push(finding(
+            "counter_seal_payload_missing",
+            "notary_verification.counter_seal.payload",
+            "counter seal is missing its signed payload",
+        ));
+        return notary_verdict(schema, "missing", "missing", trusted_keys.len(), findings);
+    };
+    let canonical_payload = match serde_json::to_string(payload) {
+        Ok(value) => value,
+        Err(error) => {
+            findings.push(finding(
+                "counter_seal_payload_invalid",
+                "notary_verification.counter_seal.payload",
+                format!("counter seal payload cannot be canonicalized: {error}"),
+            ));
+            return notary_verdict(schema, "invalid", "missing", trusted_keys.len(), findings);
+        }
+    };
+    let expected_digest = sha256_prefixed(canonical_payload.as_bytes());
+    let digest_status = match counter_seal
+        .get("digest")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some(actual) if actual == expected_digest => "valid",
+        Some(_) => {
+            findings.push(finding(
+                "counter_seal_digest_mismatch",
+                "notary_verification.counter_seal.digest",
+                "counter seal digest does not match the canonical payload",
+            ));
+            "invalid"
+        }
+        None => {
+            findings.push(finding(
+                "counter_seal_digest_missing",
+                "notary_verification.counter_seal.digest",
+                "counter seal is missing digest",
+            ));
+            "missing"
+        }
+    };
+    bind_counter_seal_to_projection(&root, payload, counter_seal, &mut findings);
+    let signature_status = verify_counter_seal_signature(
+        notary,
+        counter_seal,
+        &canonical_payload,
+        trusted_keys,
+        &mut findings,
+    );
+    let trusted_key_count = trusted_keys.len();
+    notary_verdict(
+        schema,
+        digest_status,
+        signature_status,
+        trusted_key_count,
+        findings,
+    )
+}
+
+fn locate_notary_verification(
+    root: &serde_json::Value,
+) -> Option<&serde_json::Map<String, serde_json::Value>> {
+    root.get("receipt")
+        .and_then(|receipt| receipt.get("notary_verification"))
+        .or_else(|| root.get("notary_verification"))
+        .or(Some(root))
+        .and_then(serde_json::Value::as_object)
+}
+
+// rust-style-allow: long-function - counter-seal validation intentionally binds
+// digest, public key, signature, and trust-key diagnostics in one check.
+fn verify_counter_seal_signature(
+    notary: &serde_json::Map<String, serde_json::Value>,
+    counter_seal: &serde_json::Map<String, serde_json::Value>,
+    canonical_payload: &str,
+    trusted_keys: &[Vec<u8>],
+    findings: &mut Vec<FindingReport>,
+) -> &'static str {
+    let Some(signature) = counter_seal
+        .get("signature")
+        .and_then(serde_json::Value::as_object)
+    else {
+        findings.push(finding(
+            "counter_seal_signature_missing",
+            "notary_verification.counter_seal.signature",
+            "counter seal is missing signature",
+        ));
+        return "missing";
+    };
+    if signature.get("alg").and_then(serde_json::Value::as_str) != Some("Ed25519") {
+        findings.push(finding(
+            "counter_seal_signature_algorithm_unsupported",
+            "notary_verification.counter_seal.signature.alg",
+            "counter seal signature algorithm must be Ed25519",
+        ));
+        return "invalid";
+    }
+    let Some(signature_value) = signature.get("value").and_then(serde_json::Value::as_str) else {
+        findings.push(finding(
+            "counter_seal_signature_value_missing",
+            "notary_verification.counter_seal.signature.value",
+            "counter seal signature value is missing",
+        ));
+        return "missing";
+    };
+    let signature_bytes = match decode_signature(signature_value) {
+        Ok(bytes) if bytes.len() == 64 => bytes,
+        Ok(_) | Err(_) => {
+            findings.push(finding(
+                "counter_seal_signature_malformed",
+                "notary_verification.counter_seal.signature.value",
+                "counter seal signature is not a valid Ed25519 signature",
+            ));
+            return "invalid";
+        }
+    };
+    if trusted_keys.is_empty() {
+        findings.push(finding(
+            "notary_trusted_key_missing",
+            "--notary-key",
+            "notary verification requires at least one external trusted Ed25519 public key",
+        ));
+        return "missing";
+    }
+    record_embedded_key_mismatch(notary, trusted_keys, findings);
+    if trusted_keys.iter().any(|key| {
+        UnparsedPublicKey::new(&ED25519, key)
+            .verify(canonical_payload.as_bytes(), &signature_bytes)
+            .is_ok()
+    }) {
+        return "valid";
+    }
+    findings.push(finding(
+        "counter_seal_signature_mismatch",
+        "notary_verification.counter_seal.signature",
+        "counter seal signature did not verify against any external trusted notary key",
+    ));
+    "invalid"
+}
+
+fn trusted_notary_keys_from_paths(
+    paths: &[PathBuf],
+    cwd: &Path,
+) -> Result<Vec<Vec<u8>>, VerifyCliError> {
+    let mut keys = Vec::with_capacity(paths.len());
+    for path in paths {
+        let path = if path.is_absolute() {
+            path.clone()
+        } else {
+            cwd.join(path)
+        };
+        let pem = fs::read_to_string(&path).map_err(|error| {
+            VerifyCliError::Store(format!(
+                "failed to read notary key {}: {error}",
+                path.display()
+            ))
+        })?;
+        keys.push(ed25519_public_key_from_spki_pem(&pem).map_err(|message| {
+            VerifyCliError::InvalidReceiptVerifier(format!(
+                "invalid notary key {}: {message}",
+                path.display()
+            ))
+        })?);
+    }
+    Ok(keys)
+}
+
+fn embedded_notary_keys(
+    notary: &serde_json::Map<String, serde_json::Value>,
+    findings: &mut Vec<FindingReport>,
+) -> Vec<Vec<u8>> {
+    let Some(keys) = notary
+        .get("signer_public_keys")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let mut decoded = Vec::new();
+    for (index, key) in keys.iter().enumerate() {
+        let Some(pem) = key
+            .get("public_key_pem")
+            .and_then(serde_json::Value::as_str)
+        else {
+            findings.push(finding(
+                "notary_trusted_key_missing_pem",
+                format!("notary_verification.signer_public_keys[{index}].public_key_pem"),
+                "trusted notary key is missing public_key_pem",
+            ));
+            continue;
+        };
+        match ed25519_public_key_from_spki_pem(pem) {
+            Ok(raw) => decoded.push(raw),
+            Err(message) => findings.push(finding(
+                "notary_trusted_key_malformed",
+                format!("notary_verification.signer_public_keys[{index}].public_key_pem"),
+                message,
+            )),
+        }
+    }
+    decoded
+}
+
+fn record_embedded_key_mismatch(
+    notary: &serde_json::Map<String, serde_json::Value>,
+    trusted_keys: &[Vec<u8>],
+    findings: &mut Vec<FindingReport>,
+) {
+    let embedded = embedded_notary_keys(notary, findings);
+    if embedded.is_empty() {
+        return;
+    }
+    let has_trusted_embedded_key = embedded
+        .iter()
+        .any(|candidate| trusted_keys.iter().any(|trusted| trusted == candidate));
+    if !has_trusted_embedded_key {
+        findings.push(finding(
+            "notary_embedded_key_untrusted",
+            "notary_verification.signer_public_keys",
+            "embedded notary keys do not include any externally trusted key",
+        ));
+    }
+}
+
+fn bind_counter_seal_to_projection(
+    root: &serde_json::Value,
+    payload: &serde_json::Value,
+    counter_seal: &serde_json::Map<String, serde_json::Value>,
+    findings: &mut Vec<FindingReport>,
+) {
+    let Some(receipt) = root.get("receipt").and_then(serde_json::Value::as_object) else {
+        return;
+    };
+    require_matching_text(
+        receipt,
+        "digest",
+        payload,
+        "digest",
+        "receipt.digest",
+        "notary_verification.counter_seal.payload.digest",
+        findings,
+    );
+    require_matching_text(
+        receipt,
+        "mode",
+        payload,
+        "mode",
+        "receipt.mode",
+        "notary_verification.counter_seal.payload.mode",
+        findings,
+    );
+    require_matching_text(
+        receipt,
+        "binary_version",
+        payload,
+        "binary_version",
+        "receipt.binary_version",
+        "notary_verification.counter_seal.payload.binary_version",
+        findings,
+    );
+    if let Some(projected_payload_digest) = counter_seal
+        .get("payload_digest")
+        .and_then(serde_json::Value::as_str)
+    {
+        match serde_json::to_string(payload) {
+            Ok(canonical_payload) => {
+                let actual_payload_digest = sha256_prefixed(canonical_payload.as_bytes());
+                if projected_payload_digest != actual_payload_digest {
+                    findings.push(finding(
+                        "counter_seal_payload_digest_mismatch",
+                        "notary_verification.counter_seal.payload_digest",
+                        "projected counter-seal payload digest does not match the signed payload",
+                    ));
+                }
+            }
+            Err(error) => findings.push(finding(
+                "counter_seal_payload_digest_invalid",
+                "notary_verification.counter_seal.payload_digest",
+                format!("projected counter-seal payload cannot be canonicalized: {error}"),
+            )),
+        }
+    }
+}
+
+fn require_matching_text(
+    left: &serde_json::Map<String, serde_json::Value>,
+    left_key: &str,
+    right: &serde_json::Value,
+    right_key: &str,
+    left_path: &str,
+    right_path: &str,
+    findings: &mut Vec<FindingReport>,
+) {
+    let left_value = left.get(left_key).and_then(serde_json::Value::as_str);
+    let right_value = right.get(right_key).and_then(serde_json::Value::as_str);
+    if left_value != right_value {
+        findings.push(finding(
+            "notary_projection_binding_mismatch",
+            format!("{left_path} <-> {right_path}"),
+            "public projection field does not match the signed notary payload",
+        ));
+    }
+}
+
+fn ed25519_public_key_from_spki_pem(pem: &str) -> Result<Vec<u8>, String> {
+    const ED25519_SPKI_PREFIX: &[u8] = &[
+        0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+    ];
+    let body = pem
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with("-----BEGIN ") && !line.starts_with("-----END "))
+        .collect::<String>();
+    let der = STANDARD
+        .decode(body)
+        .map_err(|_| "trusted notary key PEM is not valid base64".to_owned())?;
+    if der.len() != ED25519_SPKI_PREFIX.len() + 32 || !der.starts_with(ED25519_SPKI_PREFIX) {
+        return Err("trusted notary key PEM is not an Ed25519 SPKI public key".to_owned());
+    }
+    Ok(der[ED25519_SPKI_PREFIX.len()..].to_vec())
+}
+
+fn decode_signature(value: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    let encoded = value.strip_prefix("base64:").unwrap_or(value);
+    URL_SAFE_NO_PAD
+        .decode(encoded)
+        .or_else(|_| STANDARD.decode(encoded))
+}
+
+fn notary_verdict(
+    schema: Option<String>,
+    digest_status: &'static str,
+    signature_status: &'static str,
+    trusted_key_count: usize,
+    findings: Vec<FindingReport>,
+) -> NotaryVerifyVerdict {
+    NotaryVerifyVerdict {
+        schema: "runx.notary_verify_verdict.v1",
+        valid: findings.is_empty() && digest_status == "valid" && signature_status == "valid",
+        counter_seal: NotaryCounterSealReport {
+            schema,
+            digest_status,
+            signature_status,
+            trusted_key_count,
+        },
+        findings,
+    }
+}
+
+fn finding(
+    code: impl Into<String>,
+    path: impl Into<String>,
+    message: impl Into<String>,
+) -> FindingReport {
+    FindingReport {
+        code: code.into(),
+        path: path.into(),
+        message: message.into(),
+    }
+}
+
+fn render_notary_verdict(verdict: &NotaryVerifyVerdict) -> String {
+    let mut output = String::new();
+    output.push_str(&format!(
+        "notary counter-seal: {}\n",
+        if verdict.valid { "ok" } else { "INVALID" }
+    ));
+    output.push_str(&format!(
+        "digest: {}\nsignature: {}\ntrusted keys: {}\n",
+        verdict.counter_seal.digest_status,
+        verdict.counter_seal.signature_status,
+        verdict.counter_seal.trusted_key_count
+    ));
+    for finding in &verdict.findings {
+        output.push_str(&format!(
+            "finding {} at {}: {}\n",
+            finding.code, finding.path, finding.message
+        ));
+    }
+    output
 }
 
 fn production_verifier(
@@ -623,6 +1133,7 @@ mod tests {
     use std::io;
 
     use super::*;
+    use ring::signature::KeyPair;
     use runx_contracts::ReceiptIssuerType;
     use runx_runtime::receipts::step_receipt_with_signature_policy;
     use runx_runtime::{
@@ -835,6 +1346,210 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn verifies_hosted_notary_counter_seal_from_stdin() -> Result<(), io::Error> {
+        let temp = tempfile_dir()?;
+        let key_pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(&FIXTURE_SEED)
+            .map_err(|_| io::Error::other("fixture key must be valid"))?;
+        let public_key_path = temp.join("trusted-notary.pem");
+        fs::write(
+            &public_key_path,
+            ed25519_spki_pem(key_pair.public_key().as_ref()),
+        )?;
+        let payload = test_json::json!({
+            "binary_version": "runx-test",
+            "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "issued_at": "2026-06-10T00:00:00Z",
+            "mode": "full",
+            "schema": "runx.hosted_notary_counter_seal_payload.v1",
+            "verdict_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        });
+        let canonical_payload = serde_json::to_string(&payload).map_err(io::Error::other)?;
+        let signature = key_pair.sign(canonical_payload.as_bytes());
+        let document = test_json::json!({
+            "notary_verification": {
+                "counter_seal": {
+                    "schema": "runx.hosted_notary_counter_seal.v1",
+                    "payload": payload,
+                    "digest": sha256_prefixed(canonical_payload.as_bytes()),
+                    "signature": {
+                        "alg": "Ed25519",
+                        "value": format!("base64:{}", base64_standard(signature.as_ref()))
+                    }
+                },
+                "signer_public_keys": [{
+                    "kid": "trusted-hosted-receipt-notary-1",
+                    "public_key_pem": ed25519_spki_pem(key_pair.public_key().as_ref())
+                }]
+            }
+        });
+
+        let result = run_verify_command_with_stdin(
+            &[
+                "verify".into(),
+                "--notary".into(),
+                "-".into(),
+                "--notary-key".into(),
+                public_key_path.into_os_string(),
+                "--json".into(),
+            ],
+            &BTreeMap::new(),
+            &temp,
+            io::Cursor::new(serde_json::to_vec(&document).map_err(io::Error::other)?),
+        )
+        .map_err(|error| io::Error::other(error.to_string()))?;
+
+        assert!(!result.failed, "notary verifier failed: {}", result.output);
+        let verdict: JsonValue = serde_json::from_str(&result.output).map_err(io::Error::other)?;
+        assert_eq!(verdict["schema"], "runx.notary_verify_verdict.v1");
+        assert_eq!(verdict["valid"], JsonValue::Bool(true));
+        assert_eq!(verdict["counter_seal"]["digest_status"], "valid");
+        assert_eq!(verdict["counter_seal"]["signature_status"], "valid");
+        Ok(())
+    }
+
+    #[test]
+    // rust-style-allow: long-function - this notary negative fixture builds the
+    // untrusted projection and verifies each emitted finding together.
+    fn hosted_notary_rejects_embedded_key_without_external_trust() -> Result<(), io::Error> {
+        let temp = tempfile_dir()?;
+        let signer = ring::signature::Ed25519KeyPair::from_seed_unchecked(&FIXTURE_SEED)
+            .map_err(|_| io::Error::other("fixture key must be valid"))?;
+        let untrusted = ring::signature::Ed25519KeyPair::from_seed_unchecked(&[7u8; 32])
+            .map_err(|_| io::Error::other("fixture key must be valid"))?;
+        let untrusted_key_path = temp.join("untrusted-notary.pem");
+        fs::write(
+            &untrusted_key_path,
+            ed25519_spki_pem(untrusted.public_key().as_ref()),
+        )?;
+        let payload = test_json::json!({
+            "binary_version": "runx-test",
+            "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "issued_at": "2026-06-10T00:00:00Z",
+            "mode": "full",
+            "schema": "runx.hosted_notary_counter_seal_payload.v1",
+            "verdict_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        });
+        let canonical_payload = serde_json::to_string(&payload).map_err(io::Error::other)?;
+        let signature = signer.sign(canonical_payload.as_bytes());
+        let document = test_json::json!({
+            "notary_verification": {
+                "counter_seal": {
+                    "schema": "runx.hosted_notary_counter_seal.v1",
+                    "payload": payload,
+                    "digest": sha256_prefixed(canonical_payload.as_bytes()),
+                    "signature": {
+                        "alg": "Ed25519",
+                        "value": format!("base64:{}", base64_standard(signature.as_ref()))
+                    }
+                },
+                "signer_public_keys": [{
+                    "kid": "self-attested-hosted-receipt-notary",
+                    "public_key_pem": ed25519_spki_pem(signer.public_key().as_ref())
+                }]
+            }
+        });
+
+        let result = run_verify_command_with_stdin(
+            &[
+                "verify".into(),
+                "--notary".into(),
+                "-".into(),
+                "--notary-key".into(),
+                untrusted_key_path.into_os_string(),
+                "--json".into(),
+            ],
+            &BTreeMap::new(),
+            &temp,
+            io::Cursor::new(serde_json::to_vec(&document).map_err(io::Error::other)?),
+        )
+        .map_err(|error| io::Error::other(error.to_string()))?;
+
+        assert!(
+            result.failed,
+            "notary verifier should fail: {}",
+            result.output
+        );
+        let verdict: JsonValue = serde_json::from_str(&result.output).map_err(io::Error::other)?;
+        assert_eq!(verdict["valid"], JsonValue::Bool(false));
+        assert_eq!(verdict["counter_seal"]["signature_status"], "invalid");
+        assert!(finding_codes(&verdict).contains(&"counter_seal_signature_mismatch".to_owned()));
+        assert!(finding_codes(&verdict).contains(&"notary_embedded_key_untrusted".to_owned()));
+        Ok(())
+    }
+
+    #[test]
+    // rust-style-allow: long-function - this notary fixture keeps the signed
+    // payload, projection, and verification readback in one regression.
+    fn hosted_notary_binds_signed_payload_to_public_projection() -> Result<(), io::Error> {
+        let temp = tempfile_dir()?;
+        let key_pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(&FIXTURE_SEED)
+            .map_err(|_| io::Error::other("fixture key must be valid"))?;
+        let public_key_path = temp.join("trusted-notary.pem");
+        fs::write(
+            &public_key_path,
+            ed25519_spki_pem(key_pair.public_key().as_ref()),
+        )?;
+        let payload = test_json::json!({
+            "binary_version": "runx-test",
+            "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "issued_at": "2026-06-10T00:00:00Z",
+            "mode": "full",
+            "schema": "runx.hosted_notary_counter_seal_payload.v1",
+            "verdict_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        });
+        let canonical_payload = serde_json::to_string(&payload).map_err(io::Error::other)?;
+        let signature = key_pair.sign(canonical_payload.as_bytes());
+        let document = test_json::json!({
+            "receipt": {
+                "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "mode": "full",
+                "binary_version": "runx-test",
+                "notary_verification": {
+                    "counter_seal": {
+                        "schema": "runx.hosted_notary_counter_seal.v1",
+                        "payload": payload,
+                        "payload_digest": sha256_prefixed(canonical_payload.as_bytes()),
+                        "digest": sha256_prefixed(canonical_payload.as_bytes()),
+                        "signature": {
+                            "alg": "Ed25519",
+                            "value": format!("base64:{}", base64_standard(signature.as_ref()))
+                        }
+                    },
+                    "signer_public_keys": [{
+                        "kid": "trusted-hosted-receipt-notary-1",
+                        "public_key_pem": ed25519_spki_pem(key_pair.public_key().as_ref())
+                    }]
+                }
+            }
+        });
+
+        let result = run_verify_command_with_stdin(
+            &[
+                "verify".into(),
+                "--notary".into(),
+                "-".into(),
+                "--notary-key".into(),
+                public_key_path.into_os_string(),
+                "--json".into(),
+            ],
+            &BTreeMap::new(),
+            &temp,
+            io::Cursor::new(serde_json::to_vec(&document).map_err(io::Error::other)?),
+        )
+        .map_err(|error| io::Error::other(error.to_string()))?;
+
+        assert!(
+            result.failed,
+            "projection binding should fail: {}",
+            result.output
+        );
+        let verdict: JsonValue = serde_json::from_str(&result.output).map_err(io::Error::other)?;
+        assert_eq!(verdict["counter_seal"]["signature_status"], "valid");
+        assert!(finding_codes(&verdict).contains(&"notary_projection_binding_mismatch".to_owned()));
+        Ok(())
+    }
+
     // rust-style-allow: long-function - malformed receipt regression covers capped stdin, invalid JSON, and machine verdict fields together.
     #[test]
     fn malformed_single_receipt_returns_invalid_verdict() -> Result<(), io::Error> {
@@ -1043,6 +1758,26 @@ mod tests {
             });
         }
         output
+    }
+
+    fn ed25519_spki_pem(raw_public_key: &[u8]) -> String {
+        let mut der = Vec::from([
+            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+        ]);
+        der.extend_from_slice(raw_public_key);
+        format!(
+            "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----",
+            base64_standard(&der)
+        )
+    }
+
+    fn finding_codes(verdict: &JsonValue) -> Vec<String> {
+        verdict["findings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|finding| finding["code"].as_str().map(ToOwned::to_owned))
+            .collect()
     }
 
     fn tempfile_dir() -> Result<PathBuf, io::Error> {

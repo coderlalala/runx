@@ -4,7 +4,6 @@
 //! response shaping logic — those live in `runx_runtime::registry::index`.
 
 use std::collections::BTreeMap;
-use std::io::{self, Write};
 use std::process::ExitCode;
 
 use runx_runtime::registry::{
@@ -70,11 +69,11 @@ fn render_result(json: bool, repo_ref: &GithubRepoRef, response: &IndexResponse)
             warnings: &response.warnings,
         };
         match serde_json::to_string_pretty(&envelope) {
-            Ok(serialized) => write_stdout(&format!("{serialized}\n")),
+            Ok(serialized) => crate::cli_io::write_stdout_code(&format!("{serialized}\n"), 0),
             Err(error) => fail(&format!("failed to serialize add result: {error}")),
         }
     } else {
-        write_stdout(&render_text(response))
+        crate::cli_io::write_stdout_code(&render_text(response), 0)
     }
 }
 
@@ -135,13 +134,8 @@ fn trust_tier_label(tier: &TrustTier) -> &'static str {
     }
 }
 
-fn write_stdout(text: &str) -> ExitCode {
-    let _ = io::stdout().write_all(text.as_bytes());
-    ExitCode::SUCCESS
-}
-
 fn fail(message: &str) -> ExitCode {
-    let _ = writeln!(io::stderr(), "runx: {message}");
+    let _ignored = crate::cli_io::write_stderr(&format!("runx: {message}\n"));
     ExitCode::from(1)
 }
 

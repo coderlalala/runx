@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -30,8 +30,8 @@ pub fn run_native_kernel(plan: KernelPlan) -> ExitCode {
         }
     };
 
-    match run_kernel_command(&plan, &env_map(), &cwd) {
-        Ok(output) => write_stdout(&output.stdout, output.exit_code),
+    match run_kernel_command(&plan, &crate::cli_io::env_map(), &cwd) {
+        Ok(output) => crate::cli_io::write_stdout_code(&output.stdout, output.exit_code),
         Err(error) => write_error(&error, plan.json),
     }
 }
@@ -184,9 +184,11 @@ fn write_error(error: &KernelCliError, json: bool) -> ExitCode {
             code: error.code(),
             message: &message,
         }) {
-            Ok(body) => return write_stdout(&format!("{body}\n"), error.exit_code()),
+            Ok(body) => {
+                return crate::cli_io::write_stdout_code(&format!("{body}\n"), error.exit_code());
+            }
             Err(serialize_error) => {
-                let _ignored = write_stderr(&format!(
+                let _ignored = crate::cli_io::write_stderr_code(&format!(
                     "runx: failed to serialize kernel error: {serialize_error}\n"
                 ));
                 return ExitCode::from(1);
@@ -194,28 +196,6 @@ fn write_error(error: &KernelCliError, json: bool) -> ExitCode {
         }
     }
 
-    let _ignored = write_stderr(&format!("runx: {error}\n"));
+    let _ignored = crate::cli_io::write_stderr_code(&format!("runx: {error}\n"));
     ExitCode::from(error.exit_code())
-}
-
-fn env_map() -> BTreeMap<String, String> {
-    env::vars().collect()
-}
-
-fn write_stdout(message: &str, exit_code: u8) -> ExitCode {
-    let mut stdout = io::stdout().lock();
-    if stdout.write_all(message.as_bytes()).is_ok() {
-        ExitCode::from(exit_code)
-    } else {
-        ExitCode::from(1)
-    }
-}
-
-fn write_stderr(message: &str) -> ExitCode {
-    let mut stderr = io::stderr().lock();
-    if stderr.write_all(message.as_bytes()).is_ok() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
-    }
 }
