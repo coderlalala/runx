@@ -178,7 +178,7 @@ fn graph_http_credential_does_not_break_local_cli_tool_steps()
         )]
         .into_iter()
         .collect(),
-        env: http_private_network_grant_env(),
+        env: mixed_http_cli_graph_env(),
         cwd: temp.path().to_path_buf(),
         local_credential: Some(LocalCredentialDescriptor {
             provider: "example-crm".to_owned(),
@@ -224,6 +224,13 @@ fn local_sandbox_fallback_env() -> BTreeMap<String, String> {
         RUNX_SANDBOX_ALLOW_DECLARED_POLICY_ONLY_VALUE.to_owned(),
     )]
     .into()
+}
+
+#[cfg(feature = "http")]
+fn mixed_http_cli_graph_env() -> BTreeMap<String, String> {
+    let mut env = http_private_network_grant_env();
+    env.extend(local_sandbox_fallback_env());
+    env
 }
 
 /// A cli-tool skill that echoes the delivered `$GITHUB_TOKEN`. The command is a
