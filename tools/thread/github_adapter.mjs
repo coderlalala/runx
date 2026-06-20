@@ -916,13 +916,19 @@ export function pushGitHubLifecycleIntent({
   });
   const addLabels = stringList(metadata.add_labels);
   const removeLabels = stringList(metadata.remove_labels);
+  const lifecycleAction = firstNonEmptyString(metadata.action);
   const closeReason = firstNonEmptyString(metadata.close_reason, "completed");
 
   if (!repoSlug) {
     throw new Error("GitHub issue repo slug is required to push a provider thread lifecycle entry.");
   }
-  if (addLabels.length === 0 && removeLabels.length === 0 && metadata.action !== "close") {
-    throw new Error("provider_thread_lifecycle requires label changes or a close action.");
+  if (
+    addLabels.length === 0 &&
+    removeLabels.length === 0 &&
+    lifecycleAction !== "close" &&
+    lifecycleAction !== "open"
+  ) {
+    throw new Error("provider_thread_lifecycle requires label changes, an open action, or a close action.");
   }
 
   const labelResult = applyGitHubLabelChanges({
@@ -935,12 +941,21 @@ export function pushGitHubLifecycleIntent({
     env,
   });
 
-  const shouldClose = firstNonEmptyString(metadata.action) === "close";
+  const shouldClose = lifecycleAction === "close";
+  const shouldOpen = lifecycleAction === "open";
   if (shouldClose && String(issueState.state ?? "").toUpperCase() !== "CLOSED") {
     closeGitHubIssue({
       repoSlug,
       issueNumber: issueRef.issue_number,
       reason: closeReason,
+      cwd,
+      env,
+    });
+  }
+  if (shouldOpen && String(issueState.state ?? "").toUpperCase() === "CLOSED") {
+    reopenGitHubIssue({
+      repoSlug,
+      issueNumber: issueRef.issue_number,
       cwd,
       env,
     });
@@ -967,6 +982,7 @@ export function pushGitHubLifecycleIntent({
       added_labels: labelResult.addedLabels,
       removed_labels: labelResult.removedLabels,
       closed: shouldClose,
+      opened: shouldOpen,
       close_reason: shouldClose ? closeReason : undefined,
     }),
   };
@@ -1255,6 +1271,31 @@ function closeGitHubIssue({ repoSlug, issueNumber, reason, cwd, env }) {
     repoSlug,
     "--reason",
     stateReason === "not_planned" ? "not planned" : "completed",
+  ], {
+    cwd,
+    env,
+  }, { tokenFallback: true });
+}
+
+function reopenGitHubIssue({ repoSlug, issueNumber, cwd, env }) {
+  if (canUseGitHubRest(env)) {
+    runGitHubRest({
+      method: "PATCH",
+      path: gitHubIssueApiPath(repoSlug, issueNumber),
+      env,
+      body: {
+        state: "open",
+      },
+      acceptedStatuses: [200],
+    });
+    return;
+  }
+  runGhCommand([
+    "issue",
+    "reopen",
+    issueNumber,
+    "--repo",
+    repoSlug,
   ], {
     cwd,
     env,

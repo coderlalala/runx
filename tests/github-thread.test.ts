@@ -528,6 +528,108 @@ describe("GitHub thread helper", () => {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("pushes Frantic open lifecycle operations through the GitHub adapter", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "runx-frantic-github-"));
+    const ghBin = path.join(tempDir, "fake-gh.mjs");
+    const logPath = path.join(tempDir, "gh.log");
+
+    try {
+      await writeFile(ghBin, fakeGhScript(logPath));
+      await chmod(ghBin, 0o700);
+      const result = pushGitHubLifecycleIntent({
+        thread: {
+          adapter: {
+            adapter_ref: "auscaster/frantic-board#issue/7",
+          },
+          thread_locator: "github://auscaster/frantic-board/issues/7",
+          canonical_uri: "https://github.com/auscaster/frantic-board/issues/7",
+          metadata: {
+            repo: "auscaster/frantic-board",
+          },
+        },
+        outboxEntry: {
+          entry_id: "github:claim-1:thread.open",
+          kind: "provider_thread_lifecycle",
+          status: "pending",
+          metadata: {
+            action: "open",
+          },
+        },
+        env: {
+          ...process.env,
+          RUNX_GH_BIN: ghBin,
+          GH_FAKE_LOG: logPath,
+          GH_FAKE_ISSUE_STATE: "CLOSED",
+        },
+      });
+
+      const calls = JSON.parse(await readFile(logPath, "utf8"));
+      expect(calls.map((call: { args: string[] }) => call.args.slice(0, 2).join(" "))).toEqual([
+        "issue view",
+        "issue reopen",
+      ]);
+      expect(result).toMatchObject({
+        outbox_entry: {
+          status: "published",
+          locator: "https://github.com/auscaster/frantic-board/issues/7",
+        },
+        lifecycle: {
+          opened: true,
+        },
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes an already-open lifecycle operation without GitHub mutation", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "runx-frantic-github-"));
+    const ghBin = path.join(tempDir, "fake-gh.mjs");
+    const logPath = path.join(tempDir, "gh.log");
+
+    try {
+      await writeFile(ghBin, fakeGhScript(logPath));
+      await chmod(ghBin, 0o700);
+      const result = pushGitHubLifecycleIntent({
+        thread: {
+          adapter: {
+            adapter_ref: "auscaster/frantic-board#issue/7",
+          },
+          thread_locator: "github://auscaster/frantic-board/issues/7",
+          canonical_uri: "https://github.com/auscaster/frantic-board/issues/7",
+          metadata: {
+            repo: "auscaster/frantic-board",
+          },
+        },
+        outboxEntry: {
+          entry_id: "github:claim-1:thread.open",
+          kind: "provider_thread_lifecycle",
+          status: "pending",
+          metadata: {
+            action: "open",
+          },
+        },
+        env: {
+          ...process.env,
+          RUNX_GH_BIN: ghBin,
+          GH_FAKE_LOG: logPath,
+        },
+      });
+
+      const calls = JSON.parse(await readFile(logPath, "utf8"));
+      expect(calls.map((call: { args: string[] }) => call.args.slice(0, 2).join(" "))).toEqual([
+        "issue view",
+      ]);
+      expect(result).toMatchObject({
+        lifecycle: {
+          opened: true,
+        },
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 function fakeGhScript(logPath: string): string {
@@ -553,7 +655,7 @@ if (args[0] === "issue" && args[1] === "create") {
 }
 if (args[0] === "issue" && args[1] === "view") {
   process.stdout.write(JSON.stringify({
-    state: "OPEN",
+    state: process.env.GH_FAKE_ISSUE_STATE || "OPEN",
     url: "https://github.com/auscaster/frantic-board/issues/7",
     labels: [{ name: "frantic:open" }]
   }));
