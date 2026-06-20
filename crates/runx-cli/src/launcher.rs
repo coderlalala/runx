@@ -322,13 +322,13 @@ Usage:
 Commands:
   runx new <name> [--directory dir] [--json]
   runx init [-g|--global] [--prefetch official] [--json]
-  runx verify [receipt-id] [--receipt-dir dir] [--receipt <path|->] [--notary <path|-> --notary-key trusted.pem] [--json]
+  runx verify [receipt-id] [--receipt-dir dir] [--receipt <path|->] [--notary <path|-> --notary-key trusted.pem] [-j|--json]
   runx history [query] [--skill s] [--status s] [--source s] [--actor a] [--artifact-type t] [--since iso] [--until iso] [--receipt-dir dir] [--json]
-  runx list [tools|skills|graphs|packets|overlays] [--ok-only|--invalid-only] [--json]
-  runx login [--provider github|google|gitlab] [--for default|publish] [--api-base-url url] [--allow-local-api] [--json]
-  runx config set|get|list [agent.provider|agent.model|agent.api_key|public.api_token] [value] [--json]
+  runx list [tools|skills|graphs|packets|overlays] [--ok-only|--invalid-only] [-j|--json]
+  runx login [--provider github|google|gitlab] [--for default|publish] [--api-url url] [--local-api] [-j|--json]
+  runx config set|get|list [provider|model|api-key|public-token] [value] [-j|--json]
   runx policy inspect|lint <policy.json> [--json]
-  runx publish <receipt.json> [--api-base-url url] [--token token] [--allow-local-api] [--json]
+  runx publish <receipt.json> [--api-url url] [--token token] [--local-api] [-j|--json]
   runx kernel eval --input <file|-> --json
   runx payment admission issue --input <file|-> --json
   runx parser eval --input <file|-> --json
@@ -336,9 +336,9 @@ Commands:
   runx dev [root] [--lane lane] [--json]
   runx export <claude|codex> [skill-ref...] [--project] [--json]
   runx mcp serve <skill-ref...> [--receipt-dir dir] [--http-listen [addr]] [--http-allow-non-loopback]
-  runx skill <skill-ref|owner/name@version|skill-dir|SKILL.md> [--registry url|path] [--digest sha256] [--input key=value] [--runner name] [--flag value] [--receipt-dir dir] [--run-id id --answers file] [--json]
+  runx skill <skill-ref|owner/name@version|skill-dir|SKILL.md> [-p profile] [-i key=value] [-j] [--runner name] [--registry url|path] [--digest sha256] [--flag value] [-R dir] [--run-id id --answers file]
   runx add <skill-ref|github-url> [--registry url|path] [--version version] [--ref git-ref] [--digest sha256] [--to dir] [--installation-id id] [--api-base-url url] [--json]
-  runx harness <fixture.yaml...|skill-dir|SKILL.md> [--receipt-dir dir] [--json]
+  runx harness <fixture.yaml...|skill-dir|SKILL.md> [-R dir] [-j|--json]
   runx tool build <tool-dir>|--all [--json]
   runx tool search <query> [--source source] [--json]
   runx tool inspect <ref> [--source source] [--json]
@@ -373,13 +373,15 @@ pub fn publish_help_text() -> String {
 runx publish
 
 Usage:
-  runx publish <receipt.json> [--api-base-url url] [--token token] [--allow-local-api] [--json]
+  runx publish <receipt.json> [--api-url url] [--token token] [--local-api] [-j|--json]
 
 Options:
-  --api-base-url url  Public API base URL (default: RUNX_PUBLIC_API_BASE_URL or https://api.runx.ai)
+  --api-url url       Public API base URL (default: RUNX_PUBLIC_API_BASE_URL or https://api.runx.ai)
+  --api-base-url url  Alias for --api-url
   --token token       Public API token (default: RUNX_PUBLIC_API_TOKEN or runx login)
-  --allow-local-api   Allow loopback/private public API URLs for local dogfood only
-  --json              Print the raw notary response as JSON
+  --local-api         Allow loopback/private public API URLs for local dogfood only
+  --allow-local-api   Alias for --local-api
+  -j, --json          Print the raw notary response as JSON
 "
     .to_owned()
 }
@@ -389,14 +391,14 @@ pub fn verify_help_text() -> String {
 runx verify
 
 Usage:
-  runx verify [receipt-id] [--receipt-dir dir] [--receipt <path|->] [--notary <path|-> --notary-key trusted.pem] [--json]
+  runx verify [receipt-id] [--receipt-dir dir] [--receipt <path|->] [--notary <path|-> --notary-key trusted.pem] [-j|--json]
 
 Options:
   --receipt-dir dir
   --receipt <path|->
   --notary <path|->
   --notary-key trusted.pem
-  --json
+  -j, --json
 "
     .to_owned()
 }
@@ -406,18 +408,22 @@ pub fn skill_help_text() -> String {
 runx skill
 
 Usage:
-  runx skill <skill-ref|owner/name@version|skill-dir|SKILL.md> [--registry url|path] [--digest sha256] [--input key=value] [--runner name] [--flag value] [--receipt-dir dir] [--run-id id --answers file] [--json]
+  runx skill <skill-ref|owner/name@version|skill-dir|SKILL.md> [-p profile] [-i key=value] [-j] [--runner name] [--registry url|path] [--digest sha256] [--flag value] [-R dir] [--run-id id --answers file]
 
 Options:
+  -p, --profile name       Use a local credential profile from .runx/credentials.json
+  -i, --input key=value    Set a structured input; repeat for multiple inputs
+  -R, --receipts dir       Write receipts under dir
+  --receipt-dir dir        Alias for --receipts
+  -j, --json               Print machine-readable output
+  --runner name            Select a named runner from X.yaml
   --registry url|path
   --digest sha256
-  --runner name
-  --input key=value
   --flag value
-  --receipt-dir dir
+  --credential descriptor  One-shot local credential descriptor
+  --secret-env NAME        Env var holding the one-shot credential secret
   --run-id id
   --answers file
-  --json
 "
     .to_owned()
 }
@@ -494,7 +500,7 @@ fn native_harness_plan(args: &[OsString]) -> LauncherAction {
             return LauncherAction::Error("harness arguments must be UTF-8".to_owned());
         };
 
-        if !token.starts_with("--") {
+        if !token.starts_with('-') {
             fixture_paths.push(args[index].clone());
             index += 1;
             continue;
@@ -502,13 +508,13 @@ fn native_harness_plan(args: &[OsString]) -> LauncherAction {
 
         let (flag, inline_value) = split_flag(token);
         match flag {
-            "--json" => {
+            "--json" | "-j" => {
                 if inline_value.is_some() {
                     return LauncherAction::Error("--json does not take a value".to_owned());
                 }
                 index += 1;
             }
-            "--receipt-dir" => match inline_value {
+            "--receipt-dir" | "--receipts" => match inline_value {
                 Some(value) => {
                     receipt_dir = Some(OsString::from(value));
                     index += 1;
@@ -523,6 +529,18 @@ fn native_harness_plan(args: &[OsString]) -> LauncherAction {
                     index += 2;
                 }
             },
+            "-R" => {
+                if inline_value.is_some() {
+                    return LauncherAction::Error(
+                        "-R requires a separate directory value".to_owned(),
+                    );
+                }
+                let Some(value) = args.get(index + 1) else {
+                    return LauncherAction::Error("-R requires a directory".to_owned());
+                };
+                receipt_dir = Some(value.clone());
+                index += 2;
+            }
             _ => return LauncherAction::Error(format!("unknown harness flag {flag}")),
         }
     }
@@ -850,7 +868,7 @@ fn parse_doctor_plan(args: &[OsString]) -> Result<DoctorPlan, String> {
 
     while index < args.len() {
         let token = os_arg(args, index, "doctor")?;
-        if !token.starts_with("--") {
+        if !token.starts_with('-') {
             if matches!(token, "authority" | "registry")
                 && path.is_none()
                 && mode == DoctorMode::Workspace
@@ -879,7 +897,7 @@ fn parse_doctor_plan(args: &[OsString]) -> Result<DoctorPlan, String> {
 
         let (flag, inline_value) = split_flag(token);
         match flag {
-            "--json" => {
+            "--json" | "-j" => {
                 if inline_value.is_some() {
                     return Err("--json does not take a value".to_owned());
                 }
@@ -910,7 +928,7 @@ fn parse_list_plan(args: &[OsString]) -> Result<ListPlan, String> {
 
     while index < args.len() {
         let token = os_arg(args, index, "list")?;
-        if !token.starts_with("--") {
+        if !token.starts_with('-') {
             if saw_kind {
                 return Err("runx list accepts at most one kind".to_owned());
             }
@@ -927,7 +945,7 @@ fn parse_list_plan(args: &[OsString]) -> Result<ListPlan, String> {
             return Err(format!("{flag} does not take a value"));
         }
         let requested = match flag {
-            "--json" => {
+            "--json" | "-j" => {
                 json = true;
                 index += 1;
                 continue;

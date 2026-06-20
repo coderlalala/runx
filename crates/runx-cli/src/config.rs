@@ -102,7 +102,7 @@ pub fn parse_config_plan(args: &[OsString]) -> Result<ConfigPlan, String> {
     let mut index = 2;
     while index < args.len() {
         let token = os_arg(args, index, "config")?;
-        if !token.starts_with("--") {
+        if !token.starts_with('-') {
             positionals.push(token.to_owned());
             index += 1;
             continue;
@@ -110,7 +110,7 @@ pub fn parse_config_plan(args: &[OsString]) -> Result<ConfigPlan, String> {
 
         let (flag, inline_value) = split_flag(token);
         match flag {
-            "--json" => {
+            "--json" | "-j" => {
                 if inline_value.is_some() {
                     return Err("--json does not take a value".to_owned());
                 }
@@ -139,7 +139,7 @@ pub fn parse_config_plan(args: &[OsString]) -> Result<ConfigPlan, String> {
             };
             Ok(ConfigPlan {
                 action,
-                key: Some(key.clone()),
+                key: Some(normalize_config_key(key).to_owned()),
                 value: None,
                 json,
             })
@@ -153,11 +153,21 @@ pub fn parse_config_plan(args: &[OsString]) -> Result<ConfigPlan, String> {
             }
             Ok(ConfigPlan {
                 action,
-                key: Some(key.clone()),
+                key: Some(normalize_config_key(key).to_owned()),
                 value: Some(values.join(" ")),
                 json,
             })
         }
+    }
+}
+
+fn normalize_config_key(key: &str) -> &str {
+    match key {
+        "provider" => "agent.provider",
+        "model" => "agent.model",
+        "api-key" | "agent-key" => "agent.api_key",
+        "public-token" => "public.api_token",
+        _ => key,
     }
 }
 
@@ -305,10 +315,10 @@ mod tests {
             parse_config_plan(&[
                 "config".into(),
                 "set".into(),
-                "agent.model".into(),
+                "model".into(),
                 "gpt".into(),
                 "test".into(),
-                "--json".into(),
+                "-j".into(),
             ]),
             Ok(ConfigPlan {
                 action: ConfigAction::Set,

@@ -321,7 +321,21 @@ fn parse_skill_arg(
         value if value.starts_with("--receipt-dir=") => {
             state.receipt_dir = Some(PathBuf::from(value.trim_start_matches("--receipt-dir=")));
         }
+        value if value.starts_with("-R=") => {
+            state.receipt_dir = Some(PathBuf::from(value.trim_start_matches("-R=")));
+        }
+        value if value.starts_with("--receipts=") => {
+            state.receipt_dir = Some(PathBuf::from(value.trim_start_matches("--receipts=")));
+        }
         "--receipt-dir" => {
+            index += 1;
+            state.receipt_dir = Some(PathBuf::from(string_arg(args, index)?));
+        }
+        "--receipts" => {
+            index += 1;
+            state.receipt_dir = Some(PathBuf::from(string_arg(args, index)?));
+        }
+        "-R" => {
             index += 1;
             state.receipt_dir = Some(PathBuf::from(string_arg(args, index)?));
         }
@@ -381,7 +395,16 @@ fn parse_skill_arg(
                 &mut state.inputs,
             )?;
         }
+        value if value.starts_with("-i=") => {
+            index = parse_input_arg(
+                args,
+                index,
+                Some(value.trim_start_matches("-i=")),
+                &mut state.inputs,
+            )?;
+        }
         "--input" => index = parse_input_arg(args, index, None, &mut state.inputs)?,
+        "-i" => index = parse_input_arg(args, index, None, &mut state.inputs)?,
         value if value.starts_with("--credential=") => {
             state.credential = Some(parse_credential_binding(
                 value.trim_start_matches("--credential="),
@@ -397,10 +420,23 @@ fn parse_skill_arg(
                 value.trim_start_matches("--credential-profile="),
             )?);
         }
+        value if value.starts_with("--profile=") => {
+            state.credential_profile = Some(non_empty_flag_value(
+                "--profile",
+                value.trim_start_matches("--profile="),
+            )?);
+        }
         "--credential-profile" => {
             index += 1;
             state.credential_profile = Some(non_empty_flag_value(
                 "--credential-profile",
+                &string_arg(args, index)?,
+            )?);
+        }
+        "--profile" | "-p" => {
+            index += 1;
+            state.credential_profile = Some(non_empty_flag_value(
+                "--profile",
                 &string_arg(args, index)?,
             )?);
         }
@@ -411,7 +447,7 @@ fn parse_skill_arg(
             index += 1;
             state.secret_env = Some(parse_secret_env(&string_arg(args, index)?)?);
         }
-        "--json" => state.json = true,
+        "--json" | "-j" => state.json = true,
         "--non-interactive" => {}
         value if value.starts_with("--") => {
             index = parse_direct_input_arg(args, index, value, &mut state.inputs)?;
@@ -516,6 +552,40 @@ mod tests {
             .err()
             .ok_or_else(|| "profile unexpectedly combined with manual flags".to_owned())?;
         assert!(error.contains("cannot be combined"));
+        Ok(())
+    }
+
+    #[test]
+    fn short_human_flags_parse_for_skill_runs() -> Result<(), String> {
+        let args = [
+            "skill",
+            "-p",
+            "operator",
+            "-i",
+            "claim=abc",
+            "-R",
+            "receipts",
+            "-j",
+        ]
+        .into_iter()
+        .map(std::ffi::OsString::from)
+        .collect::<Vec<_>>();
+        let mut state = SkillParseState::default();
+        let mut index = 1;
+        while index < args.len() {
+            index = super::parse_skill_arg(&args, index, &mut state)?;
+            index += 1;
+        }
+        assert_eq!(state.credential_profile.as_deref(), Some("operator"));
+        assert_eq!(
+            state.inputs.get("claim"),
+            Some(&runx_contracts::JsonValue::String("abc".to_owned()))
+        );
+        assert_eq!(
+            state.receipt_dir.as_deref(),
+            Some(std::path::Path::new("receipts"))
+        );
+        assert!(state.json);
         Ok(())
     }
 

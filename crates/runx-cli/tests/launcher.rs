@@ -29,11 +29,11 @@ fn top_level_help_and_version_are_native() {
     let help = help_text();
     assert_help_line(
         &help,
-        "runx verify [receipt-id] [--receipt-dir dir] [--receipt <path|->] [--notary <path|-> --notary-key trusted.pem] [--json]",
+        "runx verify [receipt-id] [--receipt-dir dir] [--receipt <path|->] [--notary <path|-> --notary-key trusted.pem] [-j|--json]",
     );
     assert_help_line(
         &help,
-        "runx skill <skill-ref|owner/name@version|skill-dir|SKILL.md> [--registry url|path] [--digest sha256] [--input key=value] [--runner name] [--flag value] [--receipt-dir dir] [--run-id id --answers file] [--json]",
+        "runx skill <skill-ref|owner/name@version|skill-dir|SKILL.md> [-p profile] [-i key=value] [-j] [--runner name] [--registry url|path] [--digest sha256] [--flag value] [-R dir] [--run-id id --answers file]",
     );
     assert_help_line(
         &help,
@@ -42,7 +42,7 @@ fn top_level_help_and_version_are_native() {
     assert_help_line(&help, "runx parser eval --input <file|-> --json");
     assert_help_line(
         &help,
-        "runx harness <fixture.yaml...|skill-dir|SKILL.md> [--receipt-dir dir] [--json]",
+        "runx harness <fixture.yaml...|skill-dir|SKILL.md> [-R dir] [-j|--json]",
     );
     assert_help_line(&help, "runx doctor [path|authority|registry] [--json]");
     assert_help_line(
@@ -51,7 +51,7 @@ fn top_level_help_and_version_are_native() {
     );
     assert_help_line(
         &help,
-        "runx login [--provider github|google|gitlab] [--for default|publish] [--api-base-url url] [--allow-local-api] [--json]",
+        "runx login [--provider github|google|gitlab] [--for default|publish] [--api-url url] [--local-api] [-j|--json]",
     );
     assert!(
         !help.contains("runx connect"),
@@ -98,7 +98,11 @@ fn nested_skill_history_verify_and_publish_help_are_native() {
 
     assert_help_line(
         &skill_help_text(),
-        "runx skill <skill-ref|owner/name@version|skill-dir|SKILL.md> [--registry url|path] [--digest sha256] [--input key=value] [--runner name] [--flag value] [--receipt-dir dir] [--run-id id --answers file] [--json]",
+        "runx skill <skill-ref|owner/name@version|skill-dir|SKILL.md> [-p profile] [-i key=value] [-j] [--runner name] [--registry url|path] [--digest sha256] [--flag value] [-R dir] [--run-id id --answers file]",
+    );
+    assert_help_line(
+        &skill_help_text(),
+        "-p, --profile name       Use a local credential profile from .runx/credentials.json",
     );
     assert_help_line(
         &history_help_text(),
@@ -106,11 +110,11 @@ fn nested_skill_history_verify_and_publish_help_are_native() {
     );
     assert_help_line(
         &verify_help_text(),
-        "runx verify [receipt-id] [--receipt-dir dir] [--receipt <path|->] [--notary <path|-> --notary-key trusted.pem] [--json]",
+        "runx verify [receipt-id] [--receipt-dir dir] [--receipt <path|->] [--notary <path|-> --notary-key trusted.pem] [-j|--json]",
     );
     assert_help_line(
         &publish_help_text(),
-        "runx publish <receipt.json> [--api-base-url url] [--token token] [--allow-local-api] [--json]",
+        "runx publish <receipt.json> [--api-url url] [--token token] [--local-api] [-j|--json]",
     );
 }
 
@@ -235,10 +239,16 @@ fn mcp_rejects_unknown_shapes_without_delegating() {
 #[test]
 fn routes_harness_to_native_runner() {
     assert_eq!(
-        plan(&["harness", "fixtures/harness/echo-skill.yaml", "--json"]),
+        plan(&[
+            "harness",
+            "fixtures/harness/echo-skill.yaml",
+            "-R",
+            ".runx/receipts",
+            "-j"
+        ]),
         LauncherAction::RunHarness(HarnessPlan {
             fixture_paths: vec!["fixtures/harness/echo-skill.yaml".into()],
-            receipt_dir: None,
+            receipt_dir: Some(".runx/receipts".into()),
         })
     );
 }

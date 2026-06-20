@@ -33,11 +33,12 @@ fn parses_publish_plan() -> Result<(), String> {
     let args = vec![
         OsString::from("publish"),
         OsString::from("receipt.json"),
-        OsString::from("--api-base-url"),
+        OsString::from("--api-url"),
         OsString::from("https://runx.test/"),
         OsString::from("--token"),
         OsString::from("rxk_test"),
-        OsString::from("--json"),
+        OsString::from("--local-api"),
+        OsString::from("-j"),
     ];
     let plan = parse_publish_plan(&args)?;
     assert_eq!(
@@ -46,7 +47,7 @@ fn parses_publish_plan() -> Result<(), String> {
             receipt_path: PathBuf::from("receipt.json"),
             api_base_url: Some("https://runx.test/".to_owned()),
             token: Some("rxk_test".to_owned()),
-            allow_local_api: false,
+            allow_local_api: true,
             json: true,
         }
     );

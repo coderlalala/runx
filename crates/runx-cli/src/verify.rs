@@ -253,7 +253,7 @@ fn parse_verify_args(args: &[OsString]) -> Result<ParsedVerifyArgs, VerifyCliErr
             return Err(invalid_args("arguments must be valid UTF-8"));
         };
         match text {
-            "--json" => parsed.json = true,
+            "--json" | "-j" => parsed.json = true,
             "--allow-local-development-signatures" => {
                 parsed.allow_local_development_signatures = true;
             }

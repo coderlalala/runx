@@ -229,10 +229,10 @@ non-secret descriptor in `.runx/credentials.json`:
 }
 ```
 
-Then run with `--credential-profile operator`. If `RUNX_CREDENTIAL_PROFILES` is
-set, runx reads that JSON file instead; otherwise it checks the project
-`.runx/credentials.json` and then the global runx home. The profile file never
-contains the secret value.
+Then run with `-p operator` (or `--profile operator`). If
+`RUNX_CREDENTIAL_PROFILES` is set, runx reads that JSON file instead; otherwise
+it checks the project `.runx/credentials.json` and then the global runx home.
+The profile file never contains the secret value.
 
 Use `inputs` for literals, `$input.*` values, and static configuration. Use
 `context` when a step needs an earlier step's output:

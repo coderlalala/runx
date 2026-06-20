@@ -33,14 +33,14 @@ impl Transport for StubTransport {
 fn parses_login_plan() -> Result<(), String> {
     let args = vec![
         OsString::from("login"),
-        OsString::from("--api-base-url"),
+        OsString::from("--api-url"),
         OsString::from("https://runx.test/"),
         OsString::from("--provider"),
         OsString::from("github"),
         OsString::from("--for"),
         OsString::from("publish"),
-        OsString::from("--allow-local-api"),
-        OsString::from("--json"),
+        OsString::from("--local-api"),
+        OsString::from("-j"),
     ];
     assert_eq!(
         parse_login_plan(&args)?,

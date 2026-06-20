@@ -165,7 +165,7 @@ pub fn parse_publish_plan(args: &[OsString]) -> Result<PublishPlan, String> {
     let mut index = 1;
     while index < args.len() {
         let arg = os_arg(args, index, "publish")?;
-        if !arg.starts_with("--") {
+        if !arg.starts_with('-') {
             if receipt_path.is_some() {
                 return Err(PublishCliError::ExtraReceipt.to_string());
             }
@@ -175,14 +175,14 @@ pub fn parse_publish_plan(args: &[OsString]) -> Result<PublishPlan, String> {
         }
         let (flag, inline_value) = split_flag(arg);
         match flag {
-            "--json" => {
+            "--json" | "-j" => {
                 if inline_value.is_some() {
                     return Err("--json does not take a value".to_owned());
                 }
                 json = true;
                 index += 1;
             }
-            "--api-base-url" | "--apiBaseUrl" => {
+            "--api-base-url" | "--api-url" | "--apiBaseUrl" => {
                 let (value, next_index) = flag_value(args, index, flag, inline_value, "publish")?;
                 api_base_url = Some(value);
                 index = next_index;
@@ -192,7 +192,7 @@ pub fn parse_publish_plan(args: &[OsString]) -> Result<PublishPlan, String> {
                 token = Some(value);
                 index = next_index;
             }
-            "--allow-local-api" | "--allowLocalApi" => {
+            "--allow-local-api" | "--local-api" | "--allowLocalApi" => {
                 if inline_value.is_some() {
                     return Err("--allow-local-api does not take a value".to_owned());
                 }
