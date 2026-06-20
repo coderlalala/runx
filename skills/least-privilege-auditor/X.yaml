@@ -5,12 +5,86 @@ catalog:
   audience: operator
   visibility: public
   role: canonical
+harness:
+  cases:
+    - name: unused-scope-attenuation-proposed
+      inputs:
+        subject: skills/report-exporter
+        granted_scopes:
+          - drive.files.read:/reports/*
+          - drive.files.write:/reports/*
+          - drive.files.delete:/reports/*
+        usage_summary:
+          receipt_ids:
+            - rx_101
+            - rx_102
+          observed:
+            - scope: drive.files.read:/reports/*
+              count: 8
+              refs:
+                - rx_101:step_3
+                - rx_102:step_2
+            - scope: drive.files.write:/reports/*
+              count: 2
+              refs:
+                - rx_101:step_6
+                - rx_102:step_5
+        objective: Prepare the skill for renewal by removing unused authority.
+      caller:
+        answers:
+          agent_task.least-privilege-auditor.output:
+            audit_report:
+              status: attenuation_proposed
+              subject: skills/report-exporter
+              evidence:
+                receipt_ids:
+                  - rx_101
+                  - rx_102
+                receipt_window: null
+                grant_source: null
+                limitations: []
+              removed_scopes:
+                - drive.files.delete:/reports/*
+              narrowed_scopes: []
+              kept_scopes:
+                - drive.files.read:/reports/*
+                - drive.files.write:/reports/*
+              deferred_scopes: []
+              attenuated_grant:
+                - drive.files.read:/reports/*
+                - drive.files.write:/reports/*
+              residual_risk:
+                - The subject can still read and write under /reports/*.
+              reviewer_action: applyable_now
+            attenuation_proposals:
+              - action: remove
+                scope: drive.files.delete:/reports/*
+                rationale: No cited receipt exercised delete authority.
+            verdict: "over-privileged: remove drive.files.delete:/reports/*"
+      expect:
+        status: sealed
+        receipt:
+          schema: runx.receipt.v1
+          state: sealed
+          disposition: closed
+
+    - name: missing-granted-scopes-needs-agent
+      inputs:
+        subject: skills/report-exporter
+        usage_summary:
+          receipt_ids:
+            - rx_101
+          observed: []
+      expect:
+        status: failure
+
 runners:
   audit:
     default: true
-    type: agent-task
-    agent: reviewer
-    task: least-privilege-auditor
+    type: cli-tool
+    command: node
+    args:
+      - run.mjs
     outputs:
       audit_report: object
       attenuation_proposals: array
