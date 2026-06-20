@@ -462,7 +462,7 @@ impl InlineResolver {
             Some(config) if config.provider.as_str().eq_ignore_ascii_case("anthropic") => config,
             _ => return Ok(None),
         };
-        let transport = ReqwestHttpTransport::new()
+        let transport = ReqwestHttpTransport::for_managed_agent()
             .map_err(|error| fail(format!("managed agent transport error: {error}")))?;
         let resolver = AnthropicAgentResolver::new(
             transport,
