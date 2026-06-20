@@ -5,6 +5,7 @@ import { PassThrough } from "node:stream";
 
 import { describe, expect, it } from "vitest";
 
+import { parseArgs } from "../args.js";
 import { handleMcpServeCommand } from "./mcp.js";
 import { resolveRunxBinary } from "../../../../tests/runx-binary.js";
 
@@ -12,6 +13,30 @@ const workspaceRoot = process.cwd();
 const runxBinary = resolveRunxBinary();
 
 describe("runx mcp serve", () => {
+  it("preserves native argv for Rust-owned MCP flags", () => {
+    const parsed = parseArgs([
+      "mcp",
+      "serve",
+      "runx/weather",
+      "--receipt-dir",
+      "receipts",
+      "--http-listen",
+      "127.0.0.1:3333",
+      "--http-allow-non-loopback",
+    ]);
+
+    expect(parsed.mcpNativeArgs).toEqual([
+      "mcp",
+      "serve",
+      "runx/weather",
+      "--receipt-dir",
+      "receipts",
+      "--http-listen",
+      "127.0.0.1:3333",
+      "--http-allow-non-loopback",
+    ]);
+  });
+
   it("lists served skills and executes through the local kernel", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "runx-mcp-serve-"));
     const skillDir = path.join(tempDir, "echo");

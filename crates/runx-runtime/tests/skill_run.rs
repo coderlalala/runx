@@ -392,6 +392,9 @@ fn native_skill_run_treats_structured_stdout_as_claim_not_receipt_proof()
                                 "title": "Injected source"
                             }
                         ]
+                    },
+                    "closure": {
+                        "disposition": "closed"
                     }
                 }
             }
@@ -499,6 +502,9 @@ fn native_skill_run_uses_runtime_receipt_path_resolution() -> Result<(), Box<dyn
                 "agent_task.issue-intake.output": {
                     "intake_report": {
                         "summary": "Docs bug is bounded."
+                    },
+                    "closure": {
+                        "disposition": "closed"
                     }
                 }
             }
@@ -543,6 +549,9 @@ fn native_skill_run_uses_production_receipt_signing_env() -> Result<(), Box<dyn 
                 "agent_task.issue-intake.output": {
                     "intake_report": {
                         "summary": "Docs bug is bounded."
+                    },
+                    "closure": {
+                        "disposition": "closed"
                     }
                 }
             }
@@ -721,6 +730,9 @@ fn native_graph_skill_run_pauses_and_resumes_agent_task() -> Result<(), Box<dyn 
                     "receipt_id": "sha256:evil-step-output",
                     "result": {
                         "summary": "Graph fix authored."
+                    },
+                    "closure": {
+                        "disposition": "closed"
                     }
                 }
             }
@@ -789,7 +801,10 @@ fn native_graph_transition_gate_allows_declared_agent_output()
         serde_json::json!({
             "answers": {
                 "agent_task.gated-decide.output": {
-                    "approved": true
+                    "approved": true,
+                    "closure": {
+                        "disposition": "closed"
+                    }
                 }
             }
         })
@@ -845,7 +860,10 @@ fn native_graph_guard_rejects_skill_claim_as_fact() -> Result<(), Box<dyn std::e
         serde_json::json!({
             "answers": {
                 "agent_task.gated-decide.output": {
-                    "approved": true
+                    "approved": true,
+                    "closure": {
+                        "disposition": "closed"
+                    }
                 }
             }
         })
@@ -922,6 +940,9 @@ fn native_graph_skill_run_pauses_and_resumes_nested_agent_skill()
                 "agent.child-agent.output": {
                     "result": {
                         "summary": "Nested agent fix authored."
+                    },
+                    "closure": {
+                        "disposition": "closed"
                     }
                 }
             }
@@ -993,6 +1014,9 @@ fn native_graph_skill_run_pauses_and_resumes_nested_agent_task_skill()
                 "agent_task.child-agent-task.output": {
                     "result": {
                         "summary": "Nested agent-task fix authored."
+                    },
+                    "closure": {
+                        "disposition": "closed"
                     }
                 }
             }
@@ -1328,6 +1352,9 @@ fn native_graph_skill_run_resolves_agent_task_named_emit_context()
                 "agent_task.graph-author.output": {
                     "fix_bundle": {
                         "message": "Graph tool bug"
+                    },
+                    "closure": {
+                        "disposition": "closed"
                     }
                 }
             }
@@ -1394,6 +1421,9 @@ fn native_graph_skill_resume_preserves_initial_inputs_for_later_tool_steps()
                 "agent_task.graph-author.output": {
                     "result": {
                         "accepted": true
+                    },
+                    "closure": {
+                        "disposition": "closed"
                     }
                 }
             }
@@ -1469,6 +1499,9 @@ fn native_graph_skill_run_resolves_agent_task_output_envelope_named_emit_context
                         "fix_bundle": {
                             "message": "Graph tool bug"
                         }
+                    },
+                    "closure": {
+                        "disposition": "closed"
                     }
                 }
             }
@@ -3022,8 +3055,18 @@ fn native_graph_when_skips_unselected_branch() -> Result<(), Box<dyn std::error:
         &answers_path,
         serde_json::json!({
             "answers": {
-                "agent_task.when-decide.output": { "verdict": "go" },
-                "agent_task.when-go.output": { "result": { "ok": true } }
+                "agent_task.when-decide.output": {
+                    "verdict": "go",
+                    "closure": {
+                        "disposition": "closed"
+                    }
+                },
+                "agent_task.when-go.output": {
+                    "result": { "ok": true },
+                    "closure": {
+                        "disposition": "closed"
+                    }
+                }
             }
         })
         .to_string(),

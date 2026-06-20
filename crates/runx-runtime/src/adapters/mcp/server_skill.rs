@@ -68,6 +68,11 @@ pub(super) fn load_mcp_server_tool(
 ) -> Result<McpServerTool, RuntimeError> {
     let skill_path = canonical_skill_path(skill_path)?;
     let skill = load_skill_for_mcp(&skill_path)?;
+    let required_scopes =
+        required_scopes_from_skill(&skill).map_err(|error| RuntimeError::SkillFailed {
+            skill_name: skill.name.clone(),
+            message: format!("invalid required scopes: {error}"),
+        })?;
     Ok(McpServerTool {
         name: skill.name.clone(),
         description: skill
@@ -75,7 +80,7 @@ pub(super) fn load_mcp_server_tool(
             .clone()
             .unwrap_or_else(|| format!("runx skill {}", skill.name)),
         input_schema: skill_inputs_to_json_schema(&skill.inputs),
-        required_scopes: required_scopes_from_skill(&skill),
+        required_scopes,
         result: McpServerToolBehavior::Skill(Box::new(McpServerSkillExecution {
             skill_path,
             skill,

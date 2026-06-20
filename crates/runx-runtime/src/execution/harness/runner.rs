@@ -582,7 +582,7 @@ fn replay_agent_skill_fixture(
         context: format!("serializing replay answer {request_id}"),
         source,
     })?;
-    let disposition = agent_answer_disposition(answer);
+    let disposition = agent_answer_disposition(answer)?;
     let succeeded = disposition == ClosureDisposition::Closed;
     Ok((
         SkillOutput {

@@ -19,9 +19,6 @@ const INVALID_FIXTURES: &[&str] = &[
     include_str!(
         "../../../fixtures/contracts/operational-proposal/invalid-product-specific-field.json"
     ),
-    include_str!(
-        "../../../fixtures/contracts/operational-proposal/invalid-provider-locked-reference-type.json"
-    ),
 ];
 
 #[derive(Debug, Deserialize)]

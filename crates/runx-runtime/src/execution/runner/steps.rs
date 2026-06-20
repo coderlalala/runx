@@ -37,6 +37,7 @@ use crate::agent_invocation::{
 };
 use crate::approval::ApprovalResolution;
 use crate::effects::EffectReplay;
+use crate::execution::disposition::{ClosureDispositionParseError, parse_agent_answer_disposition};
 use crate::execution::output_projection::{StepOutputProjection, project_step_output};
 use crate::host::Host;
 use crate::receipts::{StepSeal, StepSealClosure, seal_step};
@@ -754,7 +755,12 @@ fn replay_skill_output(
                 reason: "effect replay output status must be a string".to_owned(),
             });
         }
-        None => InvocationStatus::Success,
+        None => {
+            return Err(RuntimeError::InvalidRunStep {
+                step_id: step.id.clone(),
+                reason: "effect replay output status is required".to_owned(),
+            });
+        }
     };
     let stdout = match outputs.get("stdout") {
         Some(JsonValue::String(value)) => value.clone(),
@@ -950,17 +956,7 @@ fn cli_tool_source(step: &GraphStep) -> Result<SkillSource, RuntimeError> {
         step_id: step.id.clone(),
         reason: "run.command is required for a cli-tool step".to_owned(),
     })?;
-    let args = run
-        .get("args")
-        .and_then(JsonValue::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(JsonValue::as_str)
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let args = cli_tool_args(step, run)?;
     Ok(SkillSource {
         act: None,
         source_type: SourceKind::CliTool,
@@ -986,6 +982,29 @@ fn cli_tool_source(step: &GraphStep) -> Result<SkillSource, RuntimeError> {
     })
 }
 
+fn cli_tool_args(step: &GraphStep, run: &JsonObject) -> Result<Vec<String>, RuntimeError> {
+    let Some(value) = run.get("args") else {
+        return Ok(Vec::new());
+    };
+    let JsonValue::Array(values) = value else {
+        return Err(RuntimeError::InvalidRunStep {
+            step_id: step.id.clone(),
+            reason: "run.args must be an array".to_owned(),
+        });
+    };
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| match value {
+            JsonValue::String(arg) => Ok(arg.clone()),
+            _ => Err(RuntimeError::InvalidRunStep {
+                step_id: step.id.clone(),
+                reason: format!("run.args[{index}] must be a string"),
+            }),
+        })
+        .collect()
+}
+
 // The shared close for an agent act: a resolved host response becomes the
 // step's output, projection, and sealed receipt. Both the inline `agent-task`
 // step and a referenced agent skill end here, so the agent-act seal lives in
@@ -998,8 +1017,8 @@ fn seal_agent_act_step<A>(
     skill_name: String,
     response: ResolutionResponse,
 ) -> Result<StepRun, RuntimeError> {
-    let disposition = agent_answer_disposition_value(&response.payload);
-    let output = agent_task_output(response)?;
+    let disposition = agent_answer_disposition_value(step, &response.payload)?;
+    let output = agent_task_output(response, &disposition)?;
     let projection =
         build_step_output_projection(step, &output, ClaimContextExposure::DeclaredOnly)?;
     let disposition_label = closure_disposition_label(&disposition);
@@ -1310,9 +1329,11 @@ fn catalog_source(tool_ref: &str) -> SkillSource {
     }
 }
 
-fn agent_task_output(response: ResolutionResponse) -> Result<SkillOutput, RuntimeError> {
-    let disposition = agent_answer_disposition_value(&response.payload);
-    let succeeded = disposition == ClosureDisposition::Closed;
+fn agent_task_output(
+    response: ResolutionResponse,
+    disposition: &ClosureDisposition,
+) -> Result<SkillOutput, RuntimeError> {
+    let succeeded = *disposition == ClosureDisposition::Closed;
     let stdout = serde_json::to_string(&response.payload)
         .map_err(|source| RuntimeError::json("serializing agent-task response", source))?;
     Ok(SkillOutput {
@@ -1363,23 +1384,18 @@ fn optional_object(object: &JsonObject, field: &str) -> Option<JsonObject> {
     }
 }
 
-fn agent_answer_disposition_value(answer: &JsonValue) -> ClosureDisposition {
-    match answer
-        .as_object()
-        .and_then(|object| object.get("closure"))
-        .and_then(JsonValue::as_object)
-        .and_then(|closure| closure.get("disposition"))
-        .and_then(JsonValue::as_str)
-    {
-        Some("deferred") => ClosureDisposition::Deferred,
-        Some("superseded") => ClosureDisposition::Superseded,
-        Some("declined") => ClosureDisposition::Declined,
-        Some("blocked") => ClosureDisposition::Blocked,
-        Some("failed") => ClosureDisposition::Failed,
-        Some("killed") => ClosureDisposition::Killed,
-        Some("timed_out") => ClosureDisposition::TimedOut,
-        _ => ClosureDisposition::Closed,
-    }
+fn agent_answer_disposition_value(
+    step: &GraphStep,
+    answer: &JsonValue,
+) -> Result<ClosureDisposition, RuntimeError> {
+    parse_agent_answer_disposition(answer).map_err(|error| RuntimeError::InvalidRunStep {
+        step_id: step.id.clone(),
+        reason: agent_answer_disposition_error(error),
+    })
+}
+
+fn agent_answer_disposition_error(error: ClosureDispositionParseError) -> String {
+    format!("{error}")
 }
 
 fn closure_disposition_label(disposition: &ClosureDisposition) -> &'static str {

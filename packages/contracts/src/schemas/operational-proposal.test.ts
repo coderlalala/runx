@@ -39,7 +39,6 @@ describe("operational proposal schema", () => {
     "invalid-missing-source-ref.json",
     "invalid-provider-specific-field.json",
     "invalid-product-specific-field.json",
-    "invalid-provider-locked-reference-type.json",
   ])("rejects invalid fixture %s", (fixtureName) => {
     expect(() => validateOperationalProposalContract(readExpected(fixtureName))).toThrow();
   });

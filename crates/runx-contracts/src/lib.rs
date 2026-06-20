@@ -157,8 +157,7 @@ pub use operational_proposal::{
     OPERATIONAL_PROPOSAL_SCHEMA, OperationalProposal, OperationalProposalAuthority,
     OperationalProposalHumanGate, OperationalProposalIdempotency, OperationalProposalOutcome,
     OperationalProposalRecommendedAction, OperationalProposalRedactionStatus,
-    OperationalProposalReference, OperationalProposalReferenceLink,
-    OperationalProposalReferenceType, OperationalProposalSchema,
+    OperationalProposalSchema,
 };
 pub use output::{Output, OutputField, OutputFieldSpec, OutputType};
 pub use packet_index::{PacketIndex, PacketIndexEntry, PacketIndexSchema};

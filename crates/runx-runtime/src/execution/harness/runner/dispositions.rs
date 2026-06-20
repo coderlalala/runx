@@ -7,6 +7,7 @@ use super::super::super::super::adapter::{InvocationStatus, SkillOutput};
 use super::super::fixtures::{HarnessExpectedStatus, HarnessFixture};
 use super::HarnessReplayError;
 use crate::RuntimeError;
+use crate::execution::disposition::parse_agent_answer_disposition;
 
 pub(super) fn agent_task_output(
     fixture: &HarnessFixture,
@@ -80,23 +81,15 @@ pub(super) fn required_string_metadata(
     }
 }
 
-pub(super) fn agent_answer_disposition(answer: &JsonValue) -> ClosureDisposition {
-    match answer
-        .as_object()
-        .and_then(|object| object.get("closure"))
-        .and_then(JsonValue::as_object)
-        .and_then(|closure| closure.get("disposition"))
-        .and_then(JsonValue::as_str)
-    {
-        Some("deferred") => ClosureDisposition::Deferred,
-        Some("superseded") => ClosureDisposition::Superseded,
-        Some("declined") => ClosureDisposition::Declined,
-        Some("blocked") => ClosureDisposition::Blocked,
-        Some("failed") => ClosureDisposition::Failed,
-        Some("killed") => ClosureDisposition::Killed,
-        Some("timed_out") => ClosureDisposition::TimedOut,
-        _ => ClosureDisposition::Closed,
-    }
+pub(super) fn agent_answer_disposition(
+    answer: &JsonValue,
+) -> Result<ClosureDisposition, HarnessReplayError> {
+    parse_agent_answer_disposition(answer).map_err(|error| {
+        HarnessReplayError::InvalidReplayMetadata {
+            field: "caller.answers.*.closure.disposition".to_owned(),
+            message: error.to_string(),
+        }
+    })
 }
 
 pub(super) fn disposition_from_expected_status(

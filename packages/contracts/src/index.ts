@@ -279,7 +279,6 @@ export {
   type OperationalProposalRecommendedActionContract,
   type OperationalProposalReferenceContract,
   type OperationalProposalReferenceLinkContract,
-  type OperationalProposalReferenceTypeContract,
   type OperationalProposalRedactionStatusContract,
   type OperationalProposalEscalationExtensionContract,
   type OperationalProposalExtensionsContract,

@@ -18,6 +18,7 @@ use crate::RuntimeError;
 use crate::adapter::{InvocationStatus, SkillInvocation, SkillOutput};
 use crate::agent_invocation::{AgentActInvocationSourceType, agent_act_resolution_request};
 use crate::effects::RuntimeEffectRegistry;
+use crate::execution::disposition::parse_agent_answer_disposition;
 use crate::execution::orchestrator::SkillRunRequest;
 use crate::execution::output_projection::project_step_output;
 use crate::receipts::signing::strip_receipt_signing_env;
@@ -448,23 +449,8 @@ fn seal_skill_output(
     )?)
 }
 
-fn answer_disposition(answer: &JsonValue) -> ClosureDisposition {
-    match answer
-        .as_object()
-        .and_then(|object| object.get("closure"))
-        .and_then(JsonValue::as_object)
-        .and_then(|closure| closure.get("disposition"))
-        .and_then(JsonValue::as_str)
-    {
-        Some("deferred") => ClosureDisposition::Deferred,
-        Some("superseded") => ClosureDisposition::Superseded,
-        Some("declined") => ClosureDisposition::Declined,
-        Some("blocked") => ClosureDisposition::Blocked,
-        Some("failed") => ClosureDisposition::Failed,
-        Some("killed") => ClosureDisposition::Killed,
-        Some("timed_out") => ClosureDisposition::TimedOut,
-        _ => ClosureDisposition::Closed,
-    }
+fn answer_disposition(answer: &JsonValue) -> Result<ClosureDisposition, SkillRunError> {
+    parse_agent_answer_disposition(answer).map_err(|error| invalid(format!("{error}")))
 }
 
 fn sealed_output(

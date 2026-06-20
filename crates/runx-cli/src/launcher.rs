@@ -962,49 +962,20 @@ fn parse_kernel_plan(args: &[OsString]) -> Result<KernelPlan, String> {
     if subcommand != "eval" {
         return Err(format!("unknown kernel subcommand {subcommand}"));
     }
-
-    let mut input = None;
-    let mut json = false;
-    let mut index = 2;
-
-    while index < args.len() {
-        let token = os_arg(args, index, "kernel")?;
-        if !token.starts_with("--") {
-            return Err(format!("unexpected kernel eval argument {token}"));
-        }
-
-        let (flag, inline_value) = split_flag(token);
-        match flag {
-            "--json" => {
-                if inline_value.is_some() {
-                    return Err("--json does not take a value".to_owned());
-                }
-                json = true;
-                index += 1;
-            }
-            "--input" => {
-                if input.is_some() {
-                    return Err("runx kernel eval accepts exactly one --input".to_owned());
-                }
-                let (value, next_index) = flag_value(args, index, flag, inline_value, "kernel")?;
-                input = Some(if value == "-" {
-                    KernelInputSource::Stdin
-                } else {
-                    KernelInputSource::Path(PathBuf::from(value))
-                });
-                index = next_index;
-            }
-            _ => return Err(format!("unknown kernel eval flag {flag}")),
-        }
-    }
-
-    if !json {
-        return Err("runx kernel eval requires --json".to_owned());
-    }
-
+    let parsed = parse_json_eval_input(
+        args,
+        2,
+        JsonEvalCommand {
+            command: "kernel",
+            subject: "kernel eval",
+            duplicate_input: "runx kernel eval accepts exactly one --input",
+            requires_json: "runx kernel eval requires --json",
+            requires_input: "runx kernel eval requires --input <file|->",
+        },
+    )?;
     Ok(KernelPlan {
-        input: input.ok_or_else(|| "runx kernel eval requires --input <file|->".to_owned())?,
-        json,
+        input: parsed.input.into_kernel_source(),
+        json: true,
     })
 }
 
@@ -1020,57 +991,21 @@ fn parse_payment_plan(args: &[OsString]) -> Result<PaymentPlan, String> {
     if action != "issue" {
         return Err(format!("unknown payment admission subcommand {action}"));
     }
-
-    let mut input = None;
-    let mut json = false;
-    let mut index = 3;
-
-    while index < args.len() {
-        let token = os_arg(args, index, "payment admission issue")?;
-        if !token.starts_with("--") {
-            return Err(format!(
-                "unexpected payment admission issue argument {token}"
-            ));
-        }
-
-        let (flag, inline_value) = split_flag(token);
-        match flag {
-            "--json" => {
-                if inline_value.is_some() {
-                    return Err("--json does not take a value".to_owned());
-                }
-                json = true;
-                index += 1;
-            }
-            "--input" => {
-                if input.is_some() {
-                    return Err(
-                        "runx payment admission issue accepts exactly one --input".to_owned()
-                    );
-                }
-                let (value, next_index) =
-                    flag_value(args, index, flag, inline_value, "payment admission issue")?;
-                input = Some(if value == "-" {
-                    PaymentInputSource::Stdin
-                } else {
-                    PaymentInputSource::Path(PathBuf::from(value))
-                });
-                index = next_index;
-            }
-            _ => return Err(format!("unknown payment admission issue flag {flag}")),
-        }
-    }
-
-    if !json {
-        return Err("runx payment admission issue requires --json".to_owned());
-    }
-
+    let parsed = parse_json_eval_input(
+        args,
+        3,
+        JsonEvalCommand {
+            command: "payment admission issue",
+            subject: "payment admission issue",
+            duplicate_input: "runx payment admission issue accepts exactly one --input",
+            requires_json: "runx payment admission issue requires --json",
+            requires_input: "runx payment admission issue requires --input <file|->",
+        },
+    )?;
     Ok(PaymentPlan {
         action: PaymentAction::IssueAdmission(PaymentAdmissionPlan {
-            input: input.ok_or_else(|| {
-                "runx payment admission issue requires --input <file|->".to_owned()
-            })?,
-            json,
+            input: parsed.input.into_payment_source(),
+            json: true,
         }),
     })
 }
@@ -1080,15 +1015,74 @@ fn parse_parser_plan(args: &[OsString]) -> Result<ParserPlan, String> {
     if subcommand != "eval" {
         return Err(format!("unknown parser subcommand {subcommand}"));
     }
+    let parsed = parse_json_eval_input(
+        args,
+        2,
+        JsonEvalCommand {
+            command: "parser",
+            subject: "parser eval",
+            duplicate_input: "runx parser eval accepts exactly one --input",
+            requires_json: "runx parser eval requires --json",
+            requires_input: "runx parser eval requires --input <file|->",
+        },
+    )?;
+    Ok(ParserPlan {
+        input: parsed.input.into_parser_source(),
+        json: true,
+    })
+}
 
+struct JsonEvalCommand {
+    command: &'static str,
+    subject: &'static str,
+    duplicate_input: &'static str,
+    requires_json: &'static str,
+    requires_input: &'static str,
+}
+
+struct JsonEvalPlan {
+    input: JsonEvalInput,
+}
+
+enum JsonEvalInput {
+    Stdin,
+    Path(PathBuf),
+}
+
+impl JsonEvalInput {
+    fn into_kernel_source(self) -> KernelInputSource {
+        match self {
+            Self::Stdin => KernelInputSource::Stdin,
+            Self::Path(path) => KernelInputSource::Path(path),
+        }
+    }
+
+    fn into_payment_source(self) -> PaymentInputSource {
+        match self {
+            Self::Stdin => PaymentInputSource::Stdin,
+            Self::Path(path) => PaymentInputSource::Path(path),
+        }
+    }
+
+    fn into_parser_source(self) -> ParserInputSource {
+        match self {
+            Self::Stdin => ParserInputSource::Stdin,
+            Self::Path(path) => ParserInputSource::Path(path),
+        }
+    }
+}
+
+fn parse_json_eval_input(
+    args: &[OsString],
+    mut index: usize,
+    command: JsonEvalCommand,
+) -> Result<JsonEvalPlan, String> {
     let mut input = None;
     let mut json = false;
-    let mut index = 2;
-
     while index < args.len() {
-        let token = os_arg(args, index, "parser")?;
+        let token = os_arg(args, index, command.command)?;
         if !token.starts_with("--") {
-            return Err(format!("unexpected parser eval argument {token}"));
+            return Err(format!("unexpected {} argument {token}", command.subject));
         }
 
         let (flag, inline_value) = split_flag(token);
@@ -1102,27 +1096,25 @@ fn parse_parser_plan(args: &[OsString]) -> Result<ParserPlan, String> {
             }
             "--input" => {
                 if input.is_some() {
-                    return Err("runx parser eval accepts exactly one --input".to_owned());
+                    return Err(command.duplicate_input.to_owned());
                 }
-                let (value, next_index) = flag_value(args, index, flag, inline_value, "parser")?;
+                let (value, next_index) =
+                    flag_value(args, index, flag, inline_value, command.command)?;
                 input = Some(if value == "-" {
-                    ParserInputSource::Stdin
+                    JsonEvalInput::Stdin
                 } else {
-                    ParserInputSource::Path(PathBuf::from(value))
+                    JsonEvalInput::Path(PathBuf::from(value))
                 });
                 index = next_index;
             }
-            _ => return Err(format!("unknown parser eval flag {flag}")),
+            _ => return Err(format!("unknown {} flag {flag}", command.subject)),
         }
     }
-
     if !json {
-        return Err("runx parser eval requires --json".to_owned());
+        return Err(command.requires_json.to_owned());
     }
-
-    Ok(ParserPlan {
-        input: input.ok_or_else(|| "runx parser eval requires --input <file|->".to_owned())?,
-        json,
+    Ok(JsonEvalPlan {
+        input: input.ok_or_else(|| command.requires_input.to_owned())?,
     })
 }
 

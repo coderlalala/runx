@@ -85,7 +85,7 @@ fn provider_permission_plan(
     request: &EffectStepRequest<'_>,
     policy: &JsonObject,
 ) -> Result<Option<ProviderPermissionPlan>, RuntimeEffectError> {
-    let verb = verb_field(policy).unwrap_or_else(|| default_verb(request.step.mutating));
+    let verb = required_verb_field(policy)?;
     if policy.contains_key("granted_scopes") {
         return Err(RuntimeEffectError::Denied {
             family: PROVIDER_PERMISSION_EFFECT_FAMILY.to_owned(),
@@ -93,8 +93,7 @@ fn provider_permission_plan(
             message: "provider_permission.granted_scopes is self-attested by the graph policy; provide granted scopes through the operator grant environment instead".to_owned(),
         });
     }
-    let required_scopes = string_array_field(policy, "required_scopes")
-        .filter(|scopes| !scopes.is_empty())
+    let required_scopes = string_array_field(policy, "required_scopes")?
         .unwrap_or_else(|| request.step.scopes.clone());
     if required_scopes.is_empty() {
         return Ok(None);
@@ -123,14 +122,6 @@ fn provider_permission_plan(
         missing_scopes,
         verb,
     }))
-}
-
-fn default_verb(mutating: bool) -> AuthorityVerb {
-    if mutating {
-        AuthorityVerb::Write
-    } else {
-        AuthorityVerb::Read
-    }
 }
 
 fn provider_permission_denial(
@@ -177,16 +168,32 @@ fn string_field<'a>(object: &'a JsonObject, key: &str) -> Option<&'a str> {
     object.get(key).and_then(JsonValue::as_str)
 }
 
-fn string_array_field(object: &JsonObject, key: &str) -> Option<Vec<String>> {
-    Some(
-        object
-            .get(key)?
-            .as_array()?
-            .iter()
-            .filter_map(JsonValue::as_str)
-            .map(str::to_owned)
-            .collect(),
-    )
+fn string_array_field(
+    object: &JsonObject,
+    key: &str,
+) -> Result<Option<Vec<String>>, RuntimeEffectError> {
+    let Some(value) = object.get(key) else {
+        return Ok(None);
+    };
+    let Some(values) = value.as_array() else {
+        return Err(provider_permission_policy_error(format!(
+            "{key} must be an array"
+        )));
+    };
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| match value {
+            JsonValue::String(scope) if !scope.trim().is_empty() => Ok(scope.trim().to_owned()),
+            JsonValue::String(_) => Err(provider_permission_policy_error(format!(
+                "{key}[{index}] must be a non-empty string"
+            ))),
+            _ => Err(provider_permission_policy_error(format!(
+                "{key}[{index}] must be a string"
+            ))),
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
 }
 
 fn provider_grant_id(
@@ -221,18 +228,38 @@ fn parse_scope_list(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn verb_field(object: &JsonObject) -> Option<AuthorityVerb> {
-    match string_field(object, "verb")? {
-        "read" => Some(AuthorityVerb::Read),
-        "write" => Some(AuthorityVerb::Write),
-        "comment" => Some(AuthorityVerb::Comment),
-        "review" => Some(AuthorityVerb::Review),
-        "merge" => Some(AuthorityVerb::Merge),
-        "create" => Some(AuthorityVerb::Create),
-        "update" => Some(AuthorityVerb::Update),
-        "delete" => Some(AuthorityVerb::Delete),
-        "execute" => Some(AuthorityVerb::Execute),
-        _ => None,
+fn required_verb_field(object: &JsonObject) -> Result<AuthorityVerb, RuntimeEffectError> {
+    let Some(value) = object.get("verb") else {
+        return Err(provider_permission_policy_error(
+            "verb is required".to_owned(),
+        ));
+    };
+    let Some(verb) = value.as_str() else {
+        return Err(provider_permission_policy_error(
+            "verb must be a string".to_owned(),
+        ));
+    };
+    match verb {
+        "read" => Ok(AuthorityVerb::Read),
+        "write" => Ok(AuthorityVerb::Write),
+        "comment" => Ok(AuthorityVerb::Comment),
+        "review" => Ok(AuthorityVerb::Review),
+        "merge" => Ok(AuthorityVerb::Merge),
+        "create" => Ok(AuthorityVerb::Create),
+        "update" => Ok(AuthorityVerb::Update),
+        "delete" => Ok(AuthorityVerb::Delete),
+        "execute" => Ok(AuthorityVerb::Execute),
+        _ => Err(provider_permission_policy_error(format!(
+            "verb {verb:?} is not supported"
+        ))),
+    }
+}
+
+fn provider_permission_policy_error(message: String) -> RuntimeEffectError {
+    RuntimeEffectError::Failed {
+        family: PROVIDER_PERMISSION_EFFECT_FAMILY.to_owned(),
+        operation: "parse provider permission policy",
+        message,
     }
 }
 
@@ -404,6 +431,62 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rejects_missing_or_unknown_policy_verb() -> Result<(), io::Error> {
+        let effect = ProviderPermissionEffect;
+        let inputs = JsonObject::new();
+        let env = provider_env("github-mcp-read", "repo.read");
+
+        let mut missing_verb = test_step("read_issue", vec!["repo.read"], false, "read", false);
+        provider_permission_policy_mut(&mut missing_verb).remove("verb");
+        let error = effect
+            .admit(EffectStepRequest {
+                step: &missing_verb,
+                inputs: &inputs,
+                env: &env,
+                graph_dir: Path::new("."),
+            })
+            .expect_err("missing provider permission verb must fail");
+        assert_policy_error(error, "verb is required")?;
+
+        let unknown_verb = test_step("read_issue", vec!["repo.read"], false, "publish", false);
+        let error = effect
+            .admit(EffectStepRequest {
+                step: &unknown_verb,
+                inputs: &inputs,
+                env: &env,
+                graph_dir: Path::new("."),
+            })
+            .expect_err("unknown provider permission verb must fail");
+        assert_policy_error(error, "not supported")
+    }
+
+    #[test]
+    fn rejects_malformed_required_scopes() -> Result<(), io::Error> {
+        let effect = ProviderPermissionEffect;
+        let mut step = test_step("read_issue", vec!["repo.read"], false, "read", false);
+        provider_permission_policy_mut(&mut step).insert(
+            "required_scopes".to_owned(),
+            JsonValue::Array(vec![
+                JsonValue::String("repo.read".to_owned()),
+                JsonValue::Bool(false),
+            ]),
+        );
+        let inputs = JsonObject::new();
+        let env = provider_env("github-mcp-read", "repo.read");
+
+        let error = effect
+            .admit(EffectStepRequest {
+                step: &step,
+                inputs: &inputs,
+                env: &env,
+                graph_dir: Path::new("."),
+            })
+            .expect_err("malformed provider permission required_scopes must fail");
+
+        assert_policy_error(error, "required_scopes[1] must be a string")
+    }
+
     fn test_step(
         id: &str,
         required_scopes: Vec<&str>,
@@ -477,5 +560,30 @@ mod tests {
         )]
         .into_iter()
         .collect()
+    }
+
+    fn provider_permission_policy_mut(step: &mut GraphStep) -> &mut JsonObject {
+        let value = step
+            .policy
+            .as_mut()
+            .and_then(|policy| policy.get_mut(PROVIDER_PERMISSION_EFFECT_FAMILY))
+            .expect("test step should carry provider permission policy");
+        let JsonValue::Object(object) = value else {
+            panic!("test step provider permission policy should be an object");
+        };
+        object
+    }
+
+    fn assert_policy_error(error: RuntimeEffectError, needle: &str) -> Result<(), io::Error> {
+        match error {
+            RuntimeEffectError::Failed {
+                family,
+                operation: "parse provider permission policy",
+                message,
+            } if family == PROVIDER_PERMISSION_EFFECT_FAMILY && message.contains(needle) => Ok(()),
+            other => Err(io::Error::other(format!(
+                "unexpected provider permission policy error: {other:?}"
+            ))),
+        }
     }
 }

@@ -7,6 +7,7 @@ export interface ParsedArgs {
   readonly subcommand?: string;
   readonly mcpAction?: "serve";
   readonly mcpRefs?: readonly string[];
+  readonly mcpNativeArgs?: readonly string[];
   readonly doctorPath?: string;
   readonly doctorFix: boolean;
   readonly doctorExplainId?: string;
@@ -249,6 +250,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     subcommand: positionals[0],
     mcpAction: isMcp && positionals[0] === "serve" ? "serve" : undefined,
     mcpRefs: isMcp && positionals[0] === "serve" ? positionals.slice(1) : undefined,
+    mcpNativeArgs: isMcp && positionals[0] === "serve" ? [command, ...rest] : undefined,
     doctorPath: isDoctor ? positionals[0] : undefined,
     doctorFix: isDoctor && truthyFlag(inputs.fix),
     doctorExplainId: isDoctor && typeof inputs.explain === "string" && inputs.explain !== "true" ? inputs.explain : undefined,

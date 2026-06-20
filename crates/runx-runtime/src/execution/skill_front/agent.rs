@@ -57,7 +57,7 @@ pub(super) fn execute_agent_skill_run(
     };
     let stdout = serde_json::to_string(&answer)
         .map_err(|error| SkillRunError::Invalid(format!("failed to serialize answer: {error}")))?;
-    let disposition = answer_disposition(&answer);
+    let disposition = answer_disposition(&answer)?;
     let receipt = match domain_act_frame(&invocation, &answer, governed_effect.as_ref()) {
         Some(frame) => {
             let label = closure_disposition_label(&disposition);

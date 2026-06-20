@@ -90,6 +90,8 @@ pub enum LocalRegistryError {
     },
     #[error("invalid registry version payload at {field}: {message}")]
     InvalidVersionPayload { field: String, message: String },
+    #[error("invalid registry skill manifest at {field}: {message}")]
+    InvalidSkillManifest { field: String, message: String },
     #[error("invalid registry skill id '{0}'. Expected '<owner>/<name>'.")]
     InvalidSkillId(String),
     #[error("registry slugs cannot be empty")]

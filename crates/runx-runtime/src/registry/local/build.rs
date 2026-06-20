@@ -67,7 +67,7 @@ pub fn build_registry_skill_version(
         catalog_visibility: Some(catalog.visibility.as_str().to_owned()),
         source_metadata: defaults.source_metadata,
         attestations: defaults.attestations,
-        required_scopes: registry_required_scopes(&skill, manifest),
+        required_scopes: registry_required_scopes(&skill, manifest)?,
         runtime: registry_runtime(&skill, manifest),
         auth: skill.auth.clone(),
         risk: registry_risk(&skill),
@@ -146,8 +146,13 @@ pub(super) fn registry_catalog(
 pub(super) fn registry_required_scopes(
     skill: &ValidatedSkill,
     manifest: Option<&SkillRunnerManifest>,
-) -> Vec<String> {
-    required_scopes_from_skill_and_runner(skill, manifest)
+) -> Result<Vec<String>, LocalRegistryError> {
+    required_scopes_from_skill_and_runner(skill, manifest).map_err(|error| {
+        LocalRegistryError::InvalidSkillManifest {
+            field: error.field,
+            message: error.message,
+        }
+    })
 }
 
 pub(super) fn registry_runtime(

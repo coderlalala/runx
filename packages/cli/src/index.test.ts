@@ -365,7 +365,8 @@ Return the provided task id.
     expect(exitCode).toBe(64);
     expect(stdout.contents()).toBe("");
     expect(stderr.contents()).toContain("Usage:");
-    expect(stderr.contents()).toContain("runx skill <skill-ref|owner/name@version|skill-dir|SKILL.md>");
+    expect(stderr.contents()).toContain("Native help is authoritative:");
+    expect(stderr.contents()).toContain("runx <command> --help");
   });
 
   it("routes sourcey through the native graph runner without TS fallback", async () => {
@@ -1189,7 +1190,7 @@ Answer the prompt directly.
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it("renders top-level help with starter flows and admin commands", async () => {
+  it("renders top-level help as a native grammar launcher", async () => {
     const stdout = createMemoryStream();
     const stderr = createMemoryStream();
 
@@ -1197,16 +1198,14 @@ Answer the prompt directly.
 
     expect(exitCode).toBe(0);
     expect(stderr.contents()).toBe("");
-    expect(stdout.contents()).toContain("Commands:");
-    expect(stdout.contents()).toContain("runx history [query]");
-    expect(stdout.contents()).toContain("runx add <skill-ref>");
-    expect(stdout.contents()).toContain("runx add <github-url> [--ref git-ref] [--api-base-url url]");
-    expect(stdout.contents()).toContain("runx skill <skill-ref|owner/name@version|skill-dir|SKILL.md>");
-    expect(stdout.contents()).toContain("runx harness <fixture.yaml>");
-    expect(stdout.contents()).toContain("runx tool inspect <ref>");
-    expect(stdout.contents()).not.toContain("runx evolve");
-    expect(stdout.contents()).not.toContain("runx skill inspect <receipt-id>");
-    expect(stdout.contents()).not.toContain("runx export-receipts --trainable");
+    expect(stdout.contents()).toContain("Native help is authoritative:");
+    expect(stdout.contents()).toContain("runx --help");
+    expect(stdout.contents()).toContain("runx <command> --help");
+    expect(stdout.contents()).toContain("command grammar lives in the Rust binary");
+    expect(stdout.contents()).not.toContain("Commands:");
+    expect(stdout.contents()).not.toContain("runx history [query]");
+    expect(stdout.contents()).not.toContain("runx add <skill-ref>");
+    expect(stdout.contents()).not.toContain("runx mcp serve <skill-ref>");
   });
 
   it("rejects retired command aliases and TS-only history helpers", async () => {

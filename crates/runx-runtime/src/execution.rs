@@ -8,6 +8,7 @@
 //!   execution.
 //! - `skill_front`: the skill front; compiles a skill run into an execution and seals it through the act engine.
 
+pub(crate) mod disposition;
 pub(crate) mod fanout;
 pub(crate) mod graph;
 pub(crate) mod graph_index;

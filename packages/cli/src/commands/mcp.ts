@@ -7,6 +7,7 @@ import type { CliIo } from "../index.js";
 
 export interface McpCommandArgs {
   readonly mcpRefs?: readonly string[];
+  readonly mcpNativeArgs?: readonly string[];
   readonly runner?: string;
   readonly receiptDir?: string;
 }
@@ -37,7 +38,7 @@ export async function handleMcpServeCommand(
 
   await runNativeMcpProcess({
     command: resolveNativeRunxCommand(env),
-    args: nativeMcpServeArgs(parsed, skillRefs),
+    args: parsed.mcpNativeArgs ?? nativeMcpServeArgs(parsed, skillRefs),
     cwd: env.RUNX_CWD || process.cwd(),
     env: {
       ...process.env,
@@ -132,4 +133,3 @@ function nativeMcpExitMessage(status: number | null, stderr: string): string {
   const details = stderr.trim();
   return `Native MCP serve failed with exit ${status ?? "unknown"}${details ? `: ${details}` : "."}`;
 }
-

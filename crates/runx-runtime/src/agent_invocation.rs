@@ -85,7 +85,7 @@ fn envelope(
         skill: skill_name(request, source_type).into(),
         instructions: envelope_instructions(request).into(),
         inputs: request.inputs.clone(),
-        allowed_tools: envelope_allowed_tools(request),
+        allowed_tools: envelope_allowed_tools(request)?,
         current_context: request.current_context.clone(),
         historical_context: Vec::new(),
         provenance: Vec::new(),
@@ -116,20 +116,43 @@ fn envelope_instructions(request: &SkillInvocation) -> String {
         })
 }
 
-fn envelope_allowed_tools(request: &SkillInvocation) -> Vec<NonEmptyString> {
-    request
-        .source
-        .raw
-        .get("allowed_tools")
-        .and_then(JsonValue::as_array)
-        .map(|tools| {
-            tools
-                .iter()
-                .filter_map(JsonValue::as_str)
-                .filter_map(|value| NonEmptyString::new(value.to_owned()))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
+fn envelope_allowed_tools(request: &SkillInvocation) -> Result<Vec<NonEmptyString>, RuntimeError> {
+    let Some(value) = request.source.raw.get("allowed_tools") else {
+        return Ok(Vec::new());
+    };
+    let JsonValue::Array(tools) = value else {
+        return Err(invalid_agent_invocation(
+            request,
+            "allowed_tools must be an array of non-empty strings",
+        ));
+    };
+    let mut allowed_tools = Vec::new();
+    for (index, value) in tools.iter().enumerate() {
+        let Some(tool) = value
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .and_then(|value| NonEmptyString::new(value.to_owned()))
+        else {
+            return Err(invalid_agent_invocation(
+                request,
+                format!("allowed_tools[{index}] must be a non-empty string"),
+            ));
+        };
+        allowed_tools.push(tool);
+    }
+    Ok(allowed_tools)
+}
+
+fn invalid_agent_invocation(request: &SkillInvocation, message: impl Into<String>) -> RuntimeError {
+    RuntimeError::SkillFailed {
+        skill_name: if request.skill_name.is_empty() {
+            "agent".to_owned()
+        } else {
+            request.skill_name.clone()
+        },
+        message: message.into(),
+    }
 }
 
 fn optional_non_empty(value: Option<&str>) -> Option<NonEmptyString> {
