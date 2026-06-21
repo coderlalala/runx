@@ -41,18 +41,29 @@ npm i -g @runxhq/cli
 # or: cargo install runx-cli
 ```
 
-Path 1 is the agent skill path. Ask an agent to use runx as the operating
-layer:
+Then choose how you want to run skills.
+
+### agent path
+
+Paste [runx.ai/SKILL.md](https://runx.ai/SKILL.md) into your agent. It teaches
+the agent how to use the runx CLI, discover skills from the catalog at
+[runx.ai/x](https://runx.ai/x), and return receipts.
 
 ```text
-Use runx skills to plan and execute end-to-end business ops for my company.
-Start from this goal: prepare API v2 for launch.
-Fan out into docs, release readiness, customer comms, issue-to-PR, spend review,
-and audit lanes. Stop at approval before sending, spending, merging, deploying,
-or publishing. Return receipts for what ran.
+Use runx to plan and execute end-to-end business ops for my company.
+Goal: prepare API v2 for launch.
+Stop before sends, spend, merges, deploys, or publishing. Return receipts.
 ```
 
-The public version of that operator shape is `business-ops`:
+### CLI path
+
+Run any catalog skill directly:
+
+```bash
+runx skill <skill-name> -i key=value --json
+```
+
+`business-ops` is one prebuilt skill for managing a business goal:
 
 ```bash
 runx skill business-ops \
@@ -60,24 +71,33 @@ runx skill business-ops \
   --json
 ```
 
-That is the shape: a business goal enters runx, becomes an operator graph, fans
-out into lanes, and stops at approval before consequential acts. The public
-skill is deliberately basic. Real teams replace the fixture lanes with company
-context, policies, providers, approval gates, verification checks, and private
-skills.
-
 ![Basic runx business ops graph](docs/assets/ops-fanout.svg)
 
-Path 2 is a manual skill chain. Drive the lanes yourself:
+The graph is the core shape: goal in, governed lanes out, receipts and approval
+gates back. Real teams replace the demo lanes with private context, policies,
+tools, and readbacks.
+
+Some other examples:
 
 ```bash
 # Docs/product engineering: plan, author, build, critique, and verify docs.
 runx skill sourcey -i project=. --json
 
-# Research/ops: fetch one allowed source with digest-backed provenance.
-runx skill web-fetch -i url=https://runx.ai -i allowlist='["runx.ai"]' --json
+# Research/strategy: produce a governed decision brief.
+runx skill deep-research-brief \
+  -i objective="Which launch risks should we resolve first?" \
+  --json
 
-# Spend lanes are explicit. Inspect payment skills before granting authority.
+# Maintainer ops: draft a useful issue response.
+runx skill issue-triage \
+  -i issue_url=https://github.com/runxhq/runx/issues/241 \
+  -i objective="Draft the next helpful maintainer response" \
+  --json
+```
+
+For payment or spend lanes, inspect the skill before granting authority:
+
+```bash
 runx registry search payments
 runx registry read runx/x402-pay@sha-008aef3f3b2e
 ```
