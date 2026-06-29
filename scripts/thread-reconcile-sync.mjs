@@ -168,6 +168,10 @@ function readConfig(env) {
     // No cap by default: reconcile every changed thread the source returns. A
     // limit is only for bounded test/repair runs.
     limit: optionalPositiveInteger(env.THREAD_SYNC_LIMIT),
+    fullReconcile:
+      env.THREAD_SYNC_FULL_RECONCILE === "1"
+      || env.THREAD_SYNC_FULL_RECONCILE === "true"
+      || env.THREAD_SYNC_MODE === "full",
     dryRun: env.THREAD_SYNC_DRY_RUN === "1" || env.THREAD_SYNC_DRY_RUN === "true",
     continueOnError: env.THREAD_SYNC_FAIL_FAST !== "1" && env.THREAD_SYNC_FAIL_FAST !== "true",
     env,
@@ -182,6 +186,9 @@ async function fetchDesiredState(config) {
   }
   if (config.targetRepo) {
     url.searchParams.set("target_repo", config.targetRepo);
+  }
+  if (config.fullReconcile) {
+    url.searchParams.set("mode", "full");
   }
   const response = await fetch(url, {
     headers: { authorization: `Bearer ${config.internalSecret}` },

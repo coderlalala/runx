@@ -66,6 +66,10 @@ state, reconciles each thread's provider representation to match, and posts
 observations back so the source can re-link the resulting threads. It is
 stateless and idempotent: every run compares desired vs live and applies only
 the difference, so there is no cursor and drift self-heals on the next run.
+Sources should default to incremental desired-state reads. For provider-side
+repair sweeps, the driver accepts `THREAD_SYNC_FULL_RECONCILE=1` or
+`THREAD_SYNC_MODE=full` and sends `mode=full` to the source, asking it to return
+every mirrorable thread rather than only changed threads.
 
 The canonical v1 milestone ids are:
 
