@@ -201,7 +201,7 @@ fn list_and_index_ignore_non_receipt_json_files() -> Result<(), Box<dyn std::err
     )?;
     write_json(
         temp.path(),
-        "sha256:not-a-digest.json",
+        "sha256-not-a-digest.json",
         &json!({
             "schema": "runx.receipt.v1",
             "id": "sha256:not-a-digest"
@@ -340,8 +340,25 @@ fn write_receipt_commits_readable_receipt_and_index() -> Result<(), Box<dyn std:
     assert_eq!(stored.id, receipt.id);
     assert_eq!(index.entries.len(), 1);
     assert_eq!(index.entries[0].receipt_id, receipt.id);
-    assert!(store.root().join(format!("{}.json", receipt.id)).exists());
+    assert!(store.root().join(receipt_file_name(&receipt.id)).exists());
     assert!(store.root().join("index.json").exists());
+    Ok(())
+}
+
+#[test]
+fn content_addressed_receipts_use_platform_safe_file_names()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = TestDir::new()?;
+    let store = LocalReceiptStore::new(temp.path().join("receipts"));
+    let receipt = success_receipt()?;
+    let file_name = receipt_file_name(&receipt.id);
+
+    store.write_receipt(&receipt)?;
+
+    assert!(receipt.id.to_string().starts_with("sha256:"));
+    assert!(file_name.starts_with("sha256-"));
+    assert!(!file_name.contains(':'));
+    assert!(store.root().join(file_name).exists());
     Ok(())
 }
 
@@ -358,7 +375,7 @@ fn write_receipt_rejects_invalid_proof_without_writing() -> Result<(), Box<dyn s
         result,
         Err(ReceiptStoreError::ReceiptProofInvalid { .. })
     ));
-    assert!(!store.root().join(format!("{}.json", receipt.id)).exists());
+    assert!(!store.root().join(receipt_file_name(&receipt.id)).exists());
     Ok(())
 }
 
@@ -576,6 +593,9 @@ fn skill_output(status: InvocationStatus) -> SkillOutput {
 }
 
 fn receipt_file_name(receipt_id: &str) -> String {
+    if let Some(digest) = receipt_id.strip_prefix("sha256:") {
+        return format!("sha256-{digest}.json");
+    }
     format!("{receipt_id}.json")
 }
 

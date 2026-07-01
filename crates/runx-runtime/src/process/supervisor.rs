@@ -128,9 +128,20 @@ fn process_command(spec: &ProcessSpec) -> Command {
 
 #[cfg(not(unix))]
 fn process_command(spec: &ProcessSpec) -> Command {
-    let mut command = Command::new(&spec.command);
-    command.args(&spec.args);
+    let (program, args) = env_shimmed_process_parts(spec);
+    let mut command = Command::new(program);
+    command.args(args);
     command
+}
+
+#[cfg(any(not(unix), test))]
+fn env_shimmed_process_parts(spec: &ProcessSpec) -> (&str, &[String]) {
+    if spec.command == "/usr/bin/env" {
+        if let Some((program, args)) = spec.args.split_first() {
+            return (program.as_str(), args);
+        }
+    }
+    (spec.command.as_str(), spec.args.as_slice())
 }
 
 fn write_stdin(
@@ -287,5 +298,26 @@ mod tests {
         let expected = vec![expected_nofile.to_string(), expected_cpu.to_string()];
         assert_eq!(actual, expected);
         Ok(())
+    }
+
+    #[test]
+    fn env_shim_process_parts_turns_portable_runner_into_windows_command() {
+        let spec = ProcessSpec::new("env-shim-test", "/usr/bin/env", 128)
+            .args(vec!["node".to_owned(), "run.mjs".to_owned()]);
+
+        let (program, args) = env_shimmed_process_parts(&spec);
+
+        assert_eq!(program, "node");
+        assert_eq!(args, vec!["run.mjs".to_owned()].as_slice());
+    }
+
+    #[test]
+    fn env_shim_process_parts_leaves_normal_commands_unchanged() {
+        let spec = ProcessSpec::new("env-shim-test", "node", 128).args(vec!["run.mjs".to_owned()]);
+
+        let (program, args) = env_shimmed_process_parts(&spec);
+
+        assert_eq!(program, "node");
+        assert_eq!(args, vec!["run.mjs".to_owned()].as_slice());
     }
 }
