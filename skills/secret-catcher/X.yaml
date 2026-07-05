@@ -1,0 +1,63 @@
+skill: secret-catcher
+version: "0.1.0"
+
+catalog:
+  kind: skill
+  audience: public
+  visibility: public
+  role: canonical
+
+harness:
+  cases:
+    - name: planted-secret-blocks
+      inputs:
+        scan_context: '{"source":"fixture","case":"planted-secret-blocks"}'
+        diff: |
+          diff --git a/app/config.js b/app/config.js
+          index 1111111..2222222 100644
+          --- a/app/config.js
+          +++ b/app/config.js
+          @@ -1,3 +1,5 @@
+           export const region = "us-east-1";
+          +export const awsKey = "AKIAIOSFODNN7EXAMPLE";
+          +export const openaiKey = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH";
+           export const debug = false;
+      expect:
+        status: sealed
+    - name: clean-diff-allows
+      inputs:
+        scan_context: '{"source":"fixture","case":"clean-diff-allows"}'
+        diff: |
+          diff --git a/app/config.js b/app/config.js
+          index 3333333..4444444 100644
+          --- a/app/config.js
+          +++ b/app/config.js
+          @@ -1,3 +1,4 @@
+           export const region = "us-east-1";
+          +export const timeoutMs = 5000;
+          export const debug = false;
+      expect:
+        status: sealed
+    - name: non-string-diff-fails
+      inputs:
+        scan_context: '{"source":"fixture","case":"non-string-diff-fails"}'
+        diff: 42
+      expect:
+        status: failure
+
+runners:
+  default:
+    default: true
+    type: cli-tool
+    command: node
+    args:
+      - ./run.mjs
+    inputs:
+      diff:
+        type: string
+        required: true
+        description: Unified or plain code diff text to scan.
+      scan_context:
+        type: string
+        required: false
+        description: Optional JSON or free-form context about the source being scanned.
