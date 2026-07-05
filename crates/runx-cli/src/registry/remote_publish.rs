@@ -287,6 +287,7 @@ impl HostedAdminSkillPublishResult {
             .unwrap_or_else(|| "first_party".to_owned());
         HostedSkillPublishResult {
             status: self.status,
+            public_url: self.link.public_url(&self.skill_id, &self.version),
             skill_id: self.skill_id,
             owner,
             name: self.name,
@@ -296,7 +297,6 @@ impl HostedAdminSkillPublishResult {
             trust_tier,
             install_command: self.link.install_command,
             run_command: self.link.run_command,
-            public_url: self.link.public_url,
         }
     }
 }
@@ -312,7 +312,45 @@ struct HostedAdminSkillRecord {
 struct HostedSkillPublishLink {
     install_command: String,
     run_command: String,
-    public_url: String,
+    #[serde(default)]
+    public_url: Option<String>,
+    #[serde(default)]
+    link: Option<String>,
+}
+
+impl HostedSkillPublishLink {
+    fn public_url(&self, skill_id: &str, version: &str) -> String {
+        self.public_url
+            .as_deref()
+            .or(self
+                .link
+                .as_deref()
+                .filter(|link| link.starts_with("http://") || link.starts_with("https://")))
+            .map(str::to_owned)
+            .unwrap_or_else(|| runx_skill_public_url(skill_id, version))
+    }
+}
+
+fn runx_skill_public_url(skill_id: &str, version: &str) -> String {
+    let (owner, name) = skill_id.split_once('/').unwrap_or(("", skill_id));
+    format!(
+        "https://runx.ai/x/{}/{}@{}",
+        encode_path_component(owner),
+        encode_path_component(name),
+        encode_path_component(version)
+    )
+}
+
+fn encode_path_component(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -465,9 +503,9 @@ mod tests {
                     "digest": "abc",
                     "profile_digest": "profile-abc",
                     "link": {
+                        "link": "runx://skill/runx%2Fhello@sha-123",
                         "install_command": "runx add runx/hello@sha-123",
-                        "run_command": "runx skill runx/hello@sha-123",
-                        "public_url": "https://runx.test/x/runx/hello@sha-123"
+                        "run_command": "runx skill runx/hello@sha-123"
                     },
                     "record": {
                         "owner": "runx",
@@ -521,6 +559,7 @@ mod tests {
         assert_eq!(result.skill_id, "runx/hello");
         assert_eq!(result.owner, "runx");
         assert_eq!(result.trust_tier, "first_party");
+        assert_eq!(result.public_url, "https://runx.ai/x/runx/hello@sha-123");
         let requests = transport.requests.borrow();
         assert_eq!(requests[0].method, HttpMethod::Post);
         assert_eq!(
