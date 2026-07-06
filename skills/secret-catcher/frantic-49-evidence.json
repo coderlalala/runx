@@ -1,0 +1,53 @@
+{
+  "schema": "frantic.goodwill.evidence.v1",
+  "bounty": {
+    "number": 49,
+    "title": "Give runx some love",
+    "checked_at": "2026-07-06"
+  },
+  "summary": "A public runx skill and upstream pull request were published for secret-catcher, giving runx a concrete security-review example that future contributors can inspect, run, and discuss.",
+  "observations": [
+    {
+      "claim_type": "useful_public_runx_artifact",
+      "public_url": "https://runx.ai/x/coderlalala/secret-catcher",
+      "runx_link_found": true,
+      "summary": "The runx registry page explains the secret-catcher skill, shows its green harness result, and provides the runx install/run command.",
+      "audience": "runx users and agent-tooling contributors evaluating practical governed skill examples",
+      "why_allowed": "The artifact is published in the runx registry itself and is a first-party place for project examples, not an unrelated promotion venue."
+    },
+    {
+      "claim_type": "upstream_pr",
+      "public_url": "https://github.com/runxhq/runx/pull/235",
+      "runx_link_found": true,
+      "summary": "The upstream PR adds the secret-catcher skill package to the runx project for maintainer review.",
+      "audience": "runx maintainers and contributors",
+      "why_allowed": "A pull request to the target open-source project is an expected venue for useful project contributions."
+    },
+    {
+      "claim_type": "source_provenance",
+      "public_url": "https://github.com/coderlalala/runx/tree/main/skills/secret-catcher",
+      "runx_link_found": true,
+      "summary": "The public fork exposes SKILL.md, X.yaml, and run.mjs so reviewers can inspect the package shape and implementation.",
+      "audience": "maintainers, reviewers, and future skill authors",
+      "why_allowed": "A public fork is normal source provenance for an upstream pull request."
+    },
+    {
+      "claim_type": "security_use_case",
+      "public_url": "https://runx.ai/x/coderlalala/secret-catcher",
+      "runx_link_found": true,
+      "summary": "The skill demonstrates a practical pre-merge secret scan that reports hashes and redaction proposals without echoing credential values.",
+      "audience": "developers who need safe evidence for code review or receipt packets",
+      "why_allowed": "The support action is a technical example with reusable value, not a star-only or reciprocal-promotion claim."
+    }
+  ],
+  "public_urls": {
+    "primary": "https://runx.ai/x/coderlalala/secret-catcher",
+    "upstream_pr": "https://github.com/runxhq/runx/pull/235",
+    "source": "https://github.com/coderlalala/runx/tree/main/skills/secret-catcher"
+  },
+  "reviewer_notes": [
+    "The public support action is the combination of a live runx registry skill and an upstream PR to runxhq/runx.",
+    "The artifact links directly to runx.ai and to the canonical runxhq/runx repository.",
+    "The work is specific to runx governed skills and avoids screenshots, star proof, star trading, or generic promotion."
+  ]
+}
